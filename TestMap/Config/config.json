@@ -1,0 +1,12 @@
+﻿{
+  "FilePaths": {
+    "TargetFilePath": "F:\\Projects\\TestMap\\TestMap\\Data\\project-list.txt",
+    "LogsDirPath": "F:\\Projects\\TestMap\\TestMap\\Logs",
+    "TempDirPath": "F:\\Projects\\TestMap\\Temp",
+    "OutputDirPath": "F:\\Projects\\TestMap\\TestMap\\Output"
+  },
+  "Settings": {
+    "MaxConcurrency": 5,
+    "RunDateFormat": "yyyy-MM-dd"
+  }
+}
