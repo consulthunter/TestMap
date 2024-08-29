@@ -6,3 +6,5 @@ riderModule.iml
 Temp/
 TestMap/Output/
 TestMap/Logs/
+TestMap.Tests/Output/
+TestMap.Tests/Logs/

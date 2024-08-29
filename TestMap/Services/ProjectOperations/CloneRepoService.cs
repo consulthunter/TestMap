@@ -4,38 +4,38 @@ namespace TestMap.Services.ProjectOperations;
 
 public class CloneRepoService
 {
-    private Models.TestMap _testMap;
+    private ProjectModel _projectModel;
 
-    public CloneRepoService(Models.TestMap testMap)
+    public CloneRepoService(ProjectModel projectModel)
     {
-        _testMap = testMap;
+        _projectModel = projectModel;
     }
     public async Task CloneRepoAsync()
     {
         // Clone repository
-        if (Directory.Exists(_testMap.ProjectModel.DirectoryPath))
+        if (Directory.Exists(_projectModel.DirectoryPath))
         {
             try
             {
                 // script
-                var scriptCd = $"cd {_testMap.ProjectModel.DirectoryPath}";
-                var scriptClone = $"git clone {_testMap.ProjectModel.GitHubUrl}";
+                var scriptCd = $"cd {_projectModel.DirectoryPath}";
+                var scriptClone = $"git clone {_projectModel.GitHubUrl}";
                 var runner = new PowerShellRunner();
                 
-                _testMap.Logger.Information($"Cloning repository: {_testMap.ProjectModel.GitHubUrl}");
+                _projectModel.Logger.Information($"Cloning repository: {_projectModel.GitHubUrl}");
                 
                 await runner.RunScript(new List<string>() { scriptCd, scriptClone });
                 
-                _testMap.Logger.Information($"Finished cloning repository: {_testMap.ProjectModel.GitHubUrl}");
+                _projectModel.Logger.Information($"Finished cloning repository: {_projectModel.GitHubUrl}");
             }
             catch (Exception ex)
             {
-                _testMap.Logger.Error($"Failed to clone repository: {ex.Message}");
+                _projectModel.Logger.Error($"Failed to clone repository: {ex.Message}");
             }
         }
         else
         {
-            _testMap.Logger.Error($"Directory {_testMap.ProjectModel.DirectoryPath} does not exist.");
+            _projectModel.Logger.Error($"Directory {_projectModel.DirectoryPath} does not exist.");
         }
     }
 }

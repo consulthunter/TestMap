@@ -1,12 +1,12 @@
 ﻿<wpf:ResourceDictionary xml:space="preserve" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:s="clr-namespace:System;assembly=mscorlib" xmlns:ss="urn:shemas-jetbrains-com:settings-storage-xaml" xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AArgumentNullException_002Ecs_002Fl_003AC_0021_003FUsers_003Fmilit_003FAppData_003FRoaming_003FJetBrains_003FRider2024_002E2_003Fresharper_002Dhost_003FSourcesCache_003F7fcc41fe48c43f71d1476329de953fce8565fcc5dbf3c8c6fdb81c216b19c4_003FArgumentNullException_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
+	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AMockException_002Ecs_002Fl_003AC_0021_003FUsers_003Fmilit_003FAppData_003FRoaming_003FJetBrains_003FRider2024_002E2_003Fresharper_002Dhost_003FSourcesCache_003F479987a647e4fb35d628cc532453ad6fd6b67ebb92abe8214bb024f5e6fe5_003FMockException_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
+	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AMock_002Ecs_002Fl_003AC_0021_003FUsers_003Fmilit_003FAppData_003FRoaming_003FJetBrains_003FRider2024_002E2_003Fresharper_002Dhost_003FSourcesCache_003Fb187261058fa986938df785f054eb6195e6a67e694894827255e0b7d7cf3_003FMock_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
+	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AThrowHelper_002Ecs_002Fl_003AC_0021_003FUsers_003Fmilit_003FAppData_003FRoaming_003FJetBrains_003FRider2024_002E2_003Fresharper_002Dhost_003FSourcesCache_003Fc7da56581ee7b20208f09e80b735961e4d5d7b9e5562bfdec94a75c57b391_003FThrowHelper_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
 	<s:String x:Key="/Default/CodeInspection/PencilsConfiguration/ActualSeverity/@EntryValue">INFO</s:String>
+	<s:String x:Key="/Default/Environment/Highlighting/HighlightingSourceSnapshotLocation/@EntryValue">C:\Users\milit\AppData\Local\JetBrains\Rider2024.2\resharper-host\temp\Rider\vAny\CoverageData\_TestMap.-1322424078\Snapshot\snapshot.utdcvr</s:String>
 	<s:String x:Key="/Default/Environment/UnitTesting/CreateUnitTestDialog/TestProjectMapping/=682D67AC_002D1FF6_002D4196_002DBB87_002D5932EA0114AE/@EntryIndexedValue">94C9D068-9B36-4765-AA10-15B54AE55A1D</s:String>
 	<s:String x:Key="/Default/Environment/UnitTesting/CreateUnitTestDialog/TestTemplateMapping/=xUnit/@EntryIndexedValue">33ff99d8-b1ad-4ed5-a4fd-376b97c2c841</s:String>
 	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=46e4218f_002D1145_002D4e55_002D84e2_002D92ab3aff3207/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="All tests from ProgramTest.cs" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;&#xD;
-  &lt;Or&gt;&#xD;
-    &lt;ProjectFile&gt;94C9D068-9B36-4765-AA10-15B54AE55A1D/f:ProgramTest.cs&lt;/ProjectFile&gt;&#xD;
-    &lt;ProjectFile&gt;94C9D068-9B36-4765-AA10-15B54AE55A1D/d:Models/f:AnalysisProjectTest.cs&lt;/ProjectFile&gt;&#xD;
-    &lt;ProjectFile&gt;94C9D068-9B36-4765-AA10-15B54AE55A1D/d:Models/f:AnalysisSolutionTest.cs&lt;/ProjectFile&gt;&#xD;
-    &lt;ProjectFile&gt;94C9D068-9B36-4765-AA10-15B54AE55A1D/d:Models/f:ProjectModelTest.cs&lt;/ProjectFile&gt;&#xD;
-  &lt;/Or&gt;&#xD;
+  &lt;Project Location="F:\Projects\TestMap\TestMap.Tests" Presentation="&amp;lt;TestMap.Tests&amp;gt;" /&gt;&#xD;
 &lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>

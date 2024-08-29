@@ -1,5 +1,6 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Serilog;
 
 namespace TestMap.Models;
 
@@ -16,6 +17,7 @@ public class ProjectModel
     public string TempDirPath {get; set;}
     public string OutputPath { get; set; }
     public string LogsFilePath { get; private set; }
+    public ILogger Logger { get; private set; }
     // methods
     private void CreateUniqueId()
     {
@@ -24,10 +26,16 @@ public class ProjectModel
         ProjectId = $"{randomNumber}_{RepoName}";
     }
 
-    public void SetLogFilePath(string logDirPath)
+    public void CreateLog(string logDirPath)
     {
         string logFilePath = Path.Combine(logDirPath, $"{ProjectId}.log");
         LogsFilePath = logFilePath;
+        
+        // logger
+        Logger = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .WriteTo.File(LogsFilePath)
+            .CreateLogger();
     }
     
     // constructors

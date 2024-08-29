@@ -47,7 +47,7 @@ public class ProjectModelTest
         projectModel.ProjectId = projectId; // Set ProjectId to a known value
 
         // Act
-        projectModel.SetLogFilePath(logDirPath);
+        projectModel.CreateLog(logDirPath);
 
         // Assert
         var expectedLogFilePath = Path.Combine(logDirPath, $"{projectId}.log");

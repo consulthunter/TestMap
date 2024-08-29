@@ -6,21 +6,21 @@ namespace TestMap.Services.ProjectOperations;
 
 public class BuildProjectService
 {
-    private Models.TestMap _testMap;
+    private ProjectModel _projectModel;
 
-    public BuildProjectService(Models.TestMap testMap)
+    public BuildProjectService(ProjectModel projectModel)
     {
-        _testMap = testMap;
+        _projectModel = projectModel;
     }
     
-    public CSharpCompilation BuildProjectCompilation(AnalysisProject project)
+    public virtual CSharpCompilation BuildProjectCompilation(AnalysisProject project)
     {
         return CreateProjectCompilation(project);
     }
     
     private CSharpCompilation CreateProjectCompilation(AnalysisProject project)
     {
-        _testMap.Logger.Information($"Creating {project.ProjectFilePath} compilation.");
+        _projectModel.Logger.Information($"Creating {project.ProjectFilePath} compilation.");
         // creates a random filename for the temporary assembly
         string assemblyName = Path.GetRandomFileName();
 
@@ -29,7 +29,7 @@ public class BuildProjectService
 
         foreach (var reference in project.ProjectReferences)
         {
-            AnalysisProject temp = _testMap.ProjectModel.Projects
+            AnalysisProject temp = _projectModel.Projects
                 .First(proj => proj.ProjectFilePath == reference);
 
             // for every document look at the syntax tree
@@ -54,11 +54,11 @@ public class BuildProjectService
         {
             foreach (var diagnostic in diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
             {
-                _testMap.Logger.Error($"{diagnostic}");
+                _projectModel.Logger.Error($"{diagnostic}");
             }
         }
 
-        _testMap.Logger.Information($"Finished {project.ProjectFilePath} compilation.");
+        _projectModel.Logger.Information($"Finished {project.ProjectFilePath} compilation.");
         return compilation;
     }
 }

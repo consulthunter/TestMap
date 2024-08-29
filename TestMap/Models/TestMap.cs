@@ -14,7 +14,6 @@ public class TestMap
     private AnalyzeProjectService AnalyzeProjectService { get; set; }
     private DeleteProjectService DeleteProjectService { get; set; }
     private SdkManager SdkManager { get; set; }
-    public ILogger Logger { get; private set; }
     // methods
     public async Task RunAsync()
     {
@@ -40,15 +39,23 @@ public class TestMap
 
     private async Task BuildProjectAsync()
     {
-        Logger.Information($"Number of projects in {ProjectModel.ProjectId}: {ProjectModel.Projects.Count}");
-        // iterates over the project and loads project information
-        foreach (var project in ProjectModel.Projects)
+        try
         {
-            // assuming all project information is loaded
-            // create project compilation
-            CSharpCompilation cSharpCompilation = BuildProjectService.BuildProjectCompilation(project);
-            // analyze the project
-            await AnalyzeProjectAsync(project, cSharpCompilation);
+            ProjectModel.Logger.Information(
+                $"Number of projects in {ProjectModel.ProjectId}: {ProjectModel.Projects.Count}");
+            // iterates over the project and loads project information
+            foreach (var project in ProjectModel.Projects)
+            {
+                // assuming all project information is loaded
+                // create project compilation
+                CSharpCompilation cSharpCompilation = BuildProjectService.BuildProjectCompilation(project);
+                // analyze the project
+                await AnalyzeProjectAsync(project, cSharpCompilation);
+            }
+        }
+        catch (Exception e)
+        {
+            ProjectModel.Logger.Error(e.Message);
         }
     }
 
@@ -63,22 +70,18 @@ public class TestMap
     }
     
     // constructor
-    public TestMap(ProjectModel projectModel)
+    public TestMap(ProjectModel projectModel, CloneRepoService cloneRepoService, SdkManager sdkManager,
+        BuildSolutionService buildSolutionService, BuildProjectService buildProjectService, 
+        AnalyzeProjectService analyzeProjectService, DeleteProjectService deleteProjectService)
     {
         ProjectModel = projectModel;
         
         // Create services
-        CloneRepoService = new CloneRepoService(this);
-        SdkManager = new SdkManager(this);
-        BuildSolutionService = new BuildSolutionService(this);
-        BuildProjectService = new BuildProjectService(this);
-        AnalyzeProjectService = new AnalyzeProjectService(this);
-        DeleteProjectService = new DeleteProjectService(this);
-        
-        // logger
-        Logger = new LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.File(ProjectModel.LogsFilePath)
-            .CreateLogger();
+        CloneRepoService = cloneRepoService;
+        SdkManager = sdkManager;
+        BuildSolutionService = buildSolutionService;
+        BuildProjectService = buildProjectService;
+        AnalyzeProjectService = analyzeProjectService;
+        DeleteProjectService = deleteProjectService;
     }
 }

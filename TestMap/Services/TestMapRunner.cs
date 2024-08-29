@@ -1,6 +1,7 @@
 ﻿using Microsoft.Build.Locator;
 using Serilog;
 using TestMap.Models;
+using TestMap.Services.ProjectOperations;
 
 namespace TestMap.Services;
 
@@ -28,7 +29,16 @@ public class TestMapRunner
                 await semaphore.WaitAsync();
 
                 Logger.Information($"Creating TestMap {project.ProjectId}.");
-                var testMap = new Models.TestMap(project);
+                var testMap = new Models.TestMap
+                (
+                    project, 
+                    new CloneRepoService(project), 
+                    new SdkManager(project),
+                    new BuildSolutionService(project), 
+                    new BuildProjectService(project), 
+                    new AnalyzeProjectService(project),
+                    new DeleteProjectService(project)
+                );
                 
                 tasks.Add(RunTestMapAsync(testMap, semaphore));
             }

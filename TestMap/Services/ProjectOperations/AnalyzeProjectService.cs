@@ -7,7 +7,7 @@ namespace TestMap.Services.ProjectOperations;
 
 public class AnalyzeProjectService
 {
-    private Models.TestMap _testMap;
+    private ProjectModel _projectModel;
     private string MethodOutFile;
     private string ClassOutFile;
     private readonly Dictionary<string, string> _attributeNames = new()
@@ -16,19 +16,28 @@ public class AnalyzeProjectService
         { "Test", "NUnit" },
         { "TestMethod", "MSTest" },
     };
-    public AnalyzeProjectService(Models.TestMap testMap )
+    public AnalyzeProjectService(ProjectModel projectModel)
     {
-        _testMap = testMap;
-        MethodOutFile = Path.Combine(_testMap.ProjectModel.OutputPath, $"test_methods_{_testMap.ProjectModel.ProjectId}.csv");
-        ClassOutFile = Path.Combine(_testMap.ProjectModel.OutputPath, $"test_classes_{_testMap.ProjectModel.ProjectId}.csv");
+        try
+        {
+            _projectModel = projectModel;
+            MethodOutFile = Path.Combine(_projectModel.OutputPath,
+                $"test_methods_{_projectModel.ProjectId}.csv");
+            ClassOutFile = Path.Combine(_projectModel.OutputPath,
+                $"test_classes_{_projectModel.ProjectId}.csv");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
     }
-    public async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation cSharpCompilation)
+    public virtual async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation cSharpCompilation)
     {
-        _testMap.Logger.Information($"Analyzing project {analysisProject.ProjectFilePath}");
+        _projectModel.Logger.Information($"Analyzing project {analysisProject.ProjectFilePath}");
         // for every .cs file in the current project
         foreach (var document in analysisProject.Documents)
         {
-            _testMap.Logger.Information($"Analyzing {document}");
+            _projectModel.Logger.Information($"Analyzing {document}");
             SyntaxTree syntaxTree = analysisProject.SyntaxTrees[document];
             CSharpCompilation compilation = cSharpCompilation;
             
@@ -45,15 +54,15 @@ public class AnalyzeProjectService
             var classDeclarations = root.DescendantNodes().OfType<ClassDeclarationSyntax>();
             var classDeclarationSyntaxes = classDeclarations.ToList();
             
-            _testMap.Logger.Information($"Number of class declarations: {classDeclarationSyntaxes.Count}");
+            _projectModel.Logger.Information($"Number of class declarations: {classDeclarationSyntaxes.Count}");
             foreach (var classDeclaration in classDeclarationSyntaxes)
             {
-                _testMap.Logger.Information($"Class declaration: {classDeclaration.Identifier.ToString()}");
+                _projectModel.Logger.Information($"Class declaration: {classDeclaration.Identifier.ToString()}");
                 var fieldDeclarations = FindFields(classDeclaration).Select(x => x.ToString()).ToList();
                 var methodDeclarations = FindMethods(classDeclaration);
                 
-                _testMap.Logger.Information($"Number of field declarations: {fieldDeclarations.Count}");
-                _testMap.Logger.Information($"Number of method declarations: {methodDeclarations.Count}");
+                _projectModel.Logger.Information($"Number of field declarations: {fieldDeclarations.Count}");
+                _projectModel.Logger.Information($"Number of method declarations: {methodDeclarations.Count}");
                 // if there is a test
                 // then this is a test class
                 if (methodDeclarations.Any())
@@ -67,60 +76,60 @@ public class AnalyzeProjectService
                     // if we found it write
                     if (sourceClass.Any())
                     {
-                        TestClass testClass = new TestClass
-                        {
-                            Repo = _testMap.ProjectModel.RepoName,
-                            FilePath = document,
-                            Namespace = namespaceDec,
-                            ClassDeclaration = classDeclaration.Identifier.ToString(),
-                            ClassFields = fieldDeclarations,
-                            UsingStatemenets = usings,
-                            Framework = methodDeclarations.First().Item2,
-                            ClassBody = classDeclaration.ToFullString().Trim(),
-                            SourceBody = sourceClass.First().ToString()
-                        };
-                        WriteResults(testClass);
+                        TestClassRecord testClassRecord = new TestClassRecord
+                        (
+                            _projectModel.RepoName,
+                            document,
+                            namespaceDec,
+                            classDeclaration.Identifier.ToString(),
+                            fieldDeclarations,
+                            usings,
+                            methodDeclarations.First().Item2,
+                            classDeclaration.ToFullString().Trim(),
+                            sourceClass.First().ToString()
+                        );
+                        WriteResults(testClassRecord);
                     }
                     else
                     {
-                        _testMap.Logger.Warning($"No source code class found for {document} test class.");
+                        _projectModel.Logger.Warning($"No source code class found for {document} test class.");
                     }
                     foreach (var method in methodDeclarations)
                     {
                         var methodInvocations = FindInvocations(method.Item1, semanticModel);
 
-                        _testMap.Logger.Information($"Method {method.Item1.Identifier.ToString()}");
-                        _testMap.Logger.Information($"Number of invocations: {methodInvocations.Count}");
+                        _projectModel.Logger.Information($"Method {method.Item1.Identifier.ToString()}");
+                        _projectModel.Logger.Information($"Number of invocations: {methodInvocations.Count}");
 
                         // if any 
                         if (methodInvocations.Any())
                         {
                             
-                            TestMethod testMethod = new TestMethod
-                            {
-                                Repo = _testMap.ProjectModel.RepoName,
-                                FilePath = document,
-                                Namespace = namespaceDec,
-                                ClassDeclaration = classDeclaration.Identifier.ToString(),
-                                ClassFields = fieldDeclarations,
-                                UsingStatemenets = usings,
-                                Framework = method.Item2,
-                                MethodBody = method.Item1.ToString(),
-                                MethodInvocations = methodInvocations
-                            };
+                            TestMethodRecord testMethodRecord = new TestMethodRecord
+                            (
+                                _projectModel.RepoName,
+                                document,
+                                namespaceDec,
+                                classDeclaration.Identifier.ToString(),
+                                fieldDeclarations,
+                                usings,
+                                method.Item2,
+                                method.Item1.ToString(),
+                                methodInvocations
+                            );
 
-                            WriteResults(testMethod);
+                            WriteResults(testMethodRecord);
                         }
                     }
                 }
             }
-            _testMap.Logger.Information($"Finished analyzing {document}");
+            _projectModel.Logger.Information($"Finished analyzing {document}");
         }
     }
 
     private string FindNamespace(SyntaxNode syntaxNode)
     {
-        _testMap.Logger.Information($"Looking for namespace.");
+        _projectModel.Logger.Information($"Looking for namespace.");
         // Namespace typically comes in two forms
         // namespace XXX; (NamespaceDeclarationSyntax)
         // And
@@ -150,16 +159,16 @@ public class AnalyzeProjectService
             // if it's not either of them, then the namespace may not be present in the file.
             else
             { 
-                _testMap.Logger.Information("No namespace found.");
+                _projectModel.Logger.Information("No namespace found.");
             }
         }
-        _testMap.Logger.Information("Finished looking for namespace.");
+        _projectModel.Logger.Information("Finished looking for namespace.");
         return namespaceDec;
     }
 
     private List<string> GetUsingStatements(SyntaxNode syntaxNode)
     {
-        _testMap.Logger.Information("Looking for using statements.");
+        _projectModel.Logger.Information("Looking for using statements.");
         List<string> usingStatements = new List<string>();
         
         // Get all using directives
@@ -168,7 +177,7 @@ public class AnalyzeProjectService
         {
             if (usingDirective.Name != null) usingStatements.Add(usingDirective.Name.ToFullString());
         }
-        _testMap.Logger.Information("Finished looking for using statements.");
+        _projectModel.Logger.Information("Finished looking for using statements.");
         return usingStatements;
     }
     
@@ -179,7 +188,7 @@ public class AnalyzeProjectService
 
     private List<(MethodDeclarationSyntax, string)> FindMethods(SyntaxNode syntaxNode)
     {
-        _testMap.Logger.Information($"Looking for test method declarations.");
+        _projectModel.Logger.Information($"Looking for test method declarations.");
         var methods = syntaxNode.DescendantNodes().OfType<MethodDeclarationSyntax>().ToList();
         List<(MethodDeclarationSyntax, string)> testMethods = new();
         foreach (var method in methods)
@@ -190,7 +199,7 @@ public class AnalyzeProjectService
                 testMethods.Add((method, framework));
             }
         }
-        _testMap.Logger.Information($"Looking for test method declarations.");
+        _projectModel.Logger.Information($"Looking for test method declarations.");
         return testMethods;
     }
 
@@ -211,7 +220,7 @@ public class AnalyzeProjectService
     private List<(string, string)> FindInvocations(MethodDeclarationSyntax methodDeclarationSyntax,
         SemanticModel semanticModel)
     {
-        _testMap.Logger.Information($"Looking for method invocations.");
+        _projectModel.Logger.Information($"Looking for method invocations.");
         List<(string, string)> invocationDeclarations = new();
         var invocations = methodDeclarationSyntax.DescendantNodes().OfType<InvocationExpressionSyntax>();
 
@@ -230,21 +239,21 @@ public class AnalyzeProjectService
                 invocationDeclarations.Add((invocation.ToString(), String.Empty));
             }
         }
-        _testMap.Logger.Information($"Finished looking for method invocations.");
+        _projectModel.Logger.Information($"Finished looking for method invocations.");
         
         return invocationDeclarations;
     }
 
-    private void WriteResults(TestMethod testMethod)
+    private void WriteResults(TestMethodRecord testMethodRecord)
     {
         // Prepare header string
         string header = "Repo,FilePath,Namespace,ClassDeclaration,ClassFields,UsingStatements,Framework,MethodBody,MethodInvocations";
 
-        string usings = ReplaceNewlines(string.Join(";", testMethod.UsingStatemenets));
-        string methodInvocations = ReplaceNewlines(string.Join(";", testMethod.MethodInvocations));
-        string fields = ReplaceNewlines(string.Join(";", testMethod.ClassFields));
+        string usings = ReplaceNewlines(string.Join(";", testMethodRecord.UsingStatements));
+        string methodInvocations = ReplaceNewlines(string.Join(";", testMethodRecord.MethodInvocations));
+        string fields = ReplaceNewlines(string.Join(";", testMethodRecord.ClassFields));
 
-        string csvLine = $"\'{testMethod.Repo}\',\'{testMethod.FilePath}\',\'{testMethod.Namespace}\',\'{testMethod.ClassDeclaration}\',\'{fields}\',\'{usings}\',\'{testMethod.Framework}\',\'{ReplaceNewlines(testMethod.MethodBody)}\',\'{methodInvocations}\'";
+        string csvLine = $"\'{testMethodRecord.Repo}\',\'{testMethodRecord.FilePath}\',\'{testMethodRecord.Namespace}\',\'{testMethodRecord.ClassDeclaration}\',\'{fields}\',\'{usings}\',\'{testMethodRecord.Framework}\',\'{ReplaceNewlines(testMethodRecord.MethodBody)}\',\'{methodInvocations}\'";
         
 
         // Write header to CSV file
@@ -262,15 +271,15 @@ public class AnalyzeProjectService
             writer.WriteLine(csvLine);
         }
     }
-    private void WriteResults(TestClass testClass)
+    private void WriteResults(TestClassRecord testClassRecord)
     {
         // Prepare header string
         string header = "Repo,FilePath,Namespace,ClassDeclaration,ClassFields,UsingStatements,Framework,ClassBody,SourceBody";
 
-        string usings = ReplaceNewlines(string.Join(";", testClass.UsingStatemenets));
-        string fields = ReplaceNewlines(string.Join(";", testClass.ClassFields));
+        string usings = ReplaceNewlines(string.Join(";", testClassRecord.UsingStatements));
+        string fields = ReplaceNewlines(string.Join(";", testClassRecord.ClassFields));
 
-        string csvLine = $"\'{testClass.Repo}\',\'{testClass.FilePath}\',\'{testClass.Namespace}\',\'{testClass.ClassDeclaration}\',\'{fields}\',\'{usings}\',\'{testClass.Framework}\',\'{ReplaceNewlines(testClass.ClassBody)}\',\'{ReplaceNewlines(testClass.SourceBody)}\'";
+        string csvLine = $"\'{testClassRecord.Repo}\',\'{testClassRecord.FilePath}\',\'{testClassRecord.Namespace}\',\'{testClassRecord.ClassDeclaration}\',\'{fields}\',\'{usings}\',\'{testClassRecord.Framework}\',\'{ReplaceNewlines(testClassRecord.ClassBody)}\',\'{ReplaceNewlines(testClassRecord.SourceBody)}\'";
         
 
         // Write header to CSV file

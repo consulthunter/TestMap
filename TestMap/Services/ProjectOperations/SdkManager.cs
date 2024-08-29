@@ -1,11 +1,13 @@
-﻿namespace TestMap.Services.ProjectOperations;
+﻿using TestMap.Models;
+
+namespace TestMap.Services.ProjectOperations;
 
 public class SdkManager
 {
-    private Models.TestMap _testMap;
+    private ProjectModel _projectModel;
 
-    public SdkManager(Models.TestMap testMap)
+    public SdkManager(ProjectModel projectModel)
     {
-        _testMap = testMap;
+        _projectModel = projectModel;
     }
 }
