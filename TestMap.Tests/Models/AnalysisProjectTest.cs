@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using JetBrains.Annotations;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -10,65 +11,45 @@ namespace TestMap.Tests.Models;
 [TestSubject(typeof(AnalysisProject))]
 public class AnalysisProjectTest
 {
+    private readonly string _solutionPath;
+    private readonly Dictionary<string, SyntaxTree> _syntaxTrees;
+    private readonly List<string> _projectReferences;
+    private readonly List<MetadataReference> _assemblyReferences;
+    private readonly string _projectFilePath;
+    private readonly CSharpCompilation _compilation;
+    private readonly string _languageFramework;
 
- [Fact]
-        public void Constructor_ShouldInitializeFieldsCorrectly()
-        {
-            // Arrange
-            var syntaxTrees = new Dictionary<string, SyntaxTree>
-            {
-                { "tree1", SyntaxFactory.ParseSyntaxTree("class C { }") }
-            };
-            var projectReferences = new List<string> { "Reference1", "Reference2" };
-            var assemblies = new List<MetadataReference> { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) };
-            var documents = new List<string> { "Doc1", "Doc2" };
-            var projectFilePath = "path/to/project.csproj";
+    public AnalysisProjectTest()
+    {
+        _solutionPath = "solution.sln";
+        _syntaxTrees = new Dictionary<string, SyntaxTree>();
+        _projectReferences = new List<string>();
+        _assemblyReferences = new List<MetadataReference>();
+        _projectFilePath = "example.csproj";
+        _languageFramework = "8.0";
+        _compilation = CSharpCompilation.Create("example", _syntaxTrees.Values);
+    }
 
-            // Act
-            var analysisProject = new AnalysisProject(syntaxTrees, projectReferences, assemblies, documents, projectFilePath);
+    private AnalysisProject CreateAnalysisProject()
+    {
+        return new AnalysisProject(_solutionPath, _syntaxTrees, _projectReferences, 
+            _assemblyReferences, _projectFilePath, _compilation, _languageFramework);
+    }
+    
+    [Fact]
+    public void Constructor_ShouldInitializeAnalysisProject()
+    {
+        // Arrange
+        var analysisProject = CreateAnalysisProject();
 
-            // Assert
-            Assert.Equal(syntaxTrees, analysisProject.SyntaxTrees);
-            Assert.Equal(projectReferences, analysisProject.ProjectReferences);
-            Assert.Equal(assemblies, analysisProject.Assemblies);
-            Assert.Equal(documents, analysisProject.Documents);
-            Assert.Equal(projectFilePath, analysisProject.ProjectFilePath);
-        }
-
-        [Fact]
-        public void Constructor_ShouldInitializeWithDefaultValues_WhenNoArgumentsProvided()
-        {
-            // Arrange
-            var syntaxTrees = new Dictionary<string, SyntaxTree>();
-            var projectReferences = new List<string>();
-            var assemblies = new List<MetadataReference>();
-            var documents = new List<string>();
-
-            // Act
-            var analysisProject = new AnalysisProject(syntaxTrees, projectReferences, assemblies, documents);
-
-            // Assert
-            Assert.Equal(syntaxTrees, analysisProject.SyntaxTrees);
-            Assert.Equal(projectReferences, analysisProject.ProjectReferences);
-            Assert.Equal(assemblies, analysisProject.Assemblies);
-            Assert.Equal(documents, analysisProject.Documents);
-            Assert.Equal("", analysisProject.ProjectFilePath);
-        }
-
-        [Fact]
-        public void Constructor_ShouldInitializeWithProvidedProjectFilePath()
-        {
-            // Arrange
-            var syntaxTrees = new Dictionary<string, SyntaxTree>();
-            var projectReferences = new List<string>();
-            var assemblies = new List<MetadataReference>();
-            var documents = new List<string>();
-            var projectFilePath = "path/to/project.csproj";
-
-            // Act
-            var analysisProject = new AnalysisProject(syntaxTrees, projectReferences, assemblies, documents, projectFilePath);
-
-            // Assert
-            Assert.Equal(projectFilePath, analysisProject.ProjectFilePath);
-        }
+        // Assert
+        Assert.Equal(_solutionPath, analysisProject.SolutionFilePath);
+        Assert.Equal(_syntaxTrees, analysisProject.SyntaxTrees);
+        Assert.Equal(_projectReferences, analysisProject.ProjectReferences);
+        Assert.Equal(_assemblyReferences, analysisProject.Assemblies);
+        Assert.Equal(_projectFilePath, analysisProject.ProjectFilePath);
+        Assert.Equal(_compilation, analysisProject.Compilation);
+        Assert.Equal(_languageFramework, analysisProject.LanguageFramework);
+        
+    }
 }

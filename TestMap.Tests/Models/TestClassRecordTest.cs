@@ -8,85 +8,67 @@ namespace TestMap.Tests.Models;
 [TestSubject(typeof(TestClassRecord))]
 public class TestClassRecordTest
 {
-
- [Fact]
-        public void TestClass_CanBeInstantiated_WithConstructor()
-        {
-            // Arrange & Act
-            var testClass = new TestClassRecord(
-                "RepoName",
-                "Path/To/File",
-                "Namespace",
-                "public class MyClass",
-                new List<string> { "public int Id", "public string Name" },
-                new List<string> { "using System;", "using System.Collections.Generic;" },
-                "xUnit",
-                "public void DoSomething() { /* ... */ }",
-                "source code");
-
-            // Assert
-            Assert.NotNull(testClass);
-        }
-
-        [Fact]
-        public void TestClass_Constructor_InitializesPropertiesCorrectly()
-        {
-            // Arrange
-            var repo = "RepoName";
-            var filePath = "Path/To/File";
-            var ns = "Namespace";
-            var classDeclaration = "public class MyClass";
-            var classFields = new List<string> { "public int Id", "public string Name" };
-            var usingStatements = new List<string> { "using System;", "using System.Collections.Generic;" };
-            var framework = "xUnit";
-            var classBody = "public void DoSomething() { /* ... */ }";
-            var sourceBody = "source code";
-
-            // Act
-            var testClass = new TestClassRecord(
-                repo,
-                filePath,
-                ns,
-                classDeclaration,
-                classFields,
-                usingStatements,
-                framework,
-                classBody,
-                sourceBody);
-
-            // Assert
-            Assert.Equal(repo, testClass.Repo);
-            Assert.Equal(filePath, testClass.FilePath);
-            Assert.Equal(ns, testClass.Namespace);
-            Assert.Equal(classDeclaration, testClass.ClassDeclaration);
-            Assert.Equal(classFields, testClass.ClassFields);
-            Assert.Equal(usingStatements, testClass.UsingStatements);
-            Assert.Equal(framework, testClass.Framework);
-            Assert.Equal(classBody, testClass.ClassBody);
-            Assert.Equal(sourceBody, testClass.SourceBody);
-        }
-
-        [Fact]
-        public void TestClass_Constructor_DefaultLists()
-        {
-            // Arrange
-            var repo = "RepoName";
-            var filePath = "Path/To/File";
-            var ns = "Namespace";
-            var classDeclaration = "public class MyClass";
-
-            // Act
-            var testClass = new TestClassRecord(
-                repo,
-                filePath,
-                ns,
-                classDeclaration);
-
-            // Assert
-            Assert.NotNull(testClass.ClassFields);
-            Assert.Empty(testClass.ClassFields);
-
-            Assert.NotNull(testClass.UsingStatements);
-            Assert.Empty(testClass.UsingStatements);
-        }
+    private readonly string _owner;
+    private readonly string _repo;
+    private readonly string _solutionFilePath;
+    private readonly string _projectPath;
+    private readonly string _filePath;
+    private readonly string _ns;
+    private readonly string _classDeclaration;
+    private readonly string _classFields;
+    private readonly string _usingStatements;
+    private readonly string _testFramework;
+    private readonly string _languageFramework;
+    private readonly string _classBody;
+    private readonly string _bodyStartPosition;
+    private readonly string _bodyEndPosition;
+    private readonly string _sourceBody;
+    
+    public TestClassRecordTest()
+    {
+        _owner = "owner";
+        _repo = "repo";
+        _solutionFilePath = "solution.sln";
+        _projectPath = "example.csproj";
+        _filePath = "class.cs";
+        _ns = "Example.ClassTest";
+        _classDeclaration = "public class ClassTest";
+        _classFields = "";
+        _usingStatements = "using System";
+        _testFramework = "xUnit";
+        _languageFramework = "8.0";
+        _classBody = "public class ClassTest { [Fact] public void TestMethod1_Should_Do_Something() { //act //arrange //assert } }";
+        _bodyStartPosition = "21";
+        _bodyEndPosition = "430";
+        _sourceBody = "public class Class { public int Method1() => 42; }";
     }
+
+    private TestClassRecord CreateTestClassRecord()
+    {
+        return new TestClassRecord(_owner, _repo, _solutionFilePath, _projectPath, _filePath,
+         _ns, _classDeclaration, _classFields, _usingStatements, _testFramework, _languageFramework,
+         _classBody, _bodyStartPosition, _bodyEndPosition, _sourceBody);
+    }
+
+    [Fact]
+    public void Constructor_ShouldInitializeTestClassRecord()
+    {
+        var record = CreateTestClassRecord();
+        
+        Assert.Equal(_owner, record.Owner);
+        Assert.Equal(_repo, record.Repo);
+        Assert.Equal(_solutionFilePath, record.SolutionFilePath);
+        Assert.Equal(_projectPath, record.ProjectPath);
+        Assert.Equal(_filePath, record.FilePath);
+        Assert.Equal(_ns, record.Namespace);
+        Assert.Equal(_classDeclaration, record.ClassDeclaration);
+        Assert.Equal(_classFields, record.ClassFields);
+        Assert.Equal(_usingStatements, record.UsingStatements);
+        Assert.Equal(_testFramework, record.TestFramework);
+        Assert.Equal(_languageFramework, record.LanguageFramework);
+        Assert.Equal(_classBody, record.ClassBody);
+        Assert.Equal(_bodyStartPosition, record.BodyStartPosition);
+        Assert.Equal(_bodyEndPosition, record.BodyEndPosition);
+        Assert.Equal(_sourceBody, record.SourceBody);
+    }
+}

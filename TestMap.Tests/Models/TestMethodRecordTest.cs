@@ -8,88 +8,68 @@ namespace TestMap.Tests.Models;
 [TestSubject(typeof(TestMethodRecord))]
 public class TestMethodRecordTest
 {
+    private readonly string _owner;
+    private readonly string _repo;
+    private readonly string _solutionFilePath;
+    private readonly string _projectPath;
+    private readonly string _filePath;
+    private readonly string _ns;
+    private readonly string _classDeclaration;
+    private readonly string _classFields;
+    private readonly string _usingStatements;
+    private readonly string _testFramework;
+    private readonly string _languageFramework;
+    private readonly string _methodBody;
+    private readonly string _bodyStartPosition;
+    private readonly string _bodyEndPosition;
+    private readonly string _methodInvocations;
 
-[Fact]
-        public void TestMethod_CanBeInstantiated_WithConstructor()
-        {
-            // Arrange & Act
-            var testMethod = new TestMethodRecord(
-                "RepoName",
-                "Path/To/File",
-                "Namespace",
-                "public class MyClass",
-                new List<string> { "public int Id", "public string Name" },
-                new List<string> { "using System;", "using System.Collections.Generic;" },
-                "xUnit",
-                "public void MyMethod() { /* ... */ }",
-                new List<(string, string)> { ("MethodName1", "arg1"), ("MethodName2", "arg2") });
+    public TestMethodRecordTest()
+    {
+        _owner = "owner";
+        _repo = "repo";
+        _solutionFilePath = "solution.sln";
+        _projectPath = "example.csproj";
+        _filePath = "class.cs";
+        _ns = "Example.ClassTest";
+        _classDeclaration = "public class ClassTest";
+        _classFields = "";
+        _usingStatements = "using System";
+        _testFramework = "xUnit";
+        _languageFramework = "8.0";
+        _methodBody = "[Fact] public void TestMethod1_Should_Do_Something() { //arrange var record = new Class(); " +
+                      "//act var actual = record.SomeAction(); //assert Assert.Equal(expected, actual);}";
+        _bodyStartPosition = "21";
+        _bodyEndPosition = "430";
+        _methodInvocations = "(SomeAction, public int SomeAction() => 42;)";
+    }
 
-            // Assert
-            Assert.NotNull(testMethod);
-        }
-
-        [Fact]
-        public void TestMethod_Constructor_InitializesPropertiesCorrectly()
-        {
-            // Arrange
-            var repo = "RepoName";
-            var filePath = "Path/To/File";
-            var ns = "Namespace";
-            var classDeclaration = "public class MyClass";
-            var classFields = new List<string> { "public int Id", "public string Name" };
-            var usingStatements = new List<string> { "using System;", "using System.Collections.Generic;" };
-            var framework = "xUnit";
-            var methodBody = "public void MyMethod() { /* ... */ }";
-            var methodInvocations = new List<(string, string)> { ("MethodName1", "arg1"), ("MethodName2", "arg2") };
-
-            // Act
-            var testMethod = new TestMethodRecord(
-                repo,
-                filePath,
-                ns,
-                classDeclaration,
-                classFields,
-                usingStatements,
-                framework,
-                methodBody,
-                methodInvocations);
-
-            // Assert
-            Assert.Equal(repo, testMethod.Repo);
-            Assert.Equal(filePath, testMethod.FilePath);
-            Assert.Equal(ns, testMethod.Namespace);
-            Assert.Equal(classDeclaration, testMethod.ClassDeclaration);
-            Assert.Equal(classFields, testMethod.ClassFields);
-            Assert.Equal(usingStatements, testMethod.UsingStatements);
-            Assert.Equal(framework, testMethod.Framework);
-            Assert.Equal(methodBody, testMethod.MethodBody);
-            Assert.Equal(methodInvocations, testMethod.MethodInvocations);
-        }
-
-        [Fact]
-        public void TestMethod_Constructor_DefaultLists()
-        {
-            // Arrange
-            var repo = "RepoName";
-            var filePath = "Path/To/File";
-            var ns = "Namespace";
-            var classDeclaration = "public class MyClass";
-
-            // Act
-            var testMethod = new TestMethodRecord(
-                repo,
-                filePath,
-                ns,
-                classDeclaration);
-
-            // Assert
-            Assert.NotNull(testMethod.ClassFields);
-            Assert.Empty(testMethod.ClassFields);
-
-            Assert.NotNull(testMethod.UsingStatements);
-            Assert.Empty(testMethod.UsingStatements);
-
-            Assert.NotNull(testMethod.MethodInvocations);
-            Assert.Empty(testMethod.MethodInvocations);
-        }
+    public TestMethodRecord CreateTestMethodRecord()
+    {
+        return new TestMethodRecord(_owner, _repo, _solutionFilePath, _projectPath, _filePath,
+            _ns, _classDeclaration, _classFields, _usingStatements, _testFramework, _languageFramework,
+            _methodBody, _bodyStartPosition, _bodyEndPosition, _methodInvocations);
+    }
+    
+    [Fact]
+    public void Constructor_ShouldInitializeTestMethodRecord()
+    {
+        var record = CreateTestMethodRecord();
+        
+        Assert.Equal(_owner, record.Owner);
+        Assert.Equal(_repo, record.Repo);
+        Assert.Equal(_solutionFilePath, record.SolutionFilePath);
+        Assert.Equal(_projectPath, record.ProjectFilePath);
+        Assert.Equal(_filePath, record.FilePath);
+        Assert.Equal(_ns, record.Namespace);
+        Assert.Equal(_classDeclaration, record.ClassDeclaration);
+        Assert.Equal(_classFields, record.ClassFields);
+        Assert.Equal(_usingStatements, record.UsingStatements);
+        Assert.Equal(_testFramework, record.TestFramework);
+        Assert.Equal(_languageFramework, record.LanguageFramework);
+        Assert.Equal(_methodBody, record.MethodBody);
+        Assert.Equal(_bodyStartPosition, record.BodyStartPosition);
+        Assert.Equal(_bodyEndPosition, record.BodyEndPosition);
+        Assert.Equal(_methodInvocations, record.MethodInvocations);
+    }
 }

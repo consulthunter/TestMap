@@ -1,16 +1,26 @@
-﻿using Microsoft.CodeAnalysis;
+﻿/*
+ * consulthunter
+ * 2024-11-07
+ * Abstraction for CSharp Solutions
+ * that are being analyzed
+ * AnalysisSolution.cs
+ */
+
+using Microsoft.CodeAnalysis;
 
 namespace TestMap.Models;
 
-public class AnalysisSolution
+/// <summary>
+/// AnalysisSolution
+/// Representation of a single solution (.sln)
+/// found in the repository and projects contained in
+/// the solution
+/// </summary>
+/// <param name="solution">Solution (.sln) found within the repo</param>
+/// <param name="projects">Projects (.csproj) found contained in that solution</param>
+public class AnalysisSolution(Solution solution, List<string> projects)
 {
-    public Solution Solution;
+    public readonly Solution Solution = solution;
 
-    public List<string> Projects;
-
-    public AnalysisSolution(Solution solution, List<string> projects)
-    {
-        Solution = solution;
-        Projects = projects;
-    }
+    public readonly List<string> Projects = projects;
 }

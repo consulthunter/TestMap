@@ -1,41 +1,47 @@
-﻿using TestMap.Models;
+﻿/*
+ * consulthunter
+ * 2024-11-07
+ * Clones the project from the remote
+ * using the URL and LibGit2Sharp
+ * CloneRepoService.cs
+ */
 
+using TestMap.Models;
+using LibGit2Sharp;
 namespace TestMap.Services.ProjectOperations;
 
-public class CloneRepoService
+public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
 {
-    private ProjectModel _projectModel;
-
-    public CloneRepoService(ProjectModel projectModel)
-    {
-        _projectModel = projectModel;
-    }
+    /// <summary>
+    /// Entry point into the service
+    /// </summary>
     public async Task CloneRepoAsync()
     {
+        await Clone();
+    }
+
+    /// <summary>
+    /// Clones a repository using LibGit2Sharp
+    /// and the URL
+    /// </summary>
+    /// <returns></returns>
+    private Task Clone()
+    {
         // Clone repository
-        if (Directory.Exists(_projectModel.DirectoryPath))
-        {
+        if (Directory.GetParent(projectModel.DirectoryPath).Exists)
             try
             {
-                // script
-                var scriptCd = $"cd {_projectModel.DirectoryPath}";
-                var scriptClone = $"git clone {_projectModel.GitHubUrl}";
-                var runner = new PowerShellRunner();
-                
-                _projectModel.Logger.Information($"Cloning repository: {_projectModel.GitHubUrl}");
-                
-                await runner.RunScript(new List<string>() { scriptCd, scriptClone });
-                
-                _projectModel.Logger.Information($"Finished cloning repository: {_projectModel.GitHubUrl}");
+                projectModel.Logger.Information($"Cloning repository: {projectModel.GitHubUrl}");
+                Repository.Clone(projectModel.GitHubUrl, projectModel.DirectoryPath);
+                projectModel.Logger.Information($"Finished cloning repository: {projectModel.GitHubUrl}");
             }
             catch (Exception ex)
             {
-                _projectModel.Logger.Error($"Failed to clone repository: {ex.Message}");
+                projectModel.Logger.Error($"Failed to clone repository: {ex.Message}");
             }
-        }
         else
-        {
-            _projectModel.Logger.Error($"Directory {_projectModel.DirectoryPath} does not exist.");
-        }
+            projectModel.Logger.Error($"Directory {projectModel.DirectoryPath} does not exist.");
+
+        return Task.CompletedTask;
     }
 }

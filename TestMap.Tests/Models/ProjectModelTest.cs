@@ -1,56 +1,66 @@
-﻿using System.IO;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using JetBrains.Annotations;
+using Serilog;
 using TestMap.Models;
 using Xunit;
 
 namespace TestMap.Tests.Models;
 
 [TestSubject(typeof(ProjectModel))]
+
 public class ProjectModelTest
 {
+    private readonly string _githubUrl;
+    private readonly string _owner;
+    private readonly string _repoName;
+    private readonly string _directoryPath;
+    private readonly string _tempDirectoryPath;
+    private readonly string _outputDirectoryPath;
+    private readonly string _logDirectoryPath;
+    private readonly Dictionary<string, List<string>> _testingFrameworks;
+    private readonly Dictionary<string, string> _scripts;
+    private readonly string _runDate;
 
-    [Fact]
-    public void Constructor_ShouldInitializeFieldsCorrectly()
+    public ProjectModelTest()
     {
-        // Arrange
-        var gitHubUrl = "https://github.com/example/repo";
-        var owner = "owner";
-        var repoName = "repo";
-        var directoryPath = "path/to/dir";
-        var tempDirPath = "path/to/temp";
+        _githubUrl = "https://github.com/owner/reponame";
+        _owner = "owner";
+        _repoName = "repo";
+        _runDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        _tempDirectoryPath = Path.Combine("path", "to", "temp");
+        _outputDirectoryPath = Path.Combine("path", "to", "output");
+        _logDirectoryPath = Path.Combine("path", "to", "log");
+        _directoryPath = Path.Combine(_tempDirectoryPath, _repoName);
+        _testingFrameworks = new Dictionary<string, List<string>>()
+        {
+            { "xUnit", ["[Fact]"] }
+        };
+        _scripts = new Dictionary<string, string>()
+        {
+            {"Delete", "delete.bat" }
+        };
+    }
 
-        // Act
-        var projectModel = new ProjectModel(gitHubUrl, owner, repoName, directoryPath, tempDirPath);
-
-        // Assert
-        Assert.Equal(gitHubUrl, projectModel.GitHubUrl);
-        Assert.Equal(owner, projectModel.Owner);
-        Assert.Equal(repoName, projectModel.RepoName);
-        Assert.Equal(directoryPath, projectModel.DirectoryPath);
-        Assert.Equal(tempDirPath, projectModel.TempDirPath);
-        Assert.NotNull(projectModel.Solutions);
-        Assert.Empty(projectModel.Solutions); // Default to empty list
-        Assert.NotNull(projectModel.Projects);
-        Assert.Empty(projectModel.Projects); // Default to empty list
-
-        // Verify ProjectId was set with a random number and repo name
-        Assert.Matches(@"^\d{1,2}_repo$", projectModel.ProjectId); // Adjust regex based on your ProjectId pattern
+    private ProjectModel CreateProjectModel()
+    {
+        return new ProjectModel(_githubUrl, _owner, _repoName, _runDate, _directoryPath, _logDirectoryPath,
+            _outputDirectoryPath, _tempDirectoryPath, _testingFrameworks, _scripts);
     }
 
     [Fact]
-    public void SetLogFilePath_ShouldSetLogsFilePathCorrectly()
+    public void Constructor_ShouldInitializeProjectModel()
     {
-        // Arrange
-        var projectModel = new ProjectModel("https://github.com/example/repo", "owner", "repo");
-        var logDirPath = "logs";
-        var projectId = "123_repo";
-        projectModel.ProjectId = projectId; // Set ProjectId to a known value
-
-        // Act
-        projectModel.CreateLog(logDirPath);
-
-        // Assert
-        var expectedLogFilePath = Path.Combine(logDirPath, $"{projectId}.log");
-        Assert.Equal(expectedLogFilePath, projectModel.LogsFilePath);
+        var projectModel = CreateProjectModel();
+        
+        Assert.NotNull(projectModel.ProjectId);
+        Assert.Equal(_githubUrl, projectModel.GitHubUrl);
+        Assert.Equal(_owner, projectModel.Owner);
+        Assert.Equal(_repoName, projectModel.RepoName);
+        Assert.Equal(_directoryPath, projectModel.DirectoryPath);
+        Assert.Equal(_tempDirectoryPath, projectModel.TempDirPath);
+        Assert.Equal(_testingFrameworks, projectModel.TestingFrameworks);
+        Assert.Equal(_scripts, projectModel.Scripts);
     }
 }

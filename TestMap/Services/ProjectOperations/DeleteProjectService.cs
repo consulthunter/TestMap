@@ -1,35 +1,37 @@
-﻿using TestMap.Models;
+﻿/*
+ * consulthunter
+ * 2024-11-07
+ * Removes the project from
+ * the Temp directory
+ * DeleteProjectService.cs
+ */
+using TestMap.Models;
 
 namespace TestMap.Services.ProjectOperations;
 
-public class DeleteProjectService
+public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectService
 {
-    private ProjectModel _projectModel;
-
-    public DeleteProjectService(ProjectModel projectModel)
-    {
-        _projectModel = projectModel;
-    }
+    /// <summary>
+    /// Removes the project from the Temp directory
+    /// using a custom script
+    /// </summary>
     public async Task DeleteProjectAsync()
     {
         // Delete if the directory exists
-        if (Directory.Exists(_projectModel.DirectoryPath))
-        {
+        if (Directory.Exists(projectModel.DirectoryPath))
             try
             {
                 // script
-                var script = $"rm {_projectModel.DirectoryPath} -r -force";
-                var runner = new PowerShellRunner();
-                await runner.RunScript(new List<string>() { script });
+                var runner = new ScriptRunner();
+                projectModel.Logger.Information($"Deleting repository: {projectModel.GitHubUrl}");
+                await runner.RunScriptAsync([projectModel.DirectoryPath],projectModel.Scripts["Delete"]);
+                projectModel.Logger.Information($"Finished deleting repository: {projectModel.GitHubUrl}");
             }
             catch (Exception ex)
             {
-                _projectModel.Logger.Error($"Failed to delete repository: {ex.Message}");
+                projectModel.Logger.Error($"Failed to delete repository: {ex.Message}");
             }
-        }
         else
-        {
-            _projectModel.Logger.Error($"Directory {_projectModel.DirectoryPath} does not exist.");
-        }
+            projectModel.Logger.Error($"Directory {projectModel.DirectoryPath} does not exist.");
     }
 }

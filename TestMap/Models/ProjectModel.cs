@@ -1,5 +1,12 @@
-﻿using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
+﻿/*
+ * consulthunter
+ * 2024-11-07
+ * Core structure for storing information
+ * from a repository. Creates directories
+ * for log files and output. 
+ * ProjectModel.cs
+ */
+
 using Serilog;
 
 namespace TestMap.Models;
@@ -7,49 +14,110 @@ namespace TestMap.Models;
 public class ProjectModel
 {
     // fields
-    public string ProjectId { get; set; }
+    public string? ProjectId { get; set; }
     public string GitHubUrl { get; set; }
     public string Owner { get; private set; }
     public string RepoName { get; private set; }
     public List<AnalysisSolution> Solutions { get; set; }
     public List<AnalysisProject> Projects { get; set; }
     public string DirectoryPath { get; set; }
-    public string TempDirPath {get; set;}
-    public string OutputPath { get; set; }
-    public string LogsFilePath { get; private set; }
+    public string? TempDirPath { get; set; }
+    private string? LogsDirPath { get; set; }
+    private string? OutputDirPath { get; set; }
+    public string? OutputPath { get; set; }
+    public string? LogsFilePath { get; private set; }
+    public Dictionary<string, List<string>>? TestingFrameworks { get; set; }
+    public Dictionary<string, string>? Scripts { get; set; }
     public ILogger Logger { get; private set; }
+    private readonly string _runDate;
+
     // methods
+    /// <summary>
+    /// Creates a random unique integer to use as the ProjectId
+    /// ProjectID is {randomNumber}_{RepoName}
+    /// </summary>
     private void CreateUniqueId()
     {
-        Random rnd = new Random();
-        int randomNumber = rnd.Next(1, 101);
+        var rnd = new Random();
+        var randomNumber = rnd.Next(1, 1000001);
         ProjectId = $"{randomNumber}_{RepoName}";
     }
-
-    public void CreateLog(string logDirPath)
+    /// <summary>
+    /// Checks to see if the Log directory
+    /// is present, creates the directory
+    /// if not present
+    /// </summary>
+    public void EnsureProjectLogDir()
     {
-        string logFilePath = Path.Combine(logDirPath, $"{ProjectId}.log");
+        if (ProjectId != null)
+        {
+            var logDirPath = Path.Combine(LogsDirPath, _runDate, ProjectId);
+
+            if (!Directory.Exists(logDirPath)) Directory.CreateDirectory(logDirPath);
+            CreateLog(logDirPath);
+        }
+    }
+    /// <summary>
+    /// Checks to see if the Output directory
+    /// is present, creates the directory
+    /// if not present
+    /// </summary>
+    public void EnsureProjectOutputDir()
+    {
+        if (ProjectId != null)
+        {
+            var outputPath = Path.Combine(OutputDirPath, _runDate, ProjectId);
+            if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
+            OutputPath = outputPath;
+        }
+    }
+    /// <summary>
+    /// Creates the logger for the project
+    /// </summary>
+    /// <param name="logDirPath">Absolute file path for the project's log directory</param>
+    private void CreateLog(string logDirPath)
+    {
+        var logFilePath = Path.Combine(logDirPath, $"{ProjectId}.log");
         LogsFilePath = logFilePath;
-        
+
         // logger
         Logger = new LoggerConfiguration()
             .Enrich.FromLogContext()
             .WriteTo.File(LogsFilePath)
             .CreateLogger();
     }
-    
-    // constructors
-    public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "",
-        string directoryPath = "", string tempDirPath = "")
+
+    /// <summary>
+    /// Constructor
+    /// </summary>
+    /// <param name="gitHubUrl">Full URL for the repository from GitHub</param>
+    /// <param name="owner">Name of the account owner for the repo</param>
+    /// <param name="repoName">Name of the repo</param>
+    /// <param name="runDate">Date (YYYY-MM-DD) of the run</param>
+    /// <param name="directoryPath">Absolute path for the repo folder</param>
+    /// <param name="logsDirPath">Absolute path for the logs folder</param>
+    /// <param name="outputDirPath">Absolute path for the output folder</param>
+    /// <param name="tempDirPath">Absolute path for the temp directory.</param>
+    /// <param name="testingFrameworks">Testing frameworks defined in the config</param>
+    /// <param name="scripts">Batch or shell scripts defined in the config</param>
+    public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "", string runDate = "",
+        string directoryPath = "",  string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
+        Dictionary<string, List<string>>? testingFrameworks = null, Dictionary<string, string>? scripts = null)
     {
         GitHubUrl = gitHubUrl;
         Owner = owner;
         RepoName = repoName;
-        Solutions = new ();
+        _runDate = runDate;
+        Solutions = new List<AnalysisSolution>();
         Projects = new List<AnalysisProject>();
         DirectoryPath = directoryPath;
+        LogsDirPath = logsDirPath;
+        OutputDirPath = outputDirPath;
         TempDirPath = tempDirPath;
+        TestingFrameworks = testingFrameworks;
+        Scripts = scripts;
         
+        // unique id for this particular project run
         CreateUniqueId();
     }
 }

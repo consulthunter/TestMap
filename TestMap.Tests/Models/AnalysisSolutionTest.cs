@@ -1,6 +1,8 @@
 ﻿using System.Collections.Generic;
 using JetBrains.Annotations;
+using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.MSBuild;
 using TestMap.Models;
 using Xunit;
 
@@ -9,55 +11,28 @@ namespace TestMap.Tests.Models;
 [TestSubject(typeof(AnalysisSolution))]
 public class AnalysisSolutionTest
 {
+    private readonly Solution _solution;
+    private readonly List<string> _projects;
 
-    [Fact]
-    public void Constructor_ShouldInitializeFieldsCorrectly()
+    public AnalysisSolutionTest()
     {
-        // Arrange
-        var solution = CreateMockSolution(); // Method to create or mock a Solution instance
-        var projects = new List<string> { "Project1", "Project2" };
+        MSBuildLocator.RegisterDefaults();
+        var tempSolution = MSBuildWorkspace.Create();
+        _solution = tempSolution.CurrentSolution;
+        _projects = new List<string>();
+    }
 
-        // Act
-        var analysisSolution = new AnalysisSolution(solution, projects);
-
-        // Assert
-        Assert.Equal(solution, analysisSolution.Solution);
-        Assert.Equal(projects, analysisSolution.Projects);
+    private AnalysisSolution CreateAnalysisSolution()
+    {
+        return new AnalysisSolution(_solution, _projects);
     }
 
     [Fact]
-    public void Constructor_ShouldHandleEmptyProjectsList()
+    public void Constructor_ShouldInitializeAnalysisSolution()
     {
-        // Arrange
-        var solution = CreateMockSolution(); // Method to create or mock a Solution instance
-        var projects = new List<string>(); // Empty list
-
-        // Act
-        var analysisSolution = new AnalysisSolution(solution, projects);
-
-        // Assert
-        Assert.Equal(solution, analysisSolution.Solution);
-        Assert.Empty(analysisSolution.Projects);
-    }
-
-    [Fact]
-    public void Constructor_ShouldHandleNullProjectsList()
-    {
-        // Arrange
-        var solution = CreateMockSolution(); // Method to create or mock a Solution instance
-        List<string> projects = null; // Null list
-
-        // Act
-        var analysisSolution = new AnalysisSolution(solution, projects);
-
-        // Assert
-        Assert.Equal(solution, analysisSolution.Solution);
-        Assert.Null(analysisSolution.Projects);
-    }
-
-    private Solution CreateMockSolution()
-    {
-        // Create a simple mock or a default instance of Solution
-        return new AdhocWorkspace().CurrentSolution;
+        var analysisSolution = CreateAnalysisSolution();
+        
+        Assert.Equal(_solution, analysisSolution.Solution);
+        Assert.Equal(_projects, analysisSolution.Projects);
     }
 }

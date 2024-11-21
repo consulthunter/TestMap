@@ -1,43 +1,78 @@
-﻿using Microsoft.CodeAnalysis.CSharp;
-using Serilog;
+﻿/*
+ * consulthunter
+ * 2024-11-07
+ * An abstraction for the program
+ * Each repository is a single project model
+ * Each TestMap contains a single project model
+ * and the services for that project model
+ * TestMap.cs
+ */
+
+using Microsoft.CodeAnalysis.CSharp;
 using TestMap.Services.ProjectOperations;
 
 namespace TestMap.Models;
 
-public class TestMap
+/// <summary>
+/// TestMap
+/// Manages services and executions for a single project model
+/// </summary>
+/// <param name="projectModel">Structure for the repo</param>
+/// <param name="cloneRepoService">Service to clone the repo</param>
+/// <param name="sdkManager">NOT USED, ideally this would install SDKs to build the project</param>
+/// <param name="buildSolutionService">Service to find, load the solutions, projects, syntax trees, etc.</param>
+/// <param name="analyzeProjectService">Service to find tests and create the CSV</param>
+/// <param name="deleteProjectService">Service to remove the repo from the Temp directory</param>
+public class TestMap(
+    ProjectModel projectModel,
+    ICloneRepoService cloneRepoService,
+    SdkManager sdkManager,
+    IBuildSolutionService buildSolutionService,
+    IAnalyzeProjectService analyzeProjectService,
+    IDeleteProjectService deleteProjectService)
 {
     // fields
-    public ProjectModel ProjectModel { get; private set; }
-    private CloneRepoService CloneRepoService { get; set; }
-    private BuildSolutionService BuildSolutionService { get; set; }
-    private BuildProjectService BuildProjectService { get; set; }
-    private AnalyzeProjectService AnalyzeProjectService { get; set; }
-    private DeleteProjectService DeleteProjectService { get; set; }
-    private SdkManager SdkManager { get; set; }
+    public ProjectModel ProjectModel { get; private set; } = projectModel;
+    private ICloneRepoService CloneRepoService { get; set; } = cloneRepoService;
+    private IBuildSolutionService BuildSolutionService { get; set; } = buildSolutionService;
+    private IAnalyzeProjectService AnalyzeProjectService { get; set; } = analyzeProjectService;
+    private IDeleteProjectService DeleteProjectService { get; set; } = deleteProjectService;
+
+    private SdkManager SdkManager { get; set; } = sdkManager;
+
     // methods
     public async Task RunAsync()
     {
-        // await CloneProjectAsync();
-        // await SDKManager
-
+        await CloneRepoAsync();
         await BuildSolutionAsync();
-        await BuildProjectAsync();
-        
-        // Example: Delete project after processing
-        // await DeleteProjectAsync();
+        await AnalyzeProjectsAsync();
+        await DeleteProjectAsync();
     }
 
+    /// <summary>
+    /// Uses LibGit2Sharp to clone the repo to
+    /// the Temp directory
+    /// </summary>
     private async Task CloneRepoAsync()
     {
         await CloneRepoService.CloneRepoAsync();
     }
 
+    /// <summary>
+    /// Finds the solutions (.sln) in the repo
+    /// And loads the projects (.csproj) for each
+    /// solution in the repo
+    /// </summary>
     private async Task BuildSolutionAsync()
     {
         await BuildSolutionService.BuildSolutionsAsync();
     }
 
-    private async Task BuildProjectAsync()
+    /// <summary>
+    /// Starts the analysis for each project
+    /// in the project model project list
+    /// </summary>
+    private async Task AnalyzeProjectsAsync()
     {
         try
         {
@@ -48,9 +83,9 @@ public class TestMap
             {
                 // assuming all project information is loaded
                 // create project compilation
-                CSharpCompilation cSharpCompilation = BuildProjectService.BuildProjectCompilation(project);
+                // BuildProjectService.BuildProjectCompilation(project);
                 // analyze the project
-                await AnalyzeProjectAsync(project, cSharpCompilation);
+                await AnalyzeProjectAsync(project, project.Compilation);
             }
         }
         catch (Exception e)
@@ -59,29 +94,21 @@ public class TestMap
         }
     }
 
-    private async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation cSharpCompilation)
+    /// <summary>
+    /// Analyzes and creates the output for the repository
+    /// </summary>
+    /// <param name="analysisProject">Analysis project for the (.csproj)</param>
+    /// <param name="cSharpCompilation">Compilation for the (.csproj)</param>
+    private async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
     {
         await AnalyzeProjectService.AnalyzeProjectAsync(analysisProject, cSharpCompilation);
     }
 
+    /// <summary>
+    /// Deletes the project from the Temp directory
+    /// </summary>
     private async Task DeleteProjectAsync()
     {
         await DeleteProjectService.DeleteProjectAsync();
-    }
-    
-    // constructor
-    public TestMap(ProjectModel projectModel, CloneRepoService cloneRepoService, SdkManager sdkManager,
-        BuildSolutionService buildSolutionService, BuildProjectService buildProjectService, 
-        AnalyzeProjectService analyzeProjectService, DeleteProjectService deleteProjectService)
-    {
-        ProjectModel = projectModel;
-        
-        // Create services
-        CloneRepoService = cloneRepoService;
-        SdkManager = sdkManager;
-        BuildSolutionService = buildSolutionService;
-        BuildProjectService = buildProjectService;
-        AnalyzeProjectService = analyzeProjectService;
-        DeleteProjectService = deleteProjectService;
     }
 }
