@@ -1,0 +1,34 @@
+﻿{
+  "FilePaths": {
+    "TargetFilePath": "F:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+    "LogsDirPath": "F:\\Projects\\TestMap\\TestMap\\Logs",
+    "TempDirPath": "F:\\Projects\\TestMap\\Temp",
+    "OutputDirPath": "F:\\Projects\\TestMap\\TestMap\\Output"
+  },
+  "Settings": {
+    "MaxConcurrency": 5,
+    "RunDateFormat": "yyyy-MM-dd"
+  },
+  "Frameworks": {
+    "NUnit": ["Test", "Theory"],
+    "xUnit": ["Fact", "Theory"],
+    "MSTest": ["TestMethod", "DataSource"],
+    "Microsoft.VisualStudio.TestTools.UnitTesting": ["TestMethod", "DataSource"]
+  },
+  "Scripts": {
+    "Clone": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_git_clone.bat",
+    "Clean": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_clean.bat",
+    "Restore": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_restore.bat",
+    "Build": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_build.bat",
+    "Test": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_coverage_dotnet_test.bat",
+    "Stryker": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_stryker.bat",
+    "Delete": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.bat"
+  },
+  "EnvironmentVariables": {
+    "DOTNET_ROOT": "C:\\Program Files\\dotnet\\",
+    "DOTNET_HOST_PATH": "C:\\Program Files\\dotnet\\dotnet.exe",
+    "MSBuildExtensionsPath": "C:\\Program Files\\dotnet\\sdk\\8.0.302",
+    "MSBUILD_EXE_PATH": "C:\\Program Files\\dotnet\\sdk\\8.0.302\\MSBuild.dll",
+    "MSBuildSDKsPath": "C:\\Program Files\\dotnet\\sdk\\8.0.302\\Sdks"
+  }
+}
