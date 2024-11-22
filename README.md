@@ -21,6 +21,7 @@ __Note:__ There may be some overlap between the two files. However, the ```test_
   - [Instructions](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
   - (winget is suggested)
       - ```winget install Microsoft.DotNet.SDK.8```
+  _Note: dotnet needs to be on PATH_
 - Git
   - [Instructions](https://git-scm.com/downloads/win)
 - Windows 11 (theoretically this could work from Linux)
