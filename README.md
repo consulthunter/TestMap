@@ -18,7 +18,9 @@ __Note:__ There may be some overlap between the two files. However, the ```test_
 
 
 - .NET SDK 8.0 or greater
-  - [Instructions](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) 
+  - [Instructions](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+  - (winget is suggested)
+      - ```winget install Microsoft.DotNet.SDK.8```
 - Git
   - [Instructions](https://git-scm.com/downloads/win)
 - Windows 11 (theoretically this could work from Linux)
@@ -26,21 +28,38 @@ __Note:__ There may be some overlap between the two files. However, the ```test_
 
 ## Installation
 
-First, ```git clone https://github.com/consulthunter/TestMap```
+Create a directory, named ```Projects```.
+- ```mkdir Projects```
 
-Next, edit the ```collection-config.json``` located under ```/TestMap/TestMap/Config/```
+Navigate to the ```Projects``` directory.
+- ```cd .\Projects\```
 
-The JSON config file will have filepaths that need to be updated for your filesystem.
+Now clone TestMap
+- ```git clone https://github.com/consulthunter/TestMap```
 
-After you've updated the config file, do:
+Next, edit the ```collection-config.json``` located under ```.\TestMap\TestMap\Config\```
+- Modify ```FilePaths```
+    - ```TargetFilePath``` to: ```<Your__DIR_Prefix>\\Projects\\TestMap\\TestMap\\Date\\example_projec.txt```
+    - ```LogsDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Logs```
+    - ```TempDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\Temp```
+    - ```OutputDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Output```
+- Modify ```Scripts```
+    - ```Delete``` to:  ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.bat```
 
-- ```dotnet clean TestMap.sln```
-- ```dotnet restore TestMap.sln```
-- ```dotnet build TestMap.sln```
+Navigate to the TestMap root
+- ```cd TestMap```
 
-Now run the example,
+Try restoring the dependencies:
+- ```dotnet restore .\TestMap\TestMap.csproj```
 
-```dotnet run --project .\TestMap\TestMap.csproj collect --config F:\Projects\TestMap\TestMap\Config\collection-config.json```
+Next try building the project:
+- ```dotnet build .\TestMap\TestMap.csproj```
+
+If both restoring the dependencies and building the project succeeded without errors:
+
+Run the example,
+
+```dotnet run --project .\TestMap\TestMap.csproj collect --config .\TestMap\Config\collection-config.json```
 
 ## How To Use
 
