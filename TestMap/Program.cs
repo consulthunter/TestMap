@@ -20,7 +20,7 @@ public class Program
     /// Main
     /// </summary>
     /// <param name="args">Arguments passed from the CLI</param>
-    private static async Task Main(string[] args)
+    public static async Task Main(string[] args)
     {
         var types = LoadVerbs();			
 

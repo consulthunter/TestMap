@@ -20,7 +20,7 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     /// <summary>
     /// Entry point for service
     /// </summary>
-    public async Task BuildSolutionsAsync()
+    public virtual async Task BuildSolutionsAsync()
     {
         await FindAllSolutionFilesAsync();
     }

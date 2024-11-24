@@ -55,7 +55,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// </summary>
     /// <param name="analysisProject">Analysis project, project we are analyzing</param>
     /// <param name="cSharpCompilation">Csharp compilation for the project</param>
-    public async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
+    public virtual async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
     {
         _projectModel.Logger.Information($"Analyzing project {analysisProject.ProjectFilePath}");
         // for every .cs file in the current project

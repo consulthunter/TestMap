@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Microsoft.CodeAnalysis;
@@ -23,23 +24,35 @@ public class TestMapTest
 
     public TestMapTest()
     {
-        var gitHubUrl = "https://github.com/example/repo";
-        var owner = "owner";
-        var repoName = "repo";
+        var gitHubUrl = "https://github.com/consulthunter/TestMap-Example";
+        var owner = "consulthunter";
+        var repoName = "TestMap-Example";
+        var runDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
         var directoryPath = "path/to/dir";
+        var logDirectoryPath = "path/to/log";
         var tempDirPath = "path/to/temp";
         var outputDirPath = "path/to/output";
+        var testingFrameworks = new Dictionary<string, List<string>>()
+        {
+            { "xUnit", ["[Fact]"] }
+        };
+        var scripts = new Dictionary<string, string>()
+        {
+            {"Delete", "delete.bat" }
+        };
 
         // Initialize mocks
         _projectModelMock =
-            new Mock<ProjectModel>(MockBehavior.Strict, gitHubUrl, owner, repoName, directoryPath, tempDirPath);
+            new Mock<ProjectModel>(MockBehavior.Strict, gitHubUrl, owner, repoName, runDate, directoryPath, logDirectoryPath,
+                outputDirPath, tempDirPath, testingFrameworks, scripts);
         _projectModelMock.Object.Projects.Add(CreateAnalysisProject());
-        _projectModelMock.Object.OutputPath = outputDirPath;
-        _mockCloneRepoService = new Mock<CloneRepoService>(MockBehavior.Strict, _projectModelMock.Object);
-        _mockSdkManager = new Mock<SdkManager>(MockBehavior.Strict, _projectModelMock.Object);
-        _mockBuildSolutionService = new Mock<BuildSolutionService>(MockBehavior.Strict, _projectModelMock.Object);
-        _mockAnalyzeProjectService = new Mock<AnalyzeProjectService>(MockBehavior.Strict, _projectModelMock.Object);
-        _mockDeleteProjectService = new Mock<DeleteProjectService>(MockBehavior.Strict, _projectModelMock.Object);
+        _projectModelMock.Object.EnsureProjectOutputDir();
+        _projectModelMock.Object.EnsureProjectLogDir();
+        _mockCloneRepoService = new Mock<CloneRepoService>(_projectModelMock.Object);
+        _mockSdkManager = new Mock<SdkManager>( _projectModelMock.Object);
+        _mockBuildSolutionService = new Mock<BuildSolutionService>(_projectModelMock.Object);
+        _mockAnalyzeProjectService = new Mock<AnalyzeProjectService>(_projectModelMock.Object);
+        _mockDeleteProjectService = new Mock<DeleteProjectService>(_projectModelMock.Object);
 
         CreateTestMap();
     }

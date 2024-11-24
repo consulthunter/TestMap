@@ -15,7 +15,7 @@ public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
     /// <summary>
     /// Entry point into the service
     /// </summary>
-    public async Task CloneRepoAsync()
+    public virtual async Task CloneRepoAsync()
     {
         await Clone();
     }

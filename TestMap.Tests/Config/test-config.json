@@ -1,9 +1,9 @@
 ﻿{
   "FilePaths": {
-    "TargetFilePath": "F:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
-    "LogsDirPath": "F:\\Projects\\TestMap\\TestMap\\Logs",
-    "TempDirPath": "F:\\Projects\\TestMap\\Temp",
-    "OutputDirPath": "F:\\Projects\\TestMap\\TestMap\\Output"
+    "TargetFilePath": "D:\\Projects\\TestMap\\TestMap.Tests\\Data\\example_project.txt",
+    "LogsDirPath": "D:\\Projects\\TestMap\\TestMap.Tests\\Logs",
+    "TempDirPath": "D:\\Projects\\TestMap\\Temp",
+    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap.Tests\\Output"
   },
   "Settings": {
     "MaxConcurrency": 5,
@@ -16,13 +16,13 @@
     "Microsoft.VisualStudio.TestTools.UnitTesting": ["TestMethod", "DataSource"]
   },
   "Scripts": {
-    "Clone": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_git_clone.bat",
-    "Clean": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_clean.bat",
-    "Restore": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_restore.bat",
-    "Build": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_build.bat",
-    "Test": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_coverage_dotnet_test.bat",
-    "Stryker": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_stryker.bat",
-    "Delete": "F:\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.bat"
+    "Clone": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_git_clone.bat",
+    "Clean": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_clean.bat",
+    "Restore": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_restore.bat",
+    "Build": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_build.bat",
+    "Test": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_coverage_dotnet_test.bat",
+    "Stryker": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_stryker.bat",
+    "Delete": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.bat"
   },
   "EnvironmentVariables": {
     "DOTNET_ROOT": "C:\\Program Files\\dotnet\\",
