@@ -14,12 +14,12 @@ namespace TestMap.Tests.Models;
 [TestSubject(typeof(TestMap.Models.TestMap))]
 public class TestMapTest
 {
-    private readonly Mock<ProjectModel> _projectModelMock;
-    private readonly Mock<CloneRepoService> _mockCloneRepoService;
-    private readonly Mock<SdkManager> _mockSdkManager;
-    private readonly Mock<BuildSolutionService> _mockBuildSolutionService;
     private readonly Mock<AnalyzeProjectService> _mockAnalyzeProjectService;
+    private readonly Mock<BuildSolutionService> _mockBuildSolutionService;
+    private readonly Mock<CloneRepoService> _mockCloneRepoService;
     private readonly Mock<DeleteProjectService> _mockDeleteProjectService;
+    private readonly Mock<SdkManager> _mockSdkManager;
+    private readonly Mock<ProjectModel> _projectModelMock;
     private TestMap.Models.TestMap _testMap;
 
     public TestMapTest()
@@ -32,30 +32,32 @@ public class TestMapTest
         var logDirectoryPath = "path/to/log";
         var tempDirPath = "path/to/temp";
         var outputDirPath = "path/to/output";
-        var testingFrameworks = new Dictionary<string, List<string>>()
+        var testingFrameworks = new Dictionary<string, List<string>>
         {
             { "xUnit", ["[Fact]"] }
         };
-        var scripts = new Dictionary<string, string>()
+        var scripts = new Dictionary<string, string>
         {
-            {"Delete", "delete.bat" }
+            { "Delete", "delete.bat" }
         };
 
         // Initialize mocks
         _projectModelMock =
-            new Mock<ProjectModel>(MockBehavior.Strict, gitHubUrl, owner, repoName, runDate, directoryPath, logDirectoryPath,
+            new Mock<ProjectModel>(MockBehavior.Strict, gitHubUrl, owner, repoName, runDate, directoryPath,
+                logDirectoryPath,
                 outputDirPath, tempDirPath, testingFrameworks, scripts);
         _projectModelMock.Object.Projects.Add(CreateAnalysisProject());
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
         _mockCloneRepoService = new Mock<CloneRepoService>(_projectModelMock.Object);
-        _mockSdkManager = new Mock<SdkManager>( _projectModelMock.Object);
+        _mockSdkManager = new Mock<SdkManager>(_projectModelMock.Object);
         _mockBuildSolutionService = new Mock<BuildSolutionService>(_projectModelMock.Object);
         _mockAnalyzeProjectService = new Mock<AnalyzeProjectService>(_projectModelMock.Object);
         _mockDeleteProjectService = new Mock<DeleteProjectService>(_projectModelMock.Object);
 
         CreateTestMap();
     }
+
     private AnalysisProject CreateAnalysisProject()
     {
         var solution = "solution.sln";

@@ -10,10 +10,22 @@
     "RunDateFormat": "yyyy-MM-dd"
   },
   "Frameworks": {
-    "NUnit": ["Test", "Theory"],
-    "xUnit": ["Fact", "Theory"],
-    "MSTest": ["TestMethod", "DataSource"],
-    "Microsoft.VisualStudio.TestTools.UnitTesting": ["TestMethod", "DataSource"]
+    "NUnit": [
+      "Test",
+      "Theory"
+    ],
+    "xUnit": [
+      "Fact",
+      "Theory"
+    ],
+    "MSTest": [
+      "TestMethod",
+      "DataSource"
+    ],
+    "Microsoft.VisualStudio.TestTools.UnitTesting": [
+      "TestMethod",
+      "DataSource"
+    ]
   },
   "Scripts": {
     "Clone": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_git_clone.bat",

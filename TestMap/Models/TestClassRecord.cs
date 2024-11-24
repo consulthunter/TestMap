@@ -9,9 +9,9 @@
 namespace TestMap.Models;
 
 /// <summary>
-/// TestClassRecord
-/// A single record (row) in the resulting CSV
-/// for a test class and the source code class (class being tested)
+///     TestClassRecord
+///     A single record (row) in the resulting CSV
+///     for a test class and the source code class (class being tested)
 /// </summary>
 /// <param name="owner">Name of the account that owns the repo</param>
 /// <param name="repo">Name of the repo</param>
@@ -45,12 +45,12 @@ public class TestClassRecord(
     string bodyEndPosition,
     string sourceBody)
 {
-    public string Owner  { get; set; } = owner;
-    public string Repo  { get; set; } = repo;
-    public string? SolutionFilePath  { get; set; } = solutionFilePath;
-    public string ProjectPath  { get; set; } = projectPath;
-    public string FilePath  { get; set; } = filePath;
-    public string Namespace  { get; set; } = ns;
+    public string Owner { get; set; } = owner;
+    public string Repo { get; set; } = repo;
+    public string? SolutionFilePath { get; set; } = solutionFilePath;
+    public string ProjectPath { get; set; } = projectPath;
+    public string FilePath { get; set; } = filePath;
+    public string Namespace { get; set; } = ns;
     public string ClassDeclaration { get; set; } = classDeclaration;
     public string ClassFields { get; set; } = classFields;
     public string UsingStatements { get; set; } = usingStatements;

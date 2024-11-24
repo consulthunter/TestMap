@@ -14,25 +14,32 @@ using TestMap.Models;
 namespace TestMap.Services;
 
 /// <summary>
-/// ConfigurationService
-/// Takes in the configuration parsed from the JSON
-/// Configures variables for the run.
+///     ConfigurationService
+///     Takes in the configuration parsed from the JSON
+///     Configures variables for the run.
 /// </summary>
 /// <param name="configuration">Configuration parsed from the JSON file</param>
 public class ConfigurationService(IConfiguration configuration) : IConfigurationService
 {
+    private readonly Dictionary<string, string>? _environmentVariables =
+        configuration.GetSection("EnvironmentVariables").Get<Dictionary<string, string>>();
+
+    private readonly string? _logsDirPath = configuration["FilePaths:LogsDirPath"];
+    private readonly int _maxConcurrency = int.Parse(configuration["Settings:MaxConcurrency"] ?? string.Empty);
+    private readonly string? _outputDirPath = configuration["FilePaths:OutputDirPath"];
+    private readonly List<ProjectModel> _projectModels = new();
+    private readonly string _runDate = DateTime.UtcNow.ToString(configuration["Settings:RunDateFormat"]);
+
+    private readonly Dictionary<string, string>? _scripts =
+        configuration.GetSection("Scripts").Get<Dictionary<string, string>>();
+
     // fields
     private readonly string? _targetFilePath = configuration["FilePaths:TargetFilePath"];
-    private readonly string? _logsDirPath = configuration["FilePaths:LogsDirPath"];
     private readonly string? _tempDirPath = configuration["FilePaths:TempDirPath"];
-    private readonly string? _outputDirPath = configuration["FilePaths:OutputDirPath"];
-    private readonly int _maxConcurrency = int.Parse(configuration["Settings:MaxConcurrency"] ?? string.Empty);
-    private readonly string _runDate = DateTime.UtcNow.ToString(configuration["Settings:RunDateFormat"]);
-    private readonly List<ProjectModel> _projectModels = new();
-    private readonly Dictionary<string, List<string>>? _testingFrameworks = configuration.GetSection("Frameworks").Get<Dictionary<string, List<string>>>();
-    private readonly Dictionary<string, string>? _scripts = configuration.GetSection("Scripts").Get<Dictionary<string, string>>();
-    private readonly Dictionary<string, string>? _environmentVariables = configuration.GetSection("EnvironmentVariables").Get<Dictionary<string, string>>();
-    
+
+    private readonly Dictionary<string, List<string>>? _testingFrameworks =
+        configuration.GetSection("Frameworks").Get<Dictionary<string, List<string>>>();
+
     public int GetConcurrency()
     {
         return _maxConcurrency;
@@ -69,7 +76,7 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
     }
 
     /// <summary>
-    /// Core function of the configuration service
+    ///     Core function of the configuration service
     /// </summary>
     public async Task ConfigureRunAsync()
     {
@@ -80,7 +87,7 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
     }
 
     /// <summary>
-    /// Reads the file defined in the config, TargetFilePath
+    ///     Reads the file defined in the config, TargetFilePath
     /// </summary>
     private async Task ReadTargetAsync()
     {
@@ -96,15 +103,15 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
     }
 
     /// <summary>
-    /// Creates a project model for each
-    /// targeted repo defined in the text file
-    /// for TargetFilePath
+    ///     Creates a project model for each
+    ///     targeted repo defined in the text file
+    ///     for TargetFilePath
     /// </summary>
     /// <param name="projectUrl">Full URL from the list in target file</param>
     private void InitializeProjectModel(string projectUrl)
     {
         var githubUrl = projectUrl;
-        (var owner, var repoName) = ExtractOwnerAndRepo(githubUrl);
+        var (owner, repoName) = ExtractOwnerAndRepo(githubUrl);
         if (_tempDirPath != null)
         {
             var directoryPath = Path.Combine(_tempDirPath, repoName);
@@ -117,14 +124,13 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
     }
 
     /// <summary>
-    /// Makes sure the Logs directory
-    /// is present
+    ///     Makes sure the Logs directory
+    ///     is present
     /// </summary>
     private void EnsureRunLogsDirectory()
     {
         // Check if Logs directory exists, create if not
         if (!Directory.Exists(_logsDirPath))
-        {
             if (_logsDirPath != null)
             {
                 Directory.CreateDirectory(_logsDirPath);
@@ -132,12 +138,11 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
                 if (!Directory.Exists(Path.Combine(_logsDirPath, _runDate)))
                     Directory.CreateDirectory(Path.Combine(_logsDirPath, _runDate));
             }
-        }
     }
 
     /// <summary>
-    /// Makes sure the Temp directory
-    /// is present
+    ///     Makes sure the Temp directory
+    ///     is present
     /// </summary>
     private void EnsureTempDirectory()
     {
@@ -148,14 +153,13 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
     }
 
     /// <summary>
-    /// Makes sure the Output directory
-    /// is present
+    ///     Makes sure the Output directory
+    ///     is present
     /// </summary>
     private void EnsureRunOutputDirectory()
     {
         // Check if Output directory exists, create if not
         if (!Directory.Exists(_outputDirPath))
-        {
             if (_outputDirPath != null)
             {
                 Directory.CreateDirectory(_outputDirPath);
@@ -163,12 +167,11 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
                 if (!Directory.Exists(Path.Combine(_outputDirPath, _runDate)))
                     Directory.CreateDirectory(Path.Combine(_outputDirPath, _runDate));
             }
-        }
     }
 
     /// <summary>
-    /// Extracts the owner and repo name
-    /// from the URL
+    ///     Extracts the owner and repo name
+    ///     from the URL
     /// </summary>
     /// <param name="url">Full url for the targeted repo</param>
     /// <returns>Tuple: (owner, repo)</returns>
@@ -178,12 +181,11 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
         if (url.StartsWith("https://"))
             // HTTP(S) URL format: https://github.com/owner/repoName
             return ExtractOwnerAndRepoFromHttpUrl(url);
-        else
-            throw new ArgumentException("Unsupported URL format");
+        throw new ArgumentException("Unsupported URL format");
     }
 
     /// <summary>
-    /// Parses the owner and repo from the URL
+    ///     Parses the owner and repo from the URL
     /// </summary>
     /// <param name="url">Full url for the targeted repo</param>
     /// <returns>Tuple: (owner, repo)</returns>

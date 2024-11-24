@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
@@ -19,21 +20,35 @@ public class AnalyzeProjectServiceTest
 
     public AnalyzeProjectServiceTest()
     {
-        var gitHubUrl = "https://github.com/example/repo";
-        var owner = "owner";
-        var repoName = "repo";
+        var gitHubUrl = "https://github.com/consulthunter/TestMap-Example";
+        var owner = "consulthunter";
+        var repoName = "TestMap-Example";
+        var runDate = DateTime.UtcNow.ToString("yyyy-MM-dd");
         var directoryPath = "path/to/dir";
+        var logDirectoryPath = "path/to/log";
         var tempDirPath = "path/to/temp";
         var outputDirPath = "path/to/output";
-        
+        var testingFrameworks = new Dictionary<string, List<string>>
+        {
+            { "xUnit", ["[Fact]"] }
+        };
+        var scripts = new Dictionary<string, string>
+        {
+            { "Delete", "delete.bat" }
+        };
+
+        // Initialize mocks
         _projectModelMock =
-            new Mock<ProjectModel>(MockBehavior.Strict, gitHubUrl, owner, repoName, directoryPath, tempDirPath);
+            new Mock<ProjectModel>(MockBehavior.Strict, gitHubUrl, owner, repoName, runDate, directoryPath,
+                logDirectoryPath,
+                outputDirPath, tempDirPath, testingFrameworks, scripts);
+        _projectModelMock.Object.Projects.Add(CreateAnalysisProject());
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
-        _projectModelMock.Object.Projects.Add(CreateAnalysisProject());
-        _projectModelMock.Object.OutputPath = outputDirPath;
+
         _service = new AnalyzeProjectService(_projectModelMock.Object);
     }
+
     private AnalysisProject CreateAnalysisProject()
     {
         var solution = "solution.sln";
@@ -58,13 +73,13 @@ public class AnalyzeProjectServiceTest
 
         return compilation;
     }
-    
+
     [Fact]
     public async Task AnalyzeProjectService_ProjectModelNotNull()
     {
         // Arrange
         var compilation = CreateCSharpCompilation(_projectModelMock.Object.Projects.First());
-        
+
         // Act
         await _service.AnalyzeProjectAsync(_projectModelMock.Object.Projects.First(), compilation);
 

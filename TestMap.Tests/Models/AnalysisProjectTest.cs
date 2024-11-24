@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using JetBrains.Annotations;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -11,13 +10,13 @@ namespace TestMap.Tests.Models;
 [TestSubject(typeof(AnalysisProject))]
 public class AnalysisProjectTest
 {
-    private readonly string _solutionPath;
-    private readonly Dictionary<string, SyntaxTree> _syntaxTrees;
-    private readonly List<string> _projectReferences;
     private readonly List<MetadataReference> _assemblyReferences;
-    private readonly string _projectFilePath;
     private readonly CSharpCompilation _compilation;
     private readonly string _languageFramework;
+    private readonly string _projectFilePath;
+    private readonly List<string> _projectReferences;
+    private readonly string _solutionPath;
+    private readonly Dictionary<string, SyntaxTree> _syntaxTrees;
 
     public AnalysisProjectTest()
     {
@@ -32,10 +31,10 @@ public class AnalysisProjectTest
 
     private AnalysisProject CreateAnalysisProject()
     {
-        return new AnalysisProject(_solutionPath, _syntaxTrees, _projectReferences, 
+        return new AnalysisProject(_solutionPath, _syntaxTrees, _projectReferences,
             _assemblyReferences, _projectFilePath, _compilation, _languageFramework);
     }
-    
+
     [Fact]
     public void Constructor_ShouldInitializeAnalysisProject()
     {
@@ -50,6 +49,5 @@ public class AnalysisProjectTest
         Assert.Equal(_projectFilePath, analysisProject.ProjectFilePath);
         Assert.Equal(_compilation, analysisProject.Compilation);
         Assert.Equal(_languageFramework, analysisProject.LanguageFramework);
-        
     }
 }

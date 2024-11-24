@@ -5,6 +5,7 @@
  * the Temp directory
  * DeleteProjectService.cs
  */
+
 using TestMap.Models;
 
 namespace TestMap.Services.ProjectOperations;
@@ -12,8 +13,8 @@ namespace TestMap.Services.ProjectOperations;
 public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectService
 {
     /// <summary>
-    /// Removes the project from the Temp directory
-    /// using a custom script
+    ///     Removes the project from the Temp directory
+    ///     using a custom script
     /// </summary>
     public async Task DeleteProjectAsync()
     {
@@ -24,7 +25,7 @@ public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectSer
                 // script
                 var runner = new ScriptRunner();
                 projectModel.Logger.Information($"Deleting repository: {projectModel.GitHubUrl}");
-                await runner.RunScriptAsync([projectModel.DirectoryPath],projectModel.Scripts["Delete"]);
+                await runner.RunScriptAsync([projectModel.DirectoryPath], projectModel.Scripts["Delete"]);
                 projectModel.Logger.Information($"Finished deleting repository: {projectModel.GitHubUrl}");
             }
             catch (Exception ex)

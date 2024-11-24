@@ -14,8 +14,8 @@ using TestMap.Services.ProjectOperations;
 namespace TestMap.Models;
 
 /// <summary>
-/// TestMap
-/// Manages services and executions for a single project model
+///     TestMap
+///     Manages services and executions for a single project model
 /// </summary>
 /// <param name="projectModel">Structure for the repo</param>
 /// <param name="cloneRepoService">Service to clone the repo</param>
@@ -32,11 +32,11 @@ public class TestMap(
     IDeleteProjectService deleteProjectService)
 {
     // fields
-    public ProjectModel ProjectModel { get; private set; } = projectModel;
-    private ICloneRepoService CloneRepoService { get; set; } = cloneRepoService;
-    private IBuildSolutionService BuildSolutionService { get; set; } = buildSolutionService;
-    private IAnalyzeProjectService AnalyzeProjectService { get; set; } = analyzeProjectService;
-    private IDeleteProjectService DeleteProjectService { get; set; } = deleteProjectService;
+    public ProjectModel ProjectModel { get; } = projectModel;
+    private ICloneRepoService CloneRepoService { get; } = cloneRepoService;
+    private IBuildSolutionService BuildSolutionService { get; } = buildSolutionService;
+    private IAnalyzeProjectService AnalyzeProjectService { get; } = analyzeProjectService;
+    private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
 
     private SdkManager SdkManager { get; set; } = sdkManager;
 
@@ -50,8 +50,8 @@ public class TestMap(
     }
 
     /// <summary>
-    /// Uses LibGit2Sharp to clone the repo to
-    /// the Temp directory
+    ///     Uses LibGit2Sharp to clone the repo to
+    ///     the Temp directory
     /// </summary>
     private async Task CloneRepoAsync()
     {
@@ -59,9 +59,9 @@ public class TestMap(
     }
 
     /// <summary>
-    /// Finds the solutions (.sln) in the repo
-    /// And loads the projects (.csproj) for each
-    /// solution in the repo
+    ///     Finds the solutions (.sln) in the repo
+    ///     And loads the projects (.csproj) for each
+    ///     solution in the repo
     /// </summary>
     private async Task BuildSolutionAsync()
     {
@@ -69,8 +69,8 @@ public class TestMap(
     }
 
     /// <summary>
-    /// Starts the analysis for each project
-    /// in the project model project list
+    ///     Starts the analysis for each project
+    ///     in the project model project list
     /// </summary>
     private async Task AnalyzeProjectsAsync()
     {
@@ -80,13 +80,11 @@ public class TestMap(
                 $"Number of projects in {ProjectModel.ProjectId}: {ProjectModel.Projects.Count}");
             // iterates over the project and loads project information
             foreach (var project in ProjectModel.Projects)
-            {
                 // assuming all project information is loaded
                 // create project compilation
                 // BuildProjectService.BuildProjectCompilation(project);
                 // analyze the project
                 await AnalyzeProjectAsync(project, project.Compilation);
-            }
         }
         catch (Exception e)
         {
@@ -95,7 +93,7 @@ public class TestMap(
     }
 
     /// <summary>
-    /// Analyzes and creates the output for the repository
+    ///     Analyzes and creates the output for the repository
     /// </summary>
     /// <param name="analysisProject">Analysis project for the (.csproj)</param>
     /// <param name="cSharpCompilation">Compilation for the (.csproj)</param>
@@ -105,7 +103,7 @@ public class TestMap(
     }
 
     /// <summary>
-    /// Deletes the project from the Temp directory
+    ///     Deletes the project from the Temp directory
     /// </summary>
     private async Task DeleteProjectAsync()
     {

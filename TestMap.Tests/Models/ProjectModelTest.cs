@@ -2,26 +2,24 @@
 using System.Collections.Generic;
 using System.IO;
 using JetBrains.Annotations;
-using Serilog;
 using TestMap.Models;
 using Xunit;
 
 namespace TestMap.Tests.Models;
 
 [TestSubject(typeof(ProjectModel))]
-
 public class ProjectModelTest
 {
+    private readonly string _directoryPath;
     private readonly string _githubUrl;
+    private readonly string _logDirectoryPath;
+    private readonly string _outputDirectoryPath;
     private readonly string _owner;
     private readonly string _repoName;
-    private readonly string _directoryPath;
-    private readonly string _tempDirectoryPath;
-    private readonly string _outputDirectoryPath;
-    private readonly string _logDirectoryPath;
-    private readonly Dictionary<string, List<string>> _testingFrameworks;
-    private readonly Dictionary<string, string> _scripts;
     private readonly string _runDate;
+    private readonly Dictionary<string, string> _scripts;
+    private readonly string _tempDirectoryPath;
+    private readonly Dictionary<string, List<string>> _testingFrameworks;
 
     public ProjectModelTest()
     {
@@ -33,13 +31,13 @@ public class ProjectModelTest
         _outputDirectoryPath = Path.Combine("path", "to", "output");
         _logDirectoryPath = Path.Combine("path", "to", "log");
         _directoryPath = Path.Combine(_tempDirectoryPath, _repoName);
-        _testingFrameworks = new Dictionary<string, List<string>>()
+        _testingFrameworks = new Dictionary<string, List<string>>
         {
             { "xUnit", ["[Fact]"] }
         };
-        _scripts = new Dictionary<string, string>()
+        _scripts = new Dictionary<string, string>
         {
-            {"Delete", "delete.bat" }
+            { "Delete", "delete.bat" }
         };
     }
 
@@ -53,7 +51,7 @@ public class ProjectModelTest
     public void Constructor_ShouldInitializeProjectModel()
     {
         var projectModel = CreateProjectModel();
-        
+
         Assert.NotNull(projectModel.ProjectId);
         Assert.Equal(_githubUrl, projectModel.GitHubUrl);
         Assert.Equal(_owner, projectModel.Owner);

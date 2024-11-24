@@ -16,24 +16,50 @@ namespace TestMap.Services;
 
 public class TestMapRunner
 {
-    // fields
-    private int MaxConcurrency { get; set; }
     private readonly List<ProjectModel> _projects;
-    private ILogger Logger { get; set; }
 
-    private IConfigurationService ConfigurationService { get; set; }
+    /// <summary>
+    ///     Constructor
+    /// </summary>
+    /// <param name="configurationService">Configuration service for access to variables</param>
+    public TestMapRunner(IConfigurationService configurationService)
+    {
+        ConfigurationService = configurationService;
+
+        MSBuildLocator.RegisterDefaults();
+        ConfigurationService.ConfigureRunAsync().GetAwaiter().GetResult();
+
+        _projects = ConfigurationService.GetProjectModels();
+        MaxConcurrency = ConfigurationService.GetConcurrency();
+
+        var logPath = Path.Combine(ConfigurationService.GetLogsDirectory() ?? string.Empty,
+            ConfigurationService.GetRunDate(),
+            $"collection_{ConfigurationService.GetRunDate()}.log");
+
+        // Configure logging for this instance of TestMap using Serilog
+        Logger = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .WriteTo.File(logPath)
+            .CreateLogger();
+    }
+
+    // fields
+    private int MaxConcurrency { get; }
+    private ILogger Logger { get; }
+
+    private IConfigurationService ConfigurationService { get; }
 
     // methods
     /// <summary>
-    /// Creates and manages TestMap
-    /// concurrency
+    ///     Creates and manages TestMap
+    ///     concurrency
     /// </summary>
     public async Task RunAsync()
     {
         var tasks = new List<Task>();
 
         // Use SemaphoreSlim for concurrency control
-        Logger.Information($"Starting runner.");
+        Logger.Information("Starting runner.");
         Logger.Information($"Number of target projects {_projects.Count}");
         // I believe that it still hangs on large projects
         using (var semaphore = new SemaphoreSlim(MaxConcurrency))
@@ -43,7 +69,7 @@ public class TestMapRunner
                 Logger.Information($"Project number: {_projects.IndexOf(project)}");
                 Logger.Information($"Target project {project.ProjectId}");
                 await semaphore.WaitAsync();
-                
+
                 project.EnsureProjectLogDir();
                 project.EnsureProjectOutputDir();
 
@@ -66,8 +92,8 @@ public class TestMapRunner
     }
 
     /// <summary>
-    /// Starts the TestMap
-    /// and releases the TestMap when finished
+    ///     Starts the TestMap
+    ///     and releases the TestMap when finished
     /// </summary>
     /// <param name="testMap"></param>
     /// <param name="semaphore"></param>
@@ -84,29 +110,5 @@ public class TestMapRunner
             semaphore.Release();
             Logger.Information($"Releasing TestMap {testMap.ProjectModel.ProjectId}");
         }
-    }
-    
-    /// <summary>
-    /// Constructor
-    /// </summary>
-    /// <param name="configurationService">Configuration service for access to variables</param>
-    public TestMapRunner(IConfigurationService configurationService)
-    {
-        ConfigurationService = configurationService;
-        
-        MSBuildLocator.RegisterDefaults();
-        ConfigurationService.ConfigureRunAsync().GetAwaiter().GetResult();
-
-        _projects = ConfigurationService.GetProjectModels();
-        MaxConcurrency = ConfigurationService.GetConcurrency();
-
-        var logPath = Path.Combine(ConfigurationService.GetLogsDirectory() ?? string.Empty, ConfigurationService.GetRunDate(),
-            $"collection_{ConfigurationService.GetRunDate()}.log");
-
-        // Configure logging for this instance of TestMap using Serilog
-        Logger = new LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.File(logPath)
-            .CreateLogger();
     }
 }

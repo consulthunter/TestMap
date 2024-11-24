@@ -9,10 +9,10 @@
 namespace TestMap.Models;
 
 /// <summary>
-/// TestMethodRecord
-/// A single record (row) in the resulting CSV
-/// for test methods and invocations + definitions (methods called in the test
-/// , plus their definitions)
+///     TestMethodRecord
+///     A single record (row) in the resulting CSV
+///     for test methods and invocations + definitions (methods called in the test
+///     , plus their definitions)
 /// </summary>
 /// <param name="owner">Name of the account that owns the repo</param>
 /// <param name="repo">Name of the repo</param>

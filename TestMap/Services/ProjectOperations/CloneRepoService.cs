@@ -6,14 +6,15 @@
  * CloneRepoService.cs
  */
 
-using TestMap.Models;
 using LibGit2Sharp;
+using TestMap.Models;
+
 namespace TestMap.Services.ProjectOperations;
 
 public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
 {
     /// <summary>
-    /// Entry point into the service
+    ///     Entry point into the service
     /// </summary>
     public virtual async Task CloneRepoAsync()
     {
@@ -21,8 +22,8 @@ public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
     }
 
     /// <summary>
-    /// Clones a repository using LibGit2Sharp
-    /// and the URL
+    ///     Clones a repository using LibGit2Sharp
+    ///     and the URL
     /// </summary>
     /// <returns></returns>
     private Task Clone()

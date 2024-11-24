@@ -18,16 +18,16 @@ namespace TestMap.Services.ProjectOperations;
 public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionService
 {
     /// <summary>
-    /// Entry point for service
+    ///     Entry point for service
     /// </summary>
     public virtual async Task BuildSolutionsAsync()
     {
         await FindAllSolutionFilesAsync();
     }
-    
+
     /// <summary>
-    /// Does a recursive search looking for
-    /// (.sln) files in the repo
+    ///     Does a recursive search looking for
+    ///     (.sln) files in the repo
     /// </summary>
     private async Task FindAllSolutionFilesAsync()
     {
@@ -45,29 +45,28 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
             }
         }
     }
-    
+
     /// <summary>
-    /// DEPRECATED
-    ///
-    /// Used to clean, build, and restore the project
-    /// Ran into issues with different SDKs
-    /// Also, not entirely necessary
+    ///     DEPRECATED
+    ///     Used to clean, build, and restore the project
+    ///     Ran into issues with different SDKs
+    ///     Also, not entirely necessary
     /// </summary>
     /// <param name="solutionPath"></param>
     private async Task BuildSolutionAsync(string solutionPath)
     {
         var runner = new ScriptRunner();
-        
+
         // clean project
         projectModel.Logger.Information($"Cleaning solution {solutionPath}");
         await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Clean"]);
         projectModel.Logger.Information($"Cleaning {solutionPath} finished.");
-        
+
         // restore
         projectModel.Logger.Information($"Restoring solution {solutionPath}");
         await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Restore"]);
         projectModel.Logger.Information($"Restoring {solutionPath} finished.");
-        
+
         // build
         projectModel.Logger.Information($"Building solution {solutionPath}");
         await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Build"]);
@@ -79,8 +78,8 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     }
 
     /// <summary>
-    /// Opens the solution and loads the projects
-    /// associated with the solution
+    ///     Opens the solution and loads the projects
+    ///     associated with the solution
     /// </summary>
     /// <param name="solutionPath">Absolute path to the solution (.sln) file</param>
     private async Task LoadSolutionAsync(string solutionPath)
@@ -91,31 +90,31 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
             using (var workspace = MSBuildWorkspace.Create())
             {
                 var solution = await workspace.OpenSolutionAsync(solutionPath);
-                
+
                 var projects = solution.Projects.ToList();
-                
-                
+
+
                 List<string> solutionProjects = new();
 
                 foreach (var project in projects)
                 {
                     // the compilation gives us access to SemanticModeling 
                     // and symbol resolving
-                    var compilation = (CSharpCompilation) await project.GetCompilationAsync();
-                    
+                    var compilation = (CSharpCompilation)await project.GetCompilationAsync();
+
                     // target framework is typically defined within the project (.csproj) file
                     var doc = XDocument.Load(project.FilePath);
                     var targetFramework = doc.Descendants("TargetFramework").FirstOrDefault()?.Value;
                     if (targetFramework == null)
-                    {
                         targetFramework = doc.Descendants("TargetFrameworks").FirstOrDefault()?.Value;
-                    }
 
                     List<string> documents = GetDocuments(project);
                     Dictionary<string, SyntaxTree>? syntaxTrees = await GetSyntaxTrees(project, documents);
-                    
-                    AnalysisProject analysisProject = new AnalysisProject(solutionFilePath: solution.FilePath, projectReferences: GetProjectReferences(solution, project),
-                        syntaxTrees: syntaxTrees, projectFilePath: project.FilePath, compilation: compilation, languageFramework: targetFramework);
+
+                    var analysisProject = new AnalysisProject(solution.FilePath,
+                        projectReferences: GetProjectReferences(solution, project),
+                        syntaxTrees: syntaxTrees, projectFilePath: project.FilePath, compilation: compilation,
+                        languageFramework: targetFramework);
 
                     if (project.FilePath != null)
                     {
@@ -159,16 +158,14 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     }
 
     /// <summary>
-    /// Loads references project references
-    /// both inside and outside of the solution
-    ///
-    /// A reference to a project may not
-    /// be a project within the solution
-    ///
-    /// Projects may make references to other projects
-    /// that exist in another solution, therefore
-    /// We need to do a lookup for that project
-    /// that is atypical
+    ///     Loads references project references
+    ///     both inside and outside of the solution
+    ///     A reference to a project may not
+    ///     be a project within the solution
+    ///     Projects may make references to other projects
+    ///     that exist in another solution, therefore
+    ///     We need to do a lookup for that project
+    ///     that is atypical
     /// </summary>
     /// <param name="solution">Solution (.sln)</param>
     /// <param name="project">Project (.csproj)</param>
@@ -212,7 +209,7 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                             // Get the captured group
                             var filepath = match.Groups[1].Value;
 
-                            string[] parts = filepath.Split(['\\', '/']);
+                            string[] parts = filepath.Split('\\', '/');
 
                             // Check if the filepath has enough parts to trim
                             if (parts.Length > 2)
@@ -254,7 +251,7 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     }
 
     /// <summary>
-    /// Loads the documents (.cs) for the project
+    ///     Loads the documents (.cs) for the project
     /// </summary>
     /// <param name="project"></param>
     /// <returns>List of absolute paths to the documents in the project</returns>
@@ -269,9 +266,9 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     }
 
     /// <summary>
-    /// Loads the syntax trees for the project
-    /// using a list of documents contained
-    /// in the project
+    ///     Loads the syntax trees for the project
+    ///     using a list of documents contained
+    ///     in the project
     /// </summary>
     /// <param name="project"></param>
     /// <param name="documents"></param>

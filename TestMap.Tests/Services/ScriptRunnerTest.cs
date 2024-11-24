@@ -1,8 +1,7 @@
 ﻿using System.Collections.Generic;
-using System.Management.Automation;
+using System.IO;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
-using Moq;
 using TestMap.Services;
 using Xunit;
 
@@ -18,18 +17,34 @@ public class ScriptRunnerTest
         _mockScriptRunner = new ScriptRunner();
     }
 
+    private string CreateBatchFile(List<string> commands)
+    {
+        var tempFilePath = Path.Combine(Path.GetTempPath(), "delete.bat");
+        File.WriteAllLines(tempFilePath, commands);
+        return tempFilePath;
+    }
+
     [Fact]
-    public async Task RunScriptAsync_ShouldCaptureOutputAndErrors()
+    public async Task RunScriptAsync_ShouldExecuteBatchFile()
     {
         // Arrange
-        var commands = new List<string> { "Get-Process", "dir" };
+        var commands = new List<string> { "dir" };
+        var batchFilePath = CreateBatchFile(commands);
 
-        // Act
-        await _mockScriptRunner.RunScriptAsync(commands, "delete.bat");
+        try
+        {
+            // Act
+            await _mockScriptRunner.RunScriptAsync(commands, batchFilePath);
 
-        // Assert
-        Assert.NotEmpty(_mockScriptRunner.Output);
-        Assert.Empty(_mockScriptRunner.Errors);
-        Assert.False(_mockScriptRunner.HasError);
+            // Assert
+            Assert.NotEmpty(_mockScriptRunner.Output);
+            Assert.Empty(_mockScriptRunner.Errors);
+            Assert.False(_mockScriptRunner.HasError);
+        }
+        finally
+        {
+            // Clean up
+            if (File.Exists(batchFilePath)) File.Delete(batchFilePath);
+        }
     }
 }

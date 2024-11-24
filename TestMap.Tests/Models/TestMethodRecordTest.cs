@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using JetBrains.Annotations;
+﻿using JetBrains.Annotations;
 using TestMap.Models;
 using Xunit;
 
@@ -8,21 +7,21 @@ namespace TestMap.Tests.Models;
 [TestSubject(typeof(TestMethodRecord))]
 public class TestMethodRecordTest
 {
-    private readonly string _owner;
-    private readonly string _repo;
-    private readonly string _solutionFilePath;
-    private readonly string _projectPath;
-    private readonly string _filePath;
-    private readonly string _ns;
+    private readonly string _bodyEndPosition;
+    private readonly string _bodyStartPosition;
     private readonly string _classDeclaration;
     private readonly string _classFields;
-    private readonly string _usingStatements;
-    private readonly string _testFramework;
+    private readonly string _filePath;
     private readonly string _languageFramework;
     private readonly string _methodBody;
-    private readonly string _bodyStartPosition;
-    private readonly string _bodyEndPosition;
     private readonly string _methodInvocations;
+    private readonly string _ns;
+    private readonly string _owner;
+    private readonly string _projectPath;
+    private readonly string _repo;
+    private readonly string _solutionFilePath;
+    private readonly string _testFramework;
+    private readonly string _usingStatements;
 
     public TestMethodRecordTest()
     {
@@ -50,12 +49,12 @@ public class TestMethodRecordTest
             _ns, _classDeclaration, _classFields, _usingStatements, _testFramework, _languageFramework,
             _methodBody, _bodyStartPosition, _bodyEndPosition, _methodInvocations);
     }
-    
+
     [Fact]
     public void Constructor_ShouldInitializeTestMethodRecord()
     {
         var record = CreateTestMethodRecord();
-        
+
         Assert.Equal(_owner, record.Owner);
         Assert.Equal(_repo, record.Repo);
         Assert.Equal(_solutionFilePath, record.SolutionFilePath);

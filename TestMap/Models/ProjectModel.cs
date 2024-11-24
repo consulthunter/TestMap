@@ -3,7 +3,7 @@
  * 2024-11-07
  * Core structure for storing information
  * from a repository. Creates directories
- * for log files and output. 
+ * for log files and output.
  * ProjectModel.cs
  */
 
@@ -13,82 +13,10 @@ namespace TestMap.Models;
 
 public class ProjectModel
 {
-    // fields
-    public string? ProjectId { get; set; }
-    public string GitHubUrl { get; set; }
-    public string Owner { get; private set; }
-    public string RepoName { get; private set; }
-    public List<AnalysisSolution> Solutions { get; set; }
-    public List<AnalysisProject> Projects { get; set; }
-    public string DirectoryPath { get; set; }
-    public string? TempDirPath { get; set; }
-    private string? LogsDirPath { get; set; }
-    private string? OutputDirPath { get; set; }
-    public string? OutputPath { get; set; }
-    public string? LogsFilePath { get; private set; }
-    public Dictionary<string, List<string>>? TestingFrameworks { get; set; }
-    public Dictionary<string, string>? Scripts { get; set; }
-    public ILogger Logger { get; private set; }
     private readonly string _runDate;
 
-    // methods
     /// <summary>
-    /// Creates a random unique integer to use as the ProjectId
-    /// ProjectID is {randomNumber}_{RepoName}
-    /// </summary>
-    private void CreateUniqueId()
-    {
-        var rnd = new Random();
-        var randomNumber = rnd.Next(1, 1000001);
-        ProjectId = $"{randomNumber}_{RepoName}";
-    }
-    /// <summary>
-    /// Checks to see if the Log directory
-    /// is present, creates the directory
-    /// if not present
-    /// </summary>
-    public void EnsureProjectLogDir()
-    {
-        if (ProjectId != null)
-        {
-            var logDirPath = Path.Combine(LogsDirPath, _runDate, ProjectId);
-
-            if (!Directory.Exists(logDirPath)) Directory.CreateDirectory(logDirPath);
-            CreateLog(logDirPath);
-        }
-    }
-    /// <summary>
-    /// Checks to see if the Output directory
-    /// is present, creates the directory
-    /// if not present
-    /// </summary>
-    public void EnsureProjectOutputDir()
-    {
-        if (ProjectId != null)
-        {
-            var outputPath = Path.Combine(OutputDirPath, _runDate, ProjectId);
-            if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
-            OutputPath = outputPath;
-        }
-    }
-    /// <summary>
-    /// Creates the logger for the project
-    /// </summary>
-    /// <param name="logDirPath">Absolute file path for the project's log directory</param>
-    private void CreateLog(string logDirPath)
-    {
-        var logFilePath = Path.Combine(logDirPath, $"{ProjectId}.log");
-        LogsFilePath = logFilePath;
-
-        // logger
-        Logger = new LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.File(LogsFilePath)
-            .CreateLogger();
-    }
-
-    /// <summary>
-    /// Constructor
+    ///     Constructor
     /// </summary>
     /// <param name="gitHubUrl">Full URL for the repository from GitHub</param>
     /// <param name="owner">Name of the account owner for the repo</param>
@@ -101,7 +29,7 @@ public class ProjectModel
     /// <param name="testingFrameworks">Testing frameworks defined in the config</param>
     /// <param name="scripts">Batch or shell scripts defined in the config</param>
     public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "", string runDate = "",
-        string directoryPath = "",  string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
+        string directoryPath = "", string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
         Dictionary<string, List<string>>? testingFrameworks = null, Dictionary<string, string>? scripts = null)
     {
         GitHubUrl = gitHubUrl;
@@ -116,8 +44,84 @@ public class ProjectModel
         TempDirPath = tempDirPath;
         TestingFrameworks = testingFrameworks;
         Scripts = scripts;
-        
+
         // unique id for this particular project run
         CreateUniqueId();
+    }
+
+    // fields
+    public string? ProjectId { get; set; }
+    public string GitHubUrl { get; set; }
+    public string Owner { get; private set; }
+    public string RepoName { get; }
+    public List<AnalysisSolution> Solutions { get; set; }
+    public List<AnalysisProject> Projects { get; set; }
+    public string DirectoryPath { get; set; }
+    public string? TempDirPath { get; set; }
+    private string? LogsDirPath { get; }
+    private string? OutputDirPath { get; }
+    public string? OutputPath { get; set; }
+    public string? LogsFilePath { get; private set; }
+    public Dictionary<string, List<string>>? TestingFrameworks { get; set; }
+    public Dictionary<string, string>? Scripts { get; set; }
+    public ILogger Logger { get; private set; }
+
+    // methods
+    /// <summary>
+    ///     Creates a random unique integer to use as the ProjectId
+    ///     ProjectID is {randomNumber}_{RepoName}
+    /// </summary>
+    private void CreateUniqueId()
+    {
+        var rnd = new Random();
+        var randomNumber = rnd.Next(1, 1000001);
+        ProjectId = $"{randomNumber}_{RepoName}";
+    }
+
+    /// <summary>
+    ///     Checks to see if the Log directory
+    ///     is present, creates the directory
+    ///     if not present
+    /// </summary>
+    public void EnsureProjectLogDir()
+    {
+        if (ProjectId != null)
+        {
+            var logDirPath = Path.Combine(LogsDirPath, _runDate, ProjectId);
+
+            if (!Directory.Exists(logDirPath)) Directory.CreateDirectory(logDirPath);
+            CreateLog(logDirPath);
+        }
+    }
+
+    /// <summary>
+    ///     Checks to see if the Output directory
+    ///     is present, creates the directory
+    ///     if not present
+    /// </summary>
+    public void EnsureProjectOutputDir()
+    {
+        if (ProjectId != null)
+        {
+            var outputPath = Path.Combine(OutputDirPath, _runDate, ProjectId);
+            if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
+            OutputPath = outputPath;
+        }
+    }
+
+    /// <summary>
+    ///     Creates the logger for the project
+    /// </summary>
+    /// <param name="logDirPath">Absolute file path for the project's log directory</param>
+    private void CreateLog(string logDirPath)
+    {
+        var logFilePath = Path.Combine(logDirPath, $"{ProjectId}.log");
+        LogsFilePath = logFilePath;
+
+        // logger
+        Logger = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .WriteTo.File(LogsFilePath)
+            .CreateLogger();
     }
 }

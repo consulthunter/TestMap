@@ -28,9 +28,9 @@ namespace TestMap.Services.ProjectOperations;
 
 public class AnalyzeProjectService : IAnalyzeProjectService
 {
-    private readonly ProjectModel _projectModel;
-    private readonly string _methodOutFile;
     private readonly string _classOutFile;
+    private readonly string _methodOutFile;
+    private readonly ProjectModel _projectModel;
 
     public AnalyzeProjectService(ProjectModel projectModel)
     {
@@ -49,9 +49,9 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Uses the compilation to create the semantic model
-    /// And gathers the necessary information to create
-    /// the test method and test class records
+    ///     Uses the compilation to create the semantic model
+    ///     And gathers the necessary information to create
+    ///     the test method and test class records
     /// </summary>
     /// <param name="analysisProject">Analysis project, project we are analyzing</param>
     /// <param name="cSharpCompilation">Csharp compilation for the project</param>
@@ -84,18 +84,18 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 _projectModel.Logger.Information($"Class declaration: {classDeclaration.Identifier.ToString()}");
                 var fieldDeclarations = FindFields(classDeclaration);
                 var methodDeclarations = FindMethods(classDeclaration, testingFramework);
-                
+
                 // if there is a test
                 // then this is a test class
                 if (methodDeclarations.Any())
                 {
                     // try to find the source code (class being tested) using
                     // project references and filepaths
-                    SyntaxTree? sourceClass = FindSourceClass(analysisProject, document);
-                    
+                    var sourceClass = FindSourceClass(analysisProject, document);
+
                     if (sourceClass != null)
                     {
-                        TestClassRecord testClassRecord = CreateTestClassRecord(analysisProject, document, namespaceDec,
+                        var testClassRecord = CreateTestClassRecord(analysisProject, document, namespaceDec,
                             classDeclaration, fieldDeclarations, usings, testingFramework, sourceClass);
                         WriteResults(testClassRecord);
                     }
@@ -117,7 +117,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                         // then we can create the record
                         if (methodInvocations.Any())
                         {
-                            TestMethodRecord testMethodRecord = CreateTestMethodRecord(analysisProject, document,
+                            var testMethodRecord = CreateTestMethodRecord(analysisProject, document,
                                 namespaceDec, classDeclaration, fieldDeclarations, usings, method, methodInvocations);
                             WriteResults(testMethodRecord);
                         }
@@ -130,14 +130,14 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Looks for the namespace defined in the document
-    /// using the root node
+    ///     Looks for the namespace defined in the document
+    ///     using the root node
     /// </summary>
     /// <param name="rootNode">Root node of the document</param>
     /// <returns>String, namespace identifier if found</returns>
     private string FindNamespace(SyntaxNode rootNode)
     {
-        _projectModel.Logger.Information($"Looking for namespace.");
+        _projectModel.Logger.Information("Looking for namespace.");
         var namespaceDec = "";
         var namespaceDeclaration = rootNode.DescendantNodes().OfType<NamespaceDeclarationSyntax>().FirstOrDefault();
 
@@ -165,7 +165,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Looks for usings statements from the root node of the document
+    ///     Looks for usings statements from the root node of the document
     /// </summary>
     /// <param name="rootNode">Root node of the document</param>
     /// <returns>List of strings, using statements</returns>
@@ -185,38 +185,29 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Searches the using statements for a testing framework
-    /// that is defined within the config
+    ///     Searches the using statements for a testing framework
+    ///     that is defined within the config
     /// </summary>
     /// <param name="usings">List of usings statements</param>
     /// <returns>Testing framework that matches from the config if present</returns>
     private string FindTestingFrameworkFromUsings(List<string> usings)
     {
-        string testingFramework = "";
+        var testingFramework = "";
         _projectModel.Logger.Information("Looking for testing framework.");
         foreach (var usingStatement in usings)
-        {
-            foreach (var framework in _projectModel.TestingFrameworks.Keys)
-            {
-                if (usingStatement.ToLower().Contains(framework.ToLower()))
-                {
-                    testingFramework = framework;
-                }
-            }
-        }
+        foreach (var framework in _projectModel.TestingFrameworks.Keys)
+            if (usingStatement.ToLower().Contains(framework.ToLower()))
+                testingFramework = framework;
 
-        if (string.IsNullOrEmpty(testingFramework))
-        {
-            _projectModel.Logger.Warning("No testing framework found.");
-        }
+        if (string.IsNullOrEmpty(testingFramework)) _projectModel.Logger.Warning("No testing framework found.");
 
         _projectModel.Logger.Information("Finished looking for testing framework.");
         return testingFramework;
     }
 
     /// <summary>
-    /// Finds the corresponding source code class (class being tested)
-    /// That matches with the current test code class
+    ///     Finds the corresponding source code class (class being tested)
+    ///     That matches with the current test code class
     /// </summary>
     /// <param name="analysisProject">Analysis project</param>
     /// <param name="document">Current document (i.e test code class)</param>
@@ -227,10 +218,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         // look in referenced project syntax trees
         List<AnalysisProject> referencedProjects = new();
         foreach (var reference in analysisProject.ProjectReferences)
-        {
             referencedProjects.AddRange(
                 _projectModel.Projects.Where(x => x.ProjectFilePath.Equals(reference)));
-        }
 
         // Looking for cases of:
         // Project (Project A) has a reference to another project (Project B) where
@@ -253,13 +242,13 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Looks for fields in the class
+    ///     Looks for fields in the class
     /// </summary>
     /// <param name="classNode">Class node</param>
     /// <returns>List of strings, fields and properties defined in the class</returns>
     private List<string> FindFields(SyntaxNode classNode)
     {
-        List<string> results = new List<string>();
+        List<string> results = new();
         _projectModel.Logger.Information("Looking for fields.");
         results.AddRange(classNode.DescendantNodes().OfType<PropertyDeclarationSyntax>().ToList()
             .Select(x => x.ToString()));
@@ -271,29 +260,29 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Looks for method declaration syntax in the document
+    ///     Looks for method declaration syntax in the document
     /// </summary>
     /// <param name="classNode">Class node</param>
     /// <param name="testingFramework">Test framework found in the usings</param>
     /// <returns>List of tuples, (method, test framework)</returns>
     private List<(MethodDeclarationSyntax, string)> FindMethods(SyntaxNode classNode, string testingFramework)
     {
-        _projectModel.Logger.Information($"Looking for test method declarations.");
+        _projectModel.Logger.Information("Looking for test method declarations.");
         var methods = classNode.DescendantNodes().OfType<MethodDeclarationSyntax>().ToList();
         List<(MethodDeclarationSyntax, string)> testMethods = new();
         foreach (var method in methods)
         {
-            (var name, var result, var framework) = IsTestMethod(method, testingFramework);
+            var (name, result, framework) = IsTestMethod(method, testingFramework);
             if (result) testMethods.Add((method, framework));
         }
 
-        _projectModel.Logger.Information($"Finished looking for test method declarations.");
+        _projectModel.Logger.Information("Finished looking for test method declarations.");
         return testMethods;
     }
 
     /// <summary>
-    /// Checks to see if the method is a test method
-    /// using the attributes defined within the config file
+    ///     Checks to see if the method is a test method
+    ///     using the attributes defined within the config file
     /// </summary>
     /// <param name="methodDeclarationSyntax">Method defined in the document</param>
     /// <param name="testingFramework">Test framework found in the usings</param>
@@ -303,10 +292,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     {
         // Get the list of attributes for the specified framework
         if (!_projectModel.TestingFrameworks.TryGetValue(testingFramework, out var frameworkAttributes))
-        {
             // Return default if the framework is not found
             return (string.Empty, false, string.Empty);
-        }
 
         // Check if the method has any of the attributes for the framework
         var result = methodDeclarationSyntax.AttributeLists
@@ -323,7 +310,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Looks for method invocations within the test method
+    ///     Looks for method invocations within the test method
     /// </summary>
     /// <param name="methodDeclarationSyntax">Test method</param>
     /// <param name="semanticModel">Semantic model</param>
@@ -331,9 +318,9 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<(string, string)> FindInvocations(MethodDeclarationSyntax methodDeclarationSyntax,
         SemanticModel semanticModel)
     {
-        _projectModel.Logger.Information($"Looking for method invocations.");
+        _projectModel.Logger.Information("Looking for method invocations.");
         List<(string, string)> invocationDeclarations = new();
-        
+
         // find the invocations
         var invocations = methodDeclarationSyntax.DescendantNodes().OfType<InvocationExpressionSyntax>();
 
@@ -344,7 +331,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             // to find the definition for the method being invoked
             var info = semanticModel.GetSymbolInfo(invocation);
             var methodSymbol = info.Symbol;
-            
+
             // the symbol could be null
             // if the symbol is not defined in syntax trees that
             // are loaded in the csharp compilation
@@ -357,17 +344,17 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             }
             else
             {
-                invocationDeclarations.Add((invocation.ToString(), $"<<TUPLE>>"));
+                invocationDeclarations.Add((invocation.ToString(), "<<TUPLE>>"));
             }
         }
 
-        _projectModel.Logger.Information($"Finished looking for method invocations.");
+        _projectModel.Logger.Information("Finished looking for method invocations.");
 
         return invocationDeclarations;
     }
 
     /// <summary>
-    /// Creates a Test Class Record
+    ///     Creates a Test Class Record
     /// </summary>
     /// <param name="analysisProject">Current project we are working in</param>
     /// <param name="document">Current document being analyzed</param>
@@ -379,7 +366,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <param name="sourceClass">Source class matched to the test class</param>
     /// <returns>TestClassRecord</returns>
     private TestClassRecord CreateTestClassRecord(AnalysisProject analysisProject, SyntaxTree document,
-        string namespaceDec, ClassDeclarationSyntax classDeclaration, List<string> fieldDeclarations, List<string> usings,
+        string namespaceDec, ClassDeclarationSyntax classDeclaration, List<string> fieldDeclarations,
+        List<string> usings,
         string testFramework, SyntaxTree sourceClass)
     {
         return new TestClassRecord
@@ -403,7 +391,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Creates a Test method record
+    ///     Creates a Test method record
     /// </summary>
     /// <param name="analysisProject">Current project we are working in</param>
     /// <param name="document">Current document being analyzed</param>
@@ -415,7 +403,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <param name="methodInvocations">Method called in the test method and their definitions</param>
     /// <returns></returns>
     private TestMethodRecord CreateTestMethodRecord(AnalysisProject analysisProject, SyntaxTree document,
-        string namespaceDec, ClassDeclarationSyntax classDeclaration, List<string> fieldDeclarations, List<string> usings,
+        string namespaceDec, ClassDeclarationSyntax classDeclaration, List<string> fieldDeclarations,
+        List<string> usings,
         (MethodDeclarationSyntax, string) method, List<(string, string)> methodInvocations)
     {
         return new TestMethodRecord
@@ -428,18 +417,18 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             namespaceDec,
             classDeclaration.Identifier.ToString(),
             string.Join("", fieldDeclarations),
-            string.Join("" ,usings),
+            string.Join("", usings),
             method.Item2,
             analysisProject.LanguageFramework,
             method.Item1.ToString(),
             method.Item1.Span.Start.ToString(),
             method.Item1.Span.End.ToString(),
-            string.Join("",methodInvocations)
+            string.Join("", methodInvocations)
         );
     }
 
     /// <summary>
-    /// Writes a test method record to the test method CSV
+    ///     Writes a test method record to the test method CSV
     /// </summary>
     /// <param name="testMethodRecord">Record containing the test method and source code (code being tested)</param>
     private void WriteResults(TestMethodRecord testMethodRecord)
@@ -448,7 +437,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         var config = new CsvConfiguration(CultureInfo.InvariantCulture)
         {
             HasHeaderRecord = !File.Exists(_methodOutFile),
-            Quote = '\'',
+            Quote = '\''
             // Write header only if file doesn't exist
         };
         using (var stream = File.Open(_methodOutFile, FileMode.Append))
@@ -468,7 +457,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Writes a test class record to the test class CSV
+    ///     Writes a test class record to the test class CSV
     /// </summary>
     /// <param name="testClassRecord">Record containing the test class and source code class (class being tested)</param>
     private void WriteResults(TestClassRecord testClassRecord)
@@ -477,7 +466,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         var config = new CsvConfiguration(CultureInfo.InvariantCulture)
         {
             HasHeaderRecord = !File.Exists(_methodOutFile),
-            Quote = '\'',
+            Quote = '\''
             // Write header only if file doesn't exist
         };
         using (var stream = File.Open(_classOutFile, FileMode.Append))
@@ -497,7 +486,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     /// <summary>
-    /// Formats the source code for the CSV
+    ///     Formats the source code for the CSV
     /// </summary>
     /// <param name="str">String of source code to modify</param>
     /// <returns>Formatted string of source code</returns>

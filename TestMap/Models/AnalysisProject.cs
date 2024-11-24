@@ -12,9 +12,9 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace TestMap.Models;
 
 /// <summary>
-/// AnalysisProject
-/// Representation of a single csharp project (.csproj)
-/// from the repository
+///     AnalysisProject
+///     Representation of a single csharp project (.csproj)
+///     from the repository
 /// </summary>
 /// <param name="solutionFilePath">Absolute filepath to the solution (.sln) file</param>
 /// <param name="syntaxTrees">Syntax trees for source code files (.cs) loaded with the project</param>
@@ -32,11 +32,11 @@ public class AnalysisProject(
     CSharpCompilation? compilation = null,
     string languageFramework = "")
 {
-    public readonly string? SolutionFilePath = solutionFilePath;
-    public readonly string ProjectFilePath = projectFilePath;
-    public readonly Dictionary<string, SyntaxTree>? SyntaxTrees = syntaxTrees;
-    public readonly List<string>? ProjectReferences = projectReferences;
     public readonly List<MetadataReference>? Assemblies = assemblies;
     public readonly CSharpCompilation? Compilation = compilation;
     public readonly string LanguageFramework = languageFramework;
+    public readonly string ProjectFilePath = projectFilePath;
+    public readonly List<string>? ProjectReferences = projectReferences;
+    public readonly string? SolutionFilePath = solutionFilePath;
+    public readonly Dictionary<string, SyntaxTree>? SyntaxTrees = syntaxTrees;
 }
