@@ -7,15 +7,15 @@ using TestMap.Models;
 using TestMap.Services.ProjectOperations;
 using Xunit;
 
-namespace TestMap.Tests.Services.ProjectOperations;
+namespace TestMap.Tests.UnitTests.Services.ProjectOperations;
 
-[TestSubject(typeof(DeleteProjectService))]
-public class DeleteProjectServiceTest
+[TestSubject(typeof(CloneRepoService))]
+public class CloneRepoServiceTest
 {
     private readonly Mock<ProjectModel> _projectModelMock;
-    private readonly DeleteProjectService _service;
+    private readonly CloneRepoService _service;
 
-    public DeleteProjectServiceTest()
+    public CloneRepoServiceTest()
     {
         var gitHubUrl = "https://github.com/consulthunter/TestMap-Example";
         var owner = "consulthunter";
@@ -42,14 +42,15 @@ public class DeleteProjectServiceTest
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
 
-        _service = new DeleteProjectService(_projectModelMock.Object);
+        _service = new CloneRepoService(_projectModelMock.Object);
     }
 
     [Fact]
-    public async Task DeleteProjectService_ProjectModelIsNotNull()
+    [Trait("Category", "CI")]
+    public async Task CloneRepoAsync_DirectoryExists_Success()
     {
         // arrange
-        await _service.DeleteProjectAsync();
+        await _service.CloneRepoAsync();
 
         // Assert
         _projectModelMock.Verify();

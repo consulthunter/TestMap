@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Microsoft.CodeAnalysis;
@@ -9,20 +10,15 @@ using TestMap.Models;
 using TestMap.Services.ProjectOperations;
 using Xunit;
 
-namespace TestMap.Tests.Models;
+namespace TestMap.Tests.UnitTests.Services.ProjectOperations;
 
-[TestSubject(typeof(TestMap.Models.TestMap))]
-public class TestMapTest
+[TestSubject(typeof(AnalyzeProjectService))]
+public class AnalyzeProjectServiceTest
 {
-    private readonly Mock<AnalyzeProjectService> _mockAnalyzeProjectService;
-    private readonly Mock<BuildSolutionService> _mockBuildSolutionService;
-    private readonly Mock<CloneRepoService> _mockCloneRepoService;
-    private readonly Mock<DeleteProjectService> _mockDeleteProjectService;
-    private readonly Mock<SdkManager> _mockSdkManager;
     private readonly Mock<ProjectModel> _projectModelMock;
-    private TestMap.Models.TestMap _testMap;
+    private readonly AnalyzeProjectService _service;
 
-    public TestMapTest()
+    public AnalyzeProjectServiceTest()
     {
         var gitHubUrl = "https://github.com/consulthunter/TestMap-Example";
         var owner = "consulthunter";
@@ -49,13 +45,8 @@ public class TestMapTest
         _projectModelMock.Object.Projects.Add(CreateAnalysisProject());
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
-        _mockCloneRepoService = new Mock<CloneRepoService>(_projectModelMock.Object);
-        _mockSdkManager = new Mock<SdkManager>(_projectModelMock.Object);
-        _mockBuildSolutionService = new Mock<BuildSolutionService>(_projectModelMock.Object);
-        _mockAnalyzeProjectService = new Mock<AnalyzeProjectService>(_projectModelMock.Object);
-        _mockDeleteProjectService = new Mock<DeleteProjectService>(_projectModelMock.Object);
 
-        CreateTestMap();
+        _service = new AnalyzeProjectService(_projectModelMock.Object);
     }
 
     private AnalysisProject CreateAnalysisProject()
@@ -73,38 +64,27 @@ public class TestMapTest
         return new AnalysisProject(solution, syntaxTrees, projectReferences, assemblies, projectFilePath);
     }
 
-    private void CreateTestMap()
+    private CSharpCompilation CreateCSharpCompilation(AnalysisProject analysisProject)
     {
-        _testMap = new TestMap.Models.TestMap
-        (
-            _projectModelMock.Object,
-            _mockCloneRepoService.Object,
-            _mockSdkManager.Object,
-            _mockBuildSolutionService.Object,
-            _mockAnalyzeProjectService.Object,
-            _mockDeleteProjectService.Object
-        );
+        var compilation = CSharpCompilation.Create("temp",
+            analysisProject.SyntaxTrees.Values.ToList(),
+            analysisProject.Assemblies,
+            new CSharpCompilationOptions(OutputKind.ConsoleApplication));
+
+        return compilation;
     }
 
     [Fact]
-    public async Task RunAsync_CallsExpectedMethods()
+    [Trait("Category", "CI")]
+    public async Task AnalyzeProjectService_ProjectModelNotNull()
     {
         // Arrange
-        _mockBuildSolutionService
-            .Setup(service => service.BuildSolutionsAsync())
-            .Returns(Task.CompletedTask)
-            .Verifiable();
-
-        _mockAnalyzeProjectService
-            .Setup(service => service.AnalyzeProjectAsync(It.IsAny<AnalysisProject>(), It.IsAny<CSharpCompilation>()))
-            .Returns(Task.CompletedTask)
-            .Verifiable();
+        var compilation = CreateCSharpCompilation(_projectModelMock.Object.Projects.First());
 
         // Act
-        await _testMap.RunAsync();
+        await _service.AnalyzeProjectAsync(_projectModelMock.Object.Projects.First(), compilation);
 
         // Assert
-        _mockBuildSolutionService.Verify();
-        _mockAnalyzeProjectService.Verify();
+        _projectModelMock.Verify();
     }
 }

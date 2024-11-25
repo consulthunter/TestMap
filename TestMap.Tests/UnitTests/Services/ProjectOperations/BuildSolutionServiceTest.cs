@@ -7,15 +7,15 @@ using TestMap.Models;
 using TestMap.Services.ProjectOperations;
 using Xunit;
 
-namespace TestMap.Tests.Services.ProjectOperations;
+namespace TestMap.Tests.UnitTests.Services.ProjectOperations;
 
-[TestSubject(typeof(CloneRepoService))]
-public class CloneRepoServiceTest
+[TestSubject(typeof(BuildSolutionService))]
+public class BuildSolutionServiceTest
 {
     private readonly Mock<ProjectModel> _projectModelMock;
-    private readonly CloneRepoService _service;
+    private readonly BuildSolutionService _service;
 
-    public CloneRepoServiceTest()
+    public BuildSolutionServiceTest()
     {
         var gitHubUrl = "https://github.com/consulthunter/TestMap-Example";
         var owner = "consulthunter";
@@ -42,16 +42,16 @@ public class CloneRepoServiceTest
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
 
-        _service = new CloneRepoService(_projectModelMock.Object);
+        _service = new BuildSolutionService(_projectModelMock.Object);
     }
 
     [Fact]
-    public async Task CloneRepoAsync_DirectoryExists_Success()
+    [Trait("Category", "CI")]
+    public async Task BuildSolutionService_BuildsSolution_Project()
     {
-        // arrange
-        await _service.CloneRepoAsync();
+        await _service.BuildSolutionsAsync();
 
-        // Assert
+        // assert
         _projectModelMock.Verify();
     }
 }

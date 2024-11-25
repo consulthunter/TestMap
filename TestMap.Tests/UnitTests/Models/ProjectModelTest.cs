@@ -5,7 +5,7 @@ using JetBrains.Annotations;
 using TestMap.Models;
 using Xunit;
 
-namespace TestMap.Tests.Models;
+namespace TestMap.Tests.UnitTests.Models;
 
 [TestSubject(typeof(ProjectModel))]
 public class ProjectModelTest
@@ -48,6 +48,7 @@ public class ProjectModelTest
     }
 
     [Fact]
+    [Trait("Category", "CI")]
     public void Constructor_ShouldInitializeProjectModel()
     {
         var projectModel = CreateProjectModel();

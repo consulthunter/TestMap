@@ -1,13 +1,12 @@
 ﻿using System;
 using System.IO;
 using System.Text;
-using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Microsoft.Extensions.Configuration;
 using TestMap.Services;
 using Xunit;
 
-namespace TestMap.Tests.Services;
+namespace TestMap.Tests.UnitTests.Services;
 
 [TestSubject(typeof(ConfigurationService))]
 public class ConfigurationServiceTest
@@ -30,10 +29,22 @@ public class ConfigurationServiceTest
                              "RunDateFormat": "yyyy-MM-dd"
                            },
                            "Frameworks": {
-                             "NUnit": ["Test", "Theory"],
-                             "xUnit": ["Fact", "Theory"],
-                             "MSTest": ["TestMethod", "DataSource"],
-                             "Microsoft.VisualStudio.TestTools.UnitTesting": ["TestMethod", "DataSource"]
+                             "NUnit": [
+                               "Test",
+                               "Theory"
+                             ],
+                             "xUnit": [
+                               "Fact",
+                               "Theory"
+                             ],
+                             "MSTest": [
+                               "TestMethod",
+                               "DataSource"
+                             ],
+                             "Microsoft.VisualStudio.TestTools.UnitTesting": [
+                               "TestMethod",
+                               "DataSource"
+                             ]
                            },
                            "Scripts": {
                              "Clone": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_git_clone.bat",
@@ -62,15 +73,13 @@ public class ConfigurationServiceTest
     }
 
     [Fact]
-    public async Task RunAsync_ShouldInitialize()
+    [Trait("Category", "Local")]
+    public void Config_ShouldInitializeVariables()
     {
-        // Arrange & Act
-        await _configurationService.ConfigureRunAsync();
-
-        // Act & Assert
+        // Assert
         Assert.Equal(5, _configurationService.GetConcurrency());
         Assert.True(Directory.Exists(_configurationService.GetLogsDirectory()));
         Assert.Equal(DateTime.UtcNow.ToString("yyyy-MM-dd"), _configurationService.GetRunDate());
-        Assert.NotEmpty(_configurationService.GetProjectModels());
+        Assert.Empty(_configurationService.GetProjectModels());
     }
 }

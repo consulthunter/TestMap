@@ -7,15 +7,15 @@ using TestMap.Models;
 using TestMap.Services.ProjectOperations;
 using Xunit;
 
-namespace TestMap.Tests.Services.ProjectOperations;
+namespace TestMap.Tests.UnitTests.Services.ProjectOperations;
 
-[TestSubject(typeof(BuildSolutionService))]
-public class BuildSolutionServiceTest
+[TestSubject(typeof(DeleteProjectService))]
+public class DeleteProjectServiceTest
 {
     private readonly Mock<ProjectModel> _projectModelMock;
-    private readonly BuildSolutionService _service;
+    private readonly DeleteProjectService _service;
 
-    public BuildSolutionServiceTest()
+    public DeleteProjectServiceTest()
     {
         var gitHubUrl = "https://github.com/consulthunter/TestMap-Example";
         var owner = "consulthunter";
@@ -42,15 +42,17 @@ public class BuildSolutionServiceTest
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
 
-        _service = new BuildSolutionService(_projectModelMock.Object);
+        _service = new DeleteProjectService(_projectModelMock.Object);
     }
 
     [Fact]
-    public async Task BuildSolutionService_BuildsSolution_Project()
+    [Trait("Category", "CI")]
+    public async Task DeleteProjectService_ProjectModelIsNotNull()
     {
-        await _service.BuildSolutionsAsync();
+        // arrange
+        await _service.DeleteProjectAsync();
 
-        // assert
+        // Assert
         _projectModelMock.Verify();
     }
 }

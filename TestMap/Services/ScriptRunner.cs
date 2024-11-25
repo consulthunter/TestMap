@@ -67,25 +67,33 @@ public class ScriptRunner
             Arguments = string.Join(" ", arguments)
         };
 
-        using var process = new Process();
-        process.StartInfo = startInfo;
-        process.Start();
+        try
+        {
+            using var process = new Process();
+            process.StartInfo = startInfo;
+            process.Start();
 
-        // Read the output and error streams
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
+            // Read the output and error streams
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
 
-        // Wait for the process to exit
-        await process.WaitForExitAsync();
-        // Print output and error
-        Output.AddRange(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
-        Errors.AddRange(error.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+            // Wait for the process to exit
+            await process.WaitForExitAsync();
+            // Print output and error
+            Output.AddRange(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+            Errors.AddRange(error.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
 
-        // Check exit code
-        if (process.ExitCode != 0)
+            // Check exit code
+            if (process.ExitCode != 0)
+            {
+                HasError = true;
+                Errors.Add($"Batch file execution failed with exit code: {process.ExitCode}");
+            }
+        }
+        catch (Exception e)
         {
             HasError = true;
-            Errors.Add($"Batch file execution failed with exit code: {process.ExitCode}");
+            Errors.Add(e.Message);
         }
     }
 

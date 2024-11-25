@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using TestMap.Models;
 using Xunit;
 
-namespace TestMap.Tests.Models;
+namespace TestMap.Tests.UnitTests.Models;
 
 [TestSubject(typeof(AnalysisProject))]
 public class AnalysisProjectTest
@@ -36,6 +36,7 @@ public class AnalysisProjectTest
     }
 
     [Fact]
+    [Trait("Category", "CI")]
     public void Constructor_ShouldInitializeAnalysisProject()
     {
         // Arrange

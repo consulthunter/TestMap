@@ -43,11 +43,21 @@ public class TestMapRunner
             .CreateLogger();
     }
 
+    public TestMapRunner()
+    {
+        MaxConcurrency = 1;
+        _projects = new List<ProjectModel>();
+        Logger = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .WriteTo.File(Path.GetTempFileName())
+            .CreateLogger();
+    }
+
     // fields
     private int MaxConcurrency { get; }
     private ILogger Logger { get; }
 
-    private IConfigurationService ConfigurationService { get; }
+    private IConfigurationService? ConfigurationService { get; }
 
     // methods
     /// <summary>
@@ -78,7 +88,6 @@ public class TestMapRunner
                 (
                     project,
                     new CloneRepoService(project),
-                    new SdkManager(project),
                     new BuildSolutionService(project),
                     new AnalyzeProjectService(project),
                     new DeleteProjectService(project)

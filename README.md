@@ -12,7 +12,7 @@ CSV files:
 
 __Note:__ There may be some overlap between the two files. However, the ```test_methods``` is generally a more complete picture of the tests found in the repo.
 ```test_methods``` uses a more fine-grained search. ```test_classes``` assumes a 1-to-1 mapping between test code files and source code files, which is typically not the case unless for unit tests.
-```test_methods``` captures all of the tests using the frameworks and attributes defined by the user and does NOT assume the 1-to-1 mapping between test code files and source code files.
+```test_methods``` captures all the tests using the frameworks and attributes defined by the user and does NOT assume the 1-to-1 mapping between test code files and source code files.
 
 ## Dependencies
 
@@ -58,18 +58,40 @@ Try restoring the dependencies:
 Next try building the project:
 - ```dotnet build .\TestMap\TestMap.csproj```
 
-If both restoring the dependencies and building the project succeeded without errors:
+If both restoring the dependencies and building the project succeeded without errors, you can now use the tool.
 
-Run the example,
+## Example Usage
+
+After completing the installation, try running the example:
 
 ```dotnet run --project .\TestMap\TestMap.csproj collect --config .\TestMap\Config\collection-config.json```
 
 ## How To Use
 
+More details on how to use this tool is available [here.](./Docs/HOW-TO-USE.md)
+
+## Testing
+
+Unit tests for TestMap are generally run through GitHub Actions.
+
+Integration tests typically need to be done locally.
+
+For details on testing you can find more information [here.](./Docs/TESTING.md)
+
 ## Motivation
+
+Detailed motivation for this tool is available [here.](./Docs/MOTIVATION.md)
 
 ## How It Works
 
+Technical detail on how the tool works is available [here.](./Docs/HOW-IT-WORKS.md)
+
+## Future Work
+
+We have some ideas for future work located [here.](./Docs/FUTURE-WORK.md)
+
 ## Data Availability
 
-## Acknoledgements
+Information on datasets created using this tool is located [here.](./Docs/DATA-AVAILABILITY.md)
+
+## Acknowledgements

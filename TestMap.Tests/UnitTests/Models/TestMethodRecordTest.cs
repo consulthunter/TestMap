@@ -2,7 +2,7 @@
 using TestMap.Models;
 using Xunit;
 
-namespace TestMap.Tests.Models;
+namespace TestMap.Tests.UnitTests.Models;
 
 [TestSubject(typeof(TestMethodRecord))]
 public class TestMethodRecordTest
@@ -51,6 +51,7 @@ public class TestMethodRecordTest
     }
 
     [Fact]
+    [Trait("Category", "CI")]
     public void Constructor_ShouldInitializeTestMethodRecord()
     {
         var record = CreateTestMethodRecord();

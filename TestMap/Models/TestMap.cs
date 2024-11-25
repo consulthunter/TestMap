@@ -26,7 +26,6 @@ namespace TestMap.Models;
 public class TestMap(
     ProjectModel projectModel,
     ICloneRepoService cloneRepoService,
-    SdkManager sdkManager,
     IBuildSolutionService buildSolutionService,
     IAnalyzeProjectService analyzeProjectService,
     IDeleteProjectService deleteProjectService)
@@ -37,8 +36,6 @@ public class TestMap(
     private IBuildSolutionService BuildSolutionService { get; } = buildSolutionService;
     private IAnalyzeProjectService AnalyzeProjectService { get; } = analyzeProjectService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
-
-    private SdkManager SdkManager { get; set; } = sdkManager;
 
     // methods
     public async Task RunAsync()

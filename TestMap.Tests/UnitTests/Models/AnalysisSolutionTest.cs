@@ -1,12 +1,11 @@
 ﻿using System.Collections.Generic;
 using JetBrains.Annotations;
-using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.MSBuild;
 using TestMap.Models;
 using Xunit;
 
-namespace TestMap.Tests.Models;
+namespace TestMap.Tests.UnitTests.Models;
 
 [TestSubject(typeof(AnalysisSolution))]
 public class AnalysisSolutionTest
@@ -16,7 +15,6 @@ public class AnalysisSolutionTest
 
     public AnalysisSolutionTest()
     {
-        MSBuildLocator.RegisterDefaults();
         var tempSolution = MSBuildWorkspace.Create();
         _solution = tempSolution.CurrentSolution;
         _projects = new List<string>();
@@ -28,6 +26,7 @@ public class AnalysisSolutionTest
     }
 
     [Fact]
+    [Trait("Category", "CI")]
     public void Constructor_ShouldInitializeAnalysisSolution()
     {
         var analysisSolution = CreateAnalysisSolution();
