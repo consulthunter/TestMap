@@ -93,5 +93,3 @@ We have some ideas for future work located [here.](./Docs/FUTURE-WORK.md)
 ## Data Availability
 
 Information on datasets created using this tool is located [here.](./Docs/DATA-AVAILABILITY.md)
-
-## Acknowledgements
