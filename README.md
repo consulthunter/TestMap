@@ -42,7 +42,7 @@ Now clone TestMap
 
 Next, edit the ```collection-config.json``` located under ```.\TestMap\TestMap\Config\```
 - Modify ```FilePaths```
-    - ```TargetFilePath``` to: ```<Your__DIR_Prefix>\\Projects\\TestMap\\TestMap\\Date\\example_projec.txt```
+    - ```TargetFilePath``` to: ```<Your__DIR_Prefix>\\Projects\\TestMap\\TestMap\\Date\\example_project.txt```
     - ```LogsDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Logs```
     - ```TempDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\Temp```
     - ```OutputDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Output```

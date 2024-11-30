@@ -379,14 +379,14 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             document.FilePath,
             namespaceDec,
             classDeclaration.Identifier.ToString(),
-            string.Join("", fieldDeclarations),
-            string.Join("", usings),
+            string.Join("<<SEP>>", fieldDeclarations),
+            string.Join("<<SEP>>", usings),
             testFramework,
             analysisProject.LanguageFramework,
-            classDeclaration.ToFullString().Trim(),
+            ReplaceNewlines(classDeclaration.ToFullString().Trim()),
             classDeclaration.Span.Start.ToString(),
             classDeclaration.Span.End.ToString(),
-            sourceClass.ToString()
+            ReplaceNewlines(sourceClass.ToString())
         );
     }
 
@@ -416,14 +416,14 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             document.FilePath,
             namespaceDec,
             classDeclaration.Identifier.ToString(),
-            string.Join("", fieldDeclarations),
-            string.Join("", usings),
-            method.Item2,
+            string.Join("<<SEP>>", fieldDeclarations),
+            string.Join("<<SEP>>", usings),
+            ReplaceNewlines(method.Item2),
             analysisProject.LanguageFramework,
             method.Item1.ToString(),
             method.Item1.Span.Start.ToString(),
             method.Item1.Span.End.ToString(),
-            string.Join("", methodInvocations)
+            ReplaceNewlines(string.Join("<<SEP>>", methodInvocations))
         );
     }
 
