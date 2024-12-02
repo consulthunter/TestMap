@@ -1,0 +1,11 @@
+﻿cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Leary"
+  given-names: "Hunter"
+  orcid: "https://orcid.org/0009-0008-1056-8106"
+title: "TestMap"
+version: 1.0.0
+doi: 10.5281/zenodo.14262975
+date-released: 2024-12-2
+url: "https://github.com/consulthunter/TestMap"

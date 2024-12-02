@@ -1,4 +1,9 @@
-﻿# TestMap
+﻿
+# TestMap
+![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14262975.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Language](https://img.shields.io/badge/Language-CSharp-blue.svg)
+
 
 TestMap is a tool for gathering software tests from C# repositories from GitHub and other Git based developer platforms.
 
