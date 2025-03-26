@@ -10,6 +10,7 @@
 using Microsoft.Build.Locator;
 using Serilog;
 using TestMap.Models;
+using TestMap.Services.Configuration;
 using TestMap.Services.ProjectOperations;
 
 namespace TestMap.Services;
@@ -88,7 +89,8 @@ public class TestMapRunner
                 (
                     project,
                     new CloneRepoService(project),
-                    new BuildSolutionService(project),
+                    new ExtractInformationService(project),
+                    new BuildTestService(project),
                     new AnalyzeProjectService(project),
                     new DeleteProjectService(project)
                 );

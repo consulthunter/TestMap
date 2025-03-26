@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.IO;
 using TestMap.Services;
+using TestMap.Services.Configuration;
 using Xunit;
 
 namespace TestMap.Tests.IntegrationTests;

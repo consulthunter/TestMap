@@ -19,21 +19,22 @@ namespace TestMap.Models;
 /// </summary>
 /// <param name="projectModel">Structure for the repo</param>
 /// <param name="cloneRepoService">Service to clone the repo</param>
-/// <param name="sdkManager">NOT USED, ideally this would install SDKs to build the project</param>
-/// <param name="buildSolutionService">Service to find, load the solutions, projects, syntax trees, etc.</param>
+/// <param name="extractInformationService">Service to find, load the solutions, projects, syntax trees, etc.</param>
 /// <param name="analyzeProjectService">Service to find tests and create the CSV</param>
 /// <param name="deleteProjectService">Service to remove the repo from the Temp directory</param>
 public class TestMap(
     ProjectModel projectModel,
     ICloneRepoService cloneRepoService,
-    IBuildSolutionService buildSolutionService,
+    IExtractInformationService extractInformationService,
+    IBuildTestService buildTestService,
     IAnalyzeProjectService analyzeProjectService,
     IDeleteProjectService deleteProjectService)
 {
     // fields
     public ProjectModel ProjectModel { get; } = projectModel;
     private ICloneRepoService CloneRepoService { get; } = cloneRepoService;
-    private IBuildSolutionService BuildSolutionService { get; } = buildSolutionService;
+    private IExtractInformationService ExtractInformationService { get; } = extractInformationService;
+    private IBuildTestService BuildTestService { get; } = buildTestService;
     private IAnalyzeProjectService AnalyzeProjectService { get; } = analyzeProjectService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
 
@@ -41,7 +42,8 @@ public class TestMap(
     public async Task RunAsync()
     {
         await CloneRepoAsync();
-        await BuildSolutionAsync();
+        await ExtractInformationAsync();
+        await BuildTestAsync();
         await AnalyzeProjectsAsync();
         await DeleteProjectAsync();
     }
@@ -60,9 +62,14 @@ public class TestMap(
     ///     And loads the projects (.csproj) for each
     ///     solution in the repo
     /// </summary>
-    private async Task BuildSolutionAsync()
+    private async Task ExtractInformationAsync()
     {
-        await BuildSolutionService.BuildSolutionsAsync();
+        await ExtractInformationService.ExtractInfoAsync();
+    }
+
+    private async Task BuildTestAsync()
+    {
+        await BuildTestService.BuildTestAsync();
     }
 
     /// <summary>

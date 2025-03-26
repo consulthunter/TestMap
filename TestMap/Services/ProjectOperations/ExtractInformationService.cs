@@ -5,23 +5,26 @@
  * and their projects
  * BuildSolutionService.cs
  */
-
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.MSBuild;
+using Newtonsoft.Json.Linq;
 using TestMap.Models;
 
 namespace TestMap.Services.ProjectOperations;
 
-public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionService
+public class ExtractInformationService(ProjectModel projectModel) : IExtractInformationService
 {
+    private string _globalTargetFramework;
+
     /// <summary>
     ///     Entry point for service
     /// </summary>
-    public virtual async Task BuildSolutionsAsync()
+    public virtual async Task ExtractInfoAsync()
     {
+        _globalTargetFramework = FindGlobalTargetFramework();
         await FindAllSolutionFilesAsync();
     }
 
@@ -40,41 +43,9 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
             foreach (var solution in solutions)
             {
                 projectModel.Logger.Information($"Solution file found: {solution}");
-                // await BuildSolutionAsync(solution);
                 await LoadSolutionAsync(solution);
             }
         }
-    }
-
-    /// <summary>
-    ///     DEPRECATED
-    ///     Used to clean, build, and restore the project
-    ///     Ran into issues with different SDKs
-    ///     Also, not entirely necessary
-    /// </summary>
-    /// <param name="solutionPath"></param>
-    private async Task BuildSolutionAsync(string solutionPath)
-    {
-        var runner = new ScriptRunner();
-
-        // clean project
-        projectModel.Logger.Information($"Cleaning solution {solutionPath}");
-        await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Clean"]);
-        projectModel.Logger.Information($"Cleaning {solutionPath} finished.");
-
-        // restore
-        projectModel.Logger.Information($"Restoring solution {solutionPath}");
-        await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Restore"]);
-        projectModel.Logger.Information($"Restoring {solutionPath} finished.");
-
-        // build
-        projectModel.Logger.Information($"Building solution {solutionPath}");
-        await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Build"]);
-        projectModel.Logger.Information($"Building {solutionPath} finished.");
-
-        if (runner.HasError)
-            foreach (var e in runner.Errors)
-                projectModel.Logger.Error(e);
     }
 
     /// <summary>
@@ -102,11 +73,12 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                     // and symbol resolving
                     var compilation = (CSharpCompilation)await project.GetCompilationAsync();
 
-                    // target framework is typically defined within the project (.csproj) file
-                    var doc = XDocument.Load(project.FilePath);
-                    var targetFramework = doc.Descendants("TargetFramework").FirstOrDefault()?.Value;
-                    if (targetFramework == null)
-                        targetFramework = doc.Descendants("TargetFrameworks").FirstOrDefault()?.Value;
+                    var targetFramework = _globalTargetFramework;
+                    
+                    
+                    if (targetFramework == "")
+                        targetFramework = FindProjectTargetFramework(project);
+                    
 
                     List<string> documents = GetDocuments(project);
                     Dictionary<string, SyntaxTree>? syntaxTrees = await GetSyntaxTrees(project, documents);
@@ -296,5 +268,71 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
         }
 
         return treeDict;
+    }
+
+    private string FindGlobalTargetFramework()
+    {
+        // Step 1: Recursively search for all global.json files
+        var globalJsonFiles = Directory.GetFiles(projectModel.DirectoryPath, "global.json", SearchOption.AllDirectories);
+
+        // Step 2: Iterate through each global.json file
+        foreach (var globalJsonPath in globalJsonFiles)
+        {
+            if (File.Exists(globalJsonPath))
+            {
+                    // Step 3: Read the global.json file and extract the SDK version
+                    var globalJson = JObject.Parse(File.ReadAllText(globalJsonPath));
+                    var sdkVersion = globalJson["sdk"]?["version"]?.ToString();
+                    if (!string.IsNullOrEmpty(sdkVersion))
+                    {
+                        // Return the first found SDK version
+                        return sdkVersion;
+                    }
+            }
+        }
+
+        // Return empty if no SDK version is found in any global.json
+        return "";
+    }
+
+    private string FindProjectTargetFramework(Project project)
+    {
+        try
+        {
+            if (!File.Exists(project.FilePath))
+            {
+                throw new FileNotFoundException($"The project file '{project.FilePath}' was not found.");
+            }
+
+            // Load the .csproj file
+            var doc = XDocument.Load(project.FilePath);
+
+            // Handle potential namespaces in the XML
+            var namespaceManager = doc.Root?.GetDefaultNamespace();
+            XNamespace ns = namespaceManager ?? string.Empty;
+
+            // Try to retrieve <TargetFramework>
+            var targetFramework = doc.Descendants(ns + "TargetFramework").FirstOrDefault()?.Value;
+
+            if (string.IsNullOrEmpty(targetFramework))
+            {
+                // Try to retrieve <TargetFrameworks>
+                targetFramework = doc.Descendants(ns + "TargetFrameworks").FirstOrDefault()?.Value;
+
+                // Handle multiple frameworks if present
+                if (!string.IsNullOrEmpty(targetFramework) && targetFramework.Contains(";"))
+                {
+                    return targetFramework.Split(';')[0]; // Return the first framework as default
+                }
+            }
+
+            return targetFramework ?? string.Empty; // Return empty string if nothing is found
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An error occurred: {ex.Message}");
+            return string.Empty;
+
+        }
     }
 }

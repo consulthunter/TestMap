@@ -4,6 +4,7 @@ using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.Configuration;
 using TestMap.Services;
+using TestMap.Services.Configuration;
 using Xunit;
 
 namespace TestMap.Tests.UnitTests.Services;

@@ -11,7 +11,7 @@
 using Microsoft.Extensions.Configuration;
 using TestMap.Models;
 
-namespace TestMap.Services;
+namespace TestMap.Services.Configuration;
 
 /// <summary>
 ///     ConfigurationService
@@ -29,6 +29,9 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
     private readonly string? _outputDirPath = configuration["FilePaths:OutputDirPath"];
     private readonly List<ProjectModel> _projectModels = new();
     private readonly string _runDate = DateTime.UtcNow.ToString(configuration["Settings:RunDateFormat"]);
+    
+    private readonly Dictionary<string, string>? _docker =
+        configuration.GetSection("Docker").Get<Dictionary<string, string>>();
 
     private readonly Dictionary<string, string>? _scripts =
         configuration.GetSection("Scripts").Get<Dictionary<string, string>>();
@@ -117,7 +120,7 @@ public class ConfigurationService(IConfiguration configuration) : IConfiguration
             var directoryPath = Path.Combine(_tempDirPath, repoName);
 
             var projectModel = new ProjectModel(githubUrl, owner, repoName, _runDate,
-                directoryPath, _logsDirPath, _outputDirPath, _tempDirPath, _testingFrameworks, _scripts);
+                directoryPath, _logsDirPath, _outputDirPath, _tempDirPath, _testingFrameworks, _docker, _scripts);
 
             _projectModels.Add(projectModel);
         }

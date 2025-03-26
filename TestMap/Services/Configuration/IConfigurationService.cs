@@ -8,7 +8,7 @@
 
 using TestMap.Models;
 
-namespace TestMap.Services;
+namespace TestMap.Services.Configuration;
 
 public interface IConfigurationService
 {

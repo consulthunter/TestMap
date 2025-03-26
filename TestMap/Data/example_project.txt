@@ -1,1 +1,3 @@
 ﻿https://github.com/consulthunter/TestMap-Example
+https://github.com/apache/lucenenet
+https://github.com/mathnet/mathnet-numerics

@@ -25,7 +25,7 @@ public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectSer
                 // script
                 var runner = new ScriptRunner();
                 projectModel.Logger.Information($"Deleting repository: {projectModel.GitHubUrl}");
-                await runner.RunScriptAsync([projectModel.DirectoryPath], projectModel.Scripts["Delete"]);
+                await runner.RunPowershellScriptAsync([projectModel.DirectoryPath], projectModel.Scripts["Delete"]);
                 projectModel.Logger.Information($"Finished deleting repository: {projectModel.GitHubUrl}");
             }
             catch (Exception ex)

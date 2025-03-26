@@ -11,6 +11,7 @@ using CommandLine;
 using Microsoft.Extensions.Configuration;
 using TestMap.CLIOptions;
 using TestMap.Services;
+using TestMap.Services.Configuration;
 
 namespace TestMap;
 

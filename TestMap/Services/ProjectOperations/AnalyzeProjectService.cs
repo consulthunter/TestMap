@@ -16,20 +16,20 @@
  * AnalyzeProjectService.cs
  */
 
-using System.Globalization;
-using CsvHelper;
-using CsvHelper.Configuration;
+using System.Text.Json;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models;
+using TestMap.Models.Code;
+using TestMap.Models.Coverage;
+using Location = TestMap.Models.Code.Location;
 
 namespace TestMap.Services.ProjectOperations;
 
 public class AnalyzeProjectService : IAnalyzeProjectService
 {
-    private readonly string _classOutFile;
-    private readonly string _methodOutFile;
+    private readonly string _outFile;
     private readonly ProjectModel _projectModel;
 
     public AnalyzeProjectService(ProjectModel projectModel)
@@ -37,10 +37,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         try
         {
             _projectModel = projectModel;
-            _methodOutFile = Path.Combine(_projectModel.OutputPath,
-                $"test_methods_{_projectModel.ProjectId}.csv");
-            _classOutFile = Path.Combine(_projectModel.OutputPath,
-                $"test_classes_{_projectModel.ProjectId}.csv");
+            _outFile = Path.Combine(_projectModel.OutputPath,
+                $"data_{_projectModel.ProjectId}.jsonl");
         }
         catch (Exception e)
         {
@@ -61,6 +59,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         // for every .cs file in the current project
         foreach (var document in cSharpCompilation.SyntaxTrees)
         {
+            if (document.FilePath.EndsWith(".g.cs") || document.FilePath.EndsWith("AssemblyAttributes.cs") ||
+                document.FilePath.EndsWith("AssemblyInfo.cs"))
+            {
+                continue;
+            }
             _projectModel.Logger.Information($"Analyzing {document.FilePath}");
             var compilation = cSharpCompilation;
 
@@ -75,57 +78,48 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             var usings = GetUsingStatements(root);
 
             var testingFramework = FindTestingFrameworkFromUsings(usings);
+            
+            CodeModel codeModel = new CodeModel(_projectModel.Owner, _projectModel.RepoName, 
+                analysisProject.SolutionFilePath, analysisProject.ProjectFilePath, document.FilePath, 
+                namespaceDec, usings, analysisProject.LanguageFramework);
+            
+            List<TestClass> testClasses = new List<TestClass>();
 
             var classDeclarationSyntaxes = root.DescendantNodes().OfType<ClassDeclarationSyntax>().ToList();
-
             _projectModel.Logger.Information($"Number of class declarations: {classDeclarationSyntaxes.Count}");
+            
             foreach (var classDeclaration in classDeclarationSyntaxes)
             {
                 _projectModel.Logger.Information($"Class declaration: {classDeclaration.Identifier.ToString()}");
-                var fieldDeclarations = FindFields(classDeclaration);
-                var methodDeclarations = FindMethods(classDeclaration, testingFramework);
+                TestClass testClass = new TestClass();
+                var methodDeclarations = FindClassMethods(classDeclaration);
+                ProcessClassMethods(testClass, methodDeclarations, semanticModel);
 
-                // if there is a test
-                // then this is a test class
-                if (methodDeclarations.Any())
+                // we only care about test classes, nonTestClasses will be found through symbolic resolution
+                if (testClass.TestMethods.Any())
                 {
-                    // try to find the source code (class being tested) using
-                    // project references and filepaths
-                    var sourceClass = FindSourceClass(analysisProject, document);
-
-                    if (sourceClass != null)
-                    {
-                        var testClassRecord = CreateTestClassRecord(analysisProject, document, namespaceDec,
-                            classDeclaration, fieldDeclarations, usings, testingFramework, sourceClass);
-                        WriteResults(testClassRecord);
-                    }
-                    else
-                    {
-                        _projectModel.Logger.Warning($"No source code class found for {document.FilePath} test class.");
-                    }
-
-                    foreach (var method in methodDeclarations)
-                    {
-                        // look for method invocations and their definitions
-                        // within the test method
-                        var methodInvocations = FindInvocations(method.Item1, semanticModel);
-
-                        _projectModel.Logger.Information($"Method {method.Item1.Identifier.ToString()}");
-                        _projectModel.Logger.Information($"Number of invocations: {methodInvocations.Count}");
-
-                        // if we have any method invocations 
-                        // then we can create the record
-                        if (methodInvocations.Any())
-                        {
-                            var testMethodRecord = CreateTestMethodRecord(analysisProject, document,
-                                namespaceDec, classDeclaration, fieldDeclarations, usings, method, methodInvocations);
-                            WriteResults(testMethodRecord);
-                        }
-                    }
+                    _projectModel.Logger.Information($"Found {testClass.TestMethods.Count} methods");
+                    var name =  classDeclaration.Identifier.ToString();
+                    var body = classDeclaration.ToFullString().Trim();
+                    var fieldDeclarations = FindClassFields(classDeclaration);
+                    var attributes = FindClassAttributes(classDeclaration);
+                    var modifiers = FindClassModifiers(classDeclaration);
+                    Location location = new Location(classDeclaration.Span.Start, classDeclaration.Span.End);
+                    
+                    testClass.Name = name;
+                    testClass.ClassBody = body;
+                    testClass.ClassFields = fieldDeclarations;
+                    testClass.Attributes = attributes;
+                    testClass.Modifiers = modifiers;
+                    testClass.Location = location;
+                    
+                    testClasses.Add(testClass);
                 }
+                
             }
-
             _projectModel.Logger.Information($"Finished analyzing {document.FilePath}");
+            codeModel.TestClasses =  testClasses;
+            WriteResults(codeModel);
         }
     }
 
@@ -205,48 +199,93 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         return testingFramework;
     }
 
-    /// <summary>
-    ///     Finds the corresponding source code class (class being tested)
-    ///     That matches with the current test code class
-    /// </summary>
-    /// <param name="analysisProject">Analysis project</param>
-    /// <param name="document">Current document (i.e test code class)</param>
-    /// <returns>SyntaxTree if we found a match</returns>
-    private SyntaxTree? FindSourceClass(AnalysisProject analysisProject, SyntaxTree document)
+    private void ProcessSourceClass(TestClass testClass, SyntaxNode syntaxNode)
     {
-        // look through project model for referenced project
-        // look in referenced project syntax trees
-        List<AnalysisProject> referencedProjects = new();
-        foreach (var reference in analysisProject.ProjectReferences)
-            referencedProjects.AddRange(
-                _projectModel.Projects.Where(x => x.ProjectFilePath.Equals(reference)));
-
-        // Looking for cases of:
-        // Project (Project A) has a reference to another project (Project B) where
-        // Project A has a syntax tree of .*.cs such as Student.cs
-        // Project B has a syntax tree of .*(Test|test|Tests|tests).cs such as StudentTest.cs
-        // This should be exact matches minus the (Test|test|Tests|tests)
-        // Assumption: Filepaths will be exact once the keyword is removed
-        var trimmedDocPath = document.FilePath.Split("\\").Last().Replace("Test", "").Replace("test", "")
-            .Replace("Tests", "").Replace("tests", "");
-
-        SyntaxTree? sourceClass = null;
-
-        foreach (var referencedProject in referencedProjects)
+        _projectModel.Logger.Information("Processing source class.");
+        NonTestClass nonTestClass = new();
+        var sourceSyntax = syntaxNode.SyntaxTree.GetRoot();
+        var classDeclaration = sourceSyntax.DescendantNodes().OfType<ClassDeclarationSyntax>().FirstOrDefault();
+        var ns = FindNamespace(sourceSyntax);
+        var usingStatements = GetUsingStatements(sourceSyntax);
+        if (classDeclaration != null)
         {
-            var path = referencedProject.SyntaxTrees.Keys.FirstOrDefault(x => x.Contains(trimmedDocPath));
-            if (path != null) sourceClass = referencedProject.SyntaxTrees[path];
+            var className = classDeclaration.Identifier.ToString();
+            var classBody = classDeclaration.ToFullString();
+            var attributes = FindClassAttributes(classDeclaration);
+            var modifiers = FindClassModifiers(classDeclaration);
+            Location location = new Location(classDeclaration.Span.Start, classDeclaration.Span.End);
+            var filepath = classDeclaration.SyntaxTree.FilePath;
+            ClassCoverage classCoverage = FindClassCoverageByName(className);
+            nonTestClass.FilePath = filepath;
+            nonTestClass.ClassBody = classBody;
+            nonTestClass.Attributes = attributes;
+            nonTestClass.Modifiers = modifiers;
+            nonTestClass.Location = location;
+            nonTestClass.Namespace = ns;
+            nonTestClass.UsingStatements = usingStatements;
+            nonTestClass.Coverage = classCoverage;
+        
+            testClass.AddIfNotPresent(nonTestClass);   
         }
-
-        return sourceClass;
     }
 
+    private void ProcessSourceMethod(TestMethod testMethod, SyntaxNode syntaxNode)
+    {
+        _projectModel.Logger.Information("Processing source method.");
+        try
+        {
+            var method = (MethodDeclarationSyntax)syntaxNode;
+            string name = method.Identifier.ValueText;
+            List<string> attributes = FindMethodAttributes(method);
+            List<string> modifiers = FindMethodModifiers(method);
+            string methodBody = "";
+            Location location = new Location(0,0);
+            if (method.Body != null)
+            {
+                methodBody = method.Body.ToString();
+                location = new Location(method.Body.Span.Start, method.Body.Span.End);
+            }
+            List<string> invocations = FindInvocations(method);
+            MethodCoverage methodCoverage = FindMethodCoverageByName(name);
+            NonTestMethod nonTestMethod = new NonTestMethod(name, attributes, modifiers, invocations, methodBody, location, methodCoverage);
+            
+            testMethod.AddIfNotPresent(nonTestMethod);
+        }
+        catch (Exception ex)
+        {
+            _projectModel.Logger.Error($"Error processing syntax node: {ex.Message}");
+        }
+    }
+
+    private List<string> FindClassAttributes(ClassDeclarationSyntax classDeclaration)
+    {
+        _projectModel.Logger.Information("Looking for class attributes.");
+        List<string> attributes = new();
+        
+        foreach (var attribute in classDeclaration.AttributeLists)
+        {
+            attributes.Add(attribute.ToFullString());
+        }
+        return attributes;
+    }
+    private List<string> FindClassModifiers(ClassDeclarationSyntax classDeclaration)
+    {
+        _projectModel.Logger.Information("Looking for class modifiers.");
+        List<string> modifiers = new();
+        
+        foreach (var modifier in classDeclaration.Modifiers)
+        {
+            modifiers.Add(modifier.ToFullString());
+        }
+        return modifiers;
+    }
+    
     /// <summary>
     ///     Looks for fields in the class
     /// </summary>
     /// <param name="classNode">Class node</param>
     /// <returns>List of strings, fields and properties defined in the class</returns>
-    private List<string> FindFields(SyntaxNode classNode)
+    private List<string> FindClassFields(SyntaxNode classNode)
     {
         List<string> results = new();
         _projectModel.Logger.Information("Looking for fields.");
@@ -263,63 +302,224 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     ///     Looks for method declaration syntax in the document
     /// </summary>
     /// <param name="classNode">Class node</param>
-    /// <param name="testingFramework">Test framework found in the usings</param>
     /// <returns>List of tuples, (method, test framework)</returns>
-    private List<(MethodDeclarationSyntax, string)> FindMethods(SyntaxNode classNode, string testingFramework)
+    private List<MethodDeclarationSyntax> FindClassMethods(SyntaxNode classNode)
     {
-        _projectModel.Logger.Information("Looking for test method declarations.");
+        _projectModel.Logger.Information("Looking for method declarations.");
         var methods = classNode.DescendantNodes().OfType<MethodDeclarationSyntax>().ToList();
-        List<(MethodDeclarationSyntax, string)> testMethods = new();
-        foreach (var method in methods)
-        {
-            var (name, result, framework) = IsTestMethod(method, testingFramework);
-            if (result) testMethods.Add((method, framework));
-        }
 
         _projectModel.Logger.Information("Finished looking for test method declarations.");
-        return testMethods;
+        return methods;
     }
 
-    /// <summary>
-    ///     Checks to see if the method is a test method
-    ///     using the attributes defined within the config file
-    /// </summary>
-    /// <param name="methodDeclarationSyntax">Method defined in the document</param>
-    /// <param name="testingFramework">Test framework found in the usings</param>
-    /// <returns>Tuple, (attributeName, boolean (if the attribute is in the defined list), testingFramework)</returns>
-    private (string, bool, string) IsTestMethod(MethodDeclarationSyntax methodDeclarationSyntax,
-        string testingFramework)
+    private void ProcessClassMethods(TestClass testClass, List<MethodDeclarationSyntax> methods, SemanticModel semanticModel)
     {
-        // Get the list of attributes for the specified framework
-        if (!_projectModel.TestingFrameworks.TryGetValue(testingFramework, out var frameworkAttributes))
-            // Return default if the framework is not found
-            return (string.Empty, false, string.Empty);
-
-        // Check if the method has any of the attributes for the framework
-        var result = methodDeclarationSyntax.AttributeLists
-            .SelectMany(al => al.Attributes)
-            .Select(attr =>
+        foreach (var method in methods)
+        {
+            _projectModel.Logger.Information("Processing method.");
+            string name = method.Identifier.ValueText;
+            List<string> attributes = FindMethodAttributes(method);
+            List<string> modifiers = FindMethodModifiers(method);
+            string methodBody = "";
+            Location location = new Location(0,0);
+            if (method.Body != null)
             {
-                var attributeName = attr.Name.ToString();
-                var exists = frameworkAttributes.Contains(attributeName);
-                return (attributeName, exists, exists ? testingFramework : string.Empty);
-            })
-            .FirstOrDefault();
+                methodBody = method.Body.ToString();
+                location = new Location(method.Body.Span.Start, method.Body.Span.End);
+            }
+            List<SyntaxNode> methodInvocationsWithSource = FindInvocationsWithSource(method, semanticModel);
+            List<string> invocations = FindInvocations(method);
+            (bool isTestMethod, string framework) = IsTestMethod(method);
+            
+            // if a test method
+            // if the invocation is not in the same filepath as the method
+            // this likely means that it is related to what's being tested
+            // we could look through and directly map the source code information, we'd create a
+            // new NonTestClass adding it to its methods, it would be good to track the source code filepath
+            // 
+            // or we could save it to another object for mapping later
+            // we also need to find the assertions for that test if any
+            // 
+            // if the invocation is in the same path, then it should be picked up by another method
+            // and we can skip it
+            if (isTestMethod)
+            {
+                _projectModel.Logger.Information("Testing method found.");
+                List<string> assertions = FindAssertions(method);
+                
+                TestMethod testMethod = new TestMethod(name, attributes, modifiers,  invocations,  methodBody, location, assertions);
+                testClass.TestFramework =  framework;
+                foreach (var methodInvocation in methodInvocationsWithSource)
+                {
+                    // They share the same file
+                    // we can skip
+                    if (methodInvocation.GetLocation().SourceTree?.FilePath == method.GetLocation().SourceTree?.FilePath)
+                    {
+                        continue;
+                    }
+                    // we need to add the test method
+                    // otherwise we need to process the invocation as a NonTestClass and NonTestMethod
+                    ProcessSourceClass(testClass, methodInvocation);
+                    ProcessSourceMethod(testMethod, methodInvocation);
+                }
+                testClass.TestMethods.Add(testMethod);
+                
+            }
+            // add to non-test-methods
+            else
+            {
+                _projectModel.Logger.Information("Non-Testing method found.");
+                MethodCoverage methodCoverage = FindMethodCoverageByName(name);
+                NonTestMethod nonTestMethod = new NonTestMethod(name, attributes, modifiers, invocations, methodBody, location, methodCoverage);
+                testClass.NonTestMethods.Add(nonTestMethod);
+            }
+        }
+    }
+    
+    private ClassCoverage FindClassCoverageByName(string name)
+    {
+        _projectModel.Logger.Information("Looking for class coverage.");
+        CoverageReport report = _projectModel.CoverageReport;
 
-        return result;
+        foreach (var package in report.Packages)
+        {
+            foreach (var classCoverage in package.Classes)
+            {
+                if (classCoverage.Name == name)
+                {
+                    return classCoverage;
+                }
+
+            }
+        }
+        return new ClassCoverage();
     }
 
+    private MethodCoverage FindMethodCoverageByName(string name)
+    {
+        _projectModel.Logger.Information("Looking for method coverage.");
+        CoverageReport report = _projectModel.CoverageReport;
+
+        foreach (var package in report.Packages)
+        {
+            foreach (var classCoverage in package.Classes)
+            {
+                foreach (var method in classCoverage.Methods)
+                {
+                    if (method.Name == name)
+                    {
+                        return method;
+                    }
+                    
+                }
+                
+            }
+        }
+        return new MethodCoverage();
+    }
+
+    private List<string> FindMethodAttributes(MethodDeclarationSyntax method)
+    {
+        List<string> attributes = new();
+        _projectModel.Logger.Information("Looking for method attributes.");
+
+        foreach (var attribute in method.AttributeLists)
+        {
+            attributes.Add(attribute.ToFullString());
+        }
+        return attributes;
+    }
+
+    private List<string> FindMethodModifiers(MethodDeclarationSyntax method)
+    {
+        List<string> modifiers = new();
+        _projectModel.Logger.Information("Looking for method modifiers.");
+
+        foreach (var variableModifier in method.Modifiers)
+        {
+            modifiers.Add(variableModifier.ToFullString());
+        }
+        return modifiers;
+    }
+
+    private List<string> FindAssertions(MethodDeclarationSyntax method)
+    {
+        List<string> assertions = new();
+        _projectModel.Logger.Information("Looking for assertions.");
+        // find the invocations
+        var invocations = method.DescendantNodes().OfType<InvocationExpressionSyntax>();
+
+        foreach (var invocation in invocations)
+        {
+            if (invocation.ToFullString().Contains("Assert"))
+            {
+                assertions.Add(invocation.ToFullString());
+            }
+        }
+
+        return assertions;
+    }
+    /// <summary>
+    /// Determines if the method is a test method using the attributes defined in the config file.
+    /// </summary>
+    /// <param name="methodDeclarationSyntax">Method defined in the document.</param>
+    /// <returns>Tuple: (boolean if the attribute is in the defined list, testingFramework or empty string).</returns>
+    private (bool, string) IsTestMethod(MethodDeclarationSyntax methodDeclarationSyntax)
+    {
+        // Iterate through all testing frameworks in the project model
+        foreach (var framework in _projectModel.TestingFrameworks)
+        {
+            var frameworkName = framework.Key; // Framework name (e.g., "NUnit", "xUnit")
+            var frameworkAttributes = framework.Value; // List of attributes for the framework
+
+            // Check if the method has any attributes from the current framework
+            var hasAttribute = methodDeclarationSyntax.AttributeLists
+                .SelectMany(al => al.Attributes)
+                .Any(attr => frameworkAttributes.Contains(attr.Name.ToString()));
+
+            if (hasAttribute)
+            {
+                return (true, frameworkName); // Return true and the framework name
+            }
+        }
+
+        return (false, string.Empty); // Return false if no matching attribute is found
+    }
     /// <summary>
     ///     Looks for method invocations within the test method
     /// </summary>
     /// <param name="methodDeclarationSyntax">Test method</param>
     /// <param name="semanticModel">Semantic model</param>
     /// <returns>List of tuples, (method invocation, method definition)</returns>
-    private List<(string, string)> FindInvocations(MethodDeclarationSyntax methodDeclarationSyntax,
+    private List<string> FindInvocations(MethodDeclarationSyntax methodDeclarationSyntax)
+    {
+        _projectModel.Logger.Information("Looking for method invocations.");
+        List<string> invocationDeclarations = new();
+
+        // find the invocations
+        var invocations = methodDeclarationSyntax.DescendantNodes().OfType<InvocationExpressionSyntax>();
+
+        // looking at each invocation
+        foreach (var invocation in invocations)
+        {
+            invocationDeclarations.Add(invocation.Expression.ToString());
+        }
+
+        _projectModel.Logger.Information("Finished looking for method invocations.");
+
+        return invocationDeclarations;
+    }
+    /// <summary>
+    ///     Looks for method invocations within the test method
+    /// </summary>
+    /// <param name="methodDeclarationSyntax">Test method</param>
+    /// <param name="semanticModel">Semantic model</param>
+    /// <returns>List of tuples, (method invocation, method definition)</returns>
+    private List<SyntaxNode> FindInvocationsWithSource(MethodDeclarationSyntax methodDeclarationSyntax,
         SemanticModel semanticModel)
     {
         _projectModel.Logger.Information("Looking for method invocations.");
-        List<(string, string)> invocationDeclarations = new();
+        List<SyntaxNode> invocationDeclarations = new();
 
         // find the invocations
         var invocations = methodDeclarationSyntax.DescendantNodes().OfType<InvocationExpressionSyntax>();
@@ -337,14 +537,14 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             // are loaded in the csharp compilation
             if (methodSymbol != null)
             {
-                // get the declaration for the invocation
-                var declaration = methodSymbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax().ToString() ??
-                                  string.Empty;
-                invocationDeclarations.Add((invocation.ToString(), $"<<TUPLE>> {declaration}"));
-            }
-            else
-            {
-                invocationDeclarations.Add((invocation.ToString(), "<<TUPLE>>"));
+                // what needs to happen here,
+                // if not null we need to keep a list of these items and return
+                var declaration = methodSymbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+
+                if (declaration != null)
+                {
+                    invocationDeclarations.Add(declaration);
+                }
             }
         }
 
@@ -352,149 +552,21 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
         return invocationDeclarations;
     }
-
-    /// <summary>
-    ///     Creates a Test Class Record
-    /// </summary>
-    /// <param name="analysisProject">Current project we are working in</param>
-    /// <param name="document">Current document being analyzed</param>
-    /// <param name="namespaceDec">Namespace of the document</param>
-    /// <param name="classDeclaration">Identifier of the class</param>
-    /// <param name="fieldDeclarations">Fields declared in the class</param>
-    /// <param name="usings">Using statements found in the document</param>
-    /// <param name="testFramework">Test framework found in the document</param>
-    /// <param name="sourceClass">Source class matched to the test class</param>
-    /// <returns>TestClassRecord</returns>
-    private TestClassRecord CreateTestClassRecord(AnalysisProject analysisProject, SyntaxTree document,
-        string namespaceDec, ClassDeclarationSyntax classDeclaration, List<string> fieldDeclarations,
-        List<string> usings,
-        string testFramework, SyntaxTree sourceClass)
-    {
-        return new TestClassRecord
-        (
-            _projectModel.Owner,
-            _projectModel.RepoName,
-            analysisProject.SolutionFilePath,
-            analysisProject.ProjectFilePath,
-            document.FilePath,
-            namespaceDec,
-            classDeclaration.Identifier.ToString(),
-            string.Join("<<SEP>>", fieldDeclarations),
-            string.Join("<<SEP>>", usings),
-            testFramework,
-            analysisProject.LanguageFramework,
-            ReplaceNewlines(classDeclaration.ToFullString().Trim()),
-            classDeclaration.Span.Start.ToString(),
-            classDeclaration.Span.End.ToString(),
-            ReplaceNewlines(sourceClass.ToString())
-        );
-    }
-
-    /// <summary>
-    ///     Creates a Test method record
-    /// </summary>
-    /// <param name="analysisProject">Current project we are working in</param>
-    /// <param name="document">Current document being analyzed</param>
-    /// <param name="namespaceDec">Namespace of the document</param>
-    /// <param name="classDeclaration">Identifier of the class</param>
-    /// <param name="fieldDeclarations">Fields declared in the class</param>
-    /// <param name="usings">Using statements found in the document</param>
-    /// <param name="method">Test method found</param>
-    /// <param name="methodInvocations">Method called in the test method and their definitions</param>
-    /// <returns></returns>
-    private TestMethodRecord CreateTestMethodRecord(AnalysisProject analysisProject, SyntaxTree document,
-        string namespaceDec, ClassDeclarationSyntax classDeclaration, List<string> fieldDeclarations,
-        List<string> usings,
-        (MethodDeclarationSyntax, string) method, List<(string, string)> methodInvocations)
-    {
-        return new TestMethodRecord
-        (
-            _projectModel.Owner,
-            _projectModel.RepoName,
-            analysisProject.SolutionFilePath,
-            analysisProject.ProjectFilePath,
-            document.FilePath,
-            namespaceDec,
-            classDeclaration.Identifier.ToString(),
-            string.Join("<<SEP>>", fieldDeclarations),
-            string.Join("<<SEP>>", usings),
-            ReplaceNewlines(method.Item2),
-            analysisProject.LanguageFramework,
-            method.Item1.ToString(),
-            method.Item1.Span.Start.ToString(),
-            method.Item1.Span.End.ToString(),
-            ReplaceNewlines(string.Join("<<SEP>>", methodInvocations))
-        );
-    }
+    
 
     /// <summary>
     ///     Writes a test method record to the test method CSV
     /// </summary>
-    /// <param name="testMethodRecord">Record containing the test method and source code (code being tested)</param>
-    private void WriteResults(TestMethodRecord testMethodRecord)
+    /// <param name="testMethod">Record containing the test method and source code (code being tested)</param>
+    private void WriteResults(CodeModel model)
     {
-        List<TestMethodRecord> testMethodRecords = [testMethodRecord];
-        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            HasHeaderRecord = !File.Exists(_methodOutFile),
-            Quote = '\''
-            // Write header only if file doesn't exist
-        };
-        using (var stream = File.Open(_methodOutFile, FileMode.Append))
-        using (var writer = new StreamWriter(stream))
-        using (var csv = new CsvWriter(writer, config))
-        {
-            try
-            {
-                csv.WriteRecords(testMethodRecords);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-                throw;
-            }
-        }
-    }
+        using StreamWriter writer = new(_outFile, append: true);
 
-    /// <summary>
-    ///     Writes a test class record to the test class CSV
-    /// </summary>
-    /// <param name="testClassRecord">Record containing the test class and source code class (class being tested)</param>
-    private void WriteResults(TestClassRecord testClassRecord)
-    {
-        List<TestClassRecord> testClassRecords = [testClassRecord];
-        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            HasHeaderRecord = !File.Exists(_methodOutFile),
-            Quote = '\''
-            // Write header only if file doesn't exist
-        };
-        using (var stream = File.Open(_classOutFile, FileMode.Append))
-        using (var writer = new StreamWriter(stream))
-        using (var csv = new CsvWriter(writer, config))
-        {
-            try
-            {
-                csv.WriteRecords(testClassRecords);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-                throw;
-            }
-        }
-    }
 
-    /// <summary>
-    ///     Formats the source code for the CSV
-    /// </summary>
-    /// <param name="str">String of source code to modify</param>
-    /// <returns>Formatted string of source code</returns>
-    private string ReplaceNewlines(string str)
-    {
-        return str.Replace("\r\n", "<<NEWLINE>>")
-            .Replace("\r", "<<NEWLINE>>")
-            .Replace("\n", "<<NEWLINE>>")
-            .Replace("'", "<<SINGLE-QUOTE>>");
+        if (model.TestClasses.Count > 0)
+        {
+            string json = JsonSerializer.Serialize(model);
+            writer.WriteLine(json);
+        }
     }
 }

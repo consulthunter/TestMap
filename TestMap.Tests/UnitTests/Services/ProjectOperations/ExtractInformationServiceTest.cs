@@ -9,13 +9,13 @@ using Xunit;
 
 namespace TestMap.Tests.UnitTests.Services.ProjectOperations;
 
-[TestSubject(typeof(BuildSolutionService))]
-public class BuildSolutionServiceTest
+[TestSubject(typeof(ExtractInformationService))]
+public class ExtractInformationServiceTest
 {
     private readonly Mock<ProjectModel> _projectModelMock;
-    private readonly BuildSolutionService _service;
+    private readonly ExtractInformationService _service;
 
-    public BuildSolutionServiceTest()
+    public ExtractInformationServiceTest()
     {
         var gitHubUrl = "https://github.com/consulthunter/TestMap-Example";
         var owner = "consulthunter";
@@ -42,14 +42,14 @@ public class BuildSolutionServiceTest
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
 
-        _service = new BuildSolutionService(_projectModelMock.Object);
+        _service = new ExtractInformationService(_projectModelMock.Object);
     }
 
     [Fact]
     [Trait("Category", "CI")]
     public async Task BuildSolutionService_BuildsSolution_Project()
     {
-        await _service.BuildSolutionsAsync();
+        await _service.ExtractInfoAsync();
 
         // assert
         _projectModelMock.Verify();

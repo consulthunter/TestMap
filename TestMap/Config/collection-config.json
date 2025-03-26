@@ -9,9 +9,14 @@
     "MaxConcurrency": 5,
     "RunDateFormat": "yyyy-MM-dd"
   },
+  "Docker": {
+    "all": "net-sdk-all"
+  },
   "Frameworks": {
     "NUnit": [
       "Test",
+      "TestCase",
+      "TestCaseSource",
       "Theory"
     ],
     "xUnit": [
@@ -28,19 +33,8 @@
     ]
   },
   "Scripts": {
-    "Clone": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_git_clone.bat",
-    "Clean": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_clean.bat",
-    "Restore": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_restore.bat",
-    "Build": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_build.bat",
-    "Test": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_coverage_dotnet_test.bat",
-    "Stryker": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_stryker.bat",
-    "Delete": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.bat"
-  },
-  "EnvironmentVariables": {
-    "DOTNET_ROOT": "C:\\Program Files\\dotnet\\",
-    "DOTNET_HOST_PATH": "C:\\Program Files\\dotnet\\dotnet.exe",
-    "MSBuildExtensionsPath": "C:\\Program Files\\dotnet\\sdk\\8.0.302",
-    "MSBUILD_EXE_PATH": "C:\\Program Files\\dotnet\\sdk\\8.0.302\\MSBuild.dll",
-    "MSBuildSDKsPath": "C:\\Program Files\\dotnet\\sdk\\8.0.302\\Sdks"
+    "Docker": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_docker.ps1",
+    "Docker-Cleanup": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_docker_cleanup.ps1",
+    "Delete": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.ps1"
   }
 }
