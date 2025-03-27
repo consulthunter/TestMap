@@ -43,18 +43,3 @@ Finally, we use this information with other contextual information to populate T
 
 ### TestClasses
 
-TestClasses are found using project references and filepaths.
-
-Basically, we find test classes assuming there is a 1-to-1 mapping between test classes and source code classes.
-
-For example, for every Example.cs there is a ExampleTest.cs but this is often not the case.
-
-To find these cases, we load each project and their references into the ```ProjectModel```.
-
-When we analyze a project in ```AnalyzeProjectService```, we look for class declarations. 
-
-When we find a class declaration, we look through projects in the ProjectModel to find projects that have the same filepath as
-references within the current project we are analyzing.
-
-After we find projects that match, we trim the filepath of the current syntax tree (the test class) and search the syntax trees
-of the other projects, looking for filepaths that match the current document.
