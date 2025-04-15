@@ -6,27 +6,6 @@ We have several ideas on how to extend this tool and ideas on how to improve the
 
 Improvements that can/should be made to the tool.
 
-### TestMethods
-
-Using the SemanticModel to get the symbol information for a method invocation may not return a result.
-
-However, we did not explore these cases. For instance, when there is no information: is it that the information doesn't exist?
-Or, is it that this information is not available in the current compilation?
-
-This needs to be explored further.
-
-### TestClasses
-
-Using project references and filepaths is not a great way to map classes.
-
-We should use other information to determine a source class for the test class.
-
-For instance, we could use the namespace, or using statements, or even a field in the test class.
-
-We could also explore doing fuzzy-matching for the filepaths to see other results.
-
-Overall, there are several possibilities for improving the accuracy that need to be explored.
-
 ## Extensions
 
 Possible extensions to the tool.

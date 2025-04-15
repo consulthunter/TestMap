@@ -29,19 +29,19 @@ public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
     private Task Clone()
     {
         // Clone repository
-        if (Directory.GetParent(projectModel.DirectoryPath).Exists)
+        if (Directory.GetParent(projectModel.DirectoryPath) is { Exists: true })
             try
             {
-                projectModel.Logger.Information($"Cloning repository: {projectModel.GitHubUrl}");
+                projectModel.Logger?.Information($"Cloning repository: {projectModel.GitHubUrl}");
                 Repository.Clone(projectModel.GitHubUrl, projectModel.DirectoryPath);
-                projectModel.Logger.Information($"Finished cloning repository: {projectModel.GitHubUrl}");
+                projectModel.Logger?.Information($"Finished cloning repository: {projectModel.GitHubUrl}");
             }
             catch (Exception ex)
             {
-                projectModel.Logger.Error($"Failed to clone repository: {ex.Message}");
+                projectModel.Logger?.Error($"Failed to clone repository: {ex.Message}");
             }
         else
-            projectModel.Logger.Error($"Directory {projectModel.DirectoryPath} does not exist.");
+            projectModel.Logger?.Error($"Directory {projectModel.DirectoryPath} does not exist.");
 
         return Task.CompletedTask;
     }

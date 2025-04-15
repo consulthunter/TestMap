@@ -8,6 +8,7 @@
  */
 
 using Serilog;
+using TestMap.Models.Coverage;
 
 namespace TestMap.Models;
 
@@ -27,10 +28,11 @@ public class ProjectModel
     /// <param name="outputDirPath">Absolute path for the output folder</param>
     /// <param name="tempDirPath">Absolute path for the temp directory.</param>
     /// <param name="testingFrameworks">Testing frameworks defined in the config</param>
+    /// <param name="docker">Supported docker images</param>
     /// <param name="scripts">Batch or shell scripts defined in the config</param>
     public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "", string runDate = "",
         string directoryPath = "", string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
-        Dictionary<string, List<string>>? testingFrameworks = null, Dictionary<string, string>? scripts = null)
+        Dictionary<string, List<string>>? testingFrameworks = null, Dictionary<string, string>? docker = null, Dictionary<string, string>? scripts = null)
     {
         GitHubUrl = gitHubUrl;
         Owner = owner;
@@ -43,6 +45,7 @@ public class ProjectModel
         OutputDirPath = outputDirPath;
         TempDirPath = tempDirPath;
         TestingFrameworks = testingFrameworks;
+        Docker = docker;
         Scripts = scripts;
 
         // unique id for this particular project run
@@ -56,6 +59,7 @@ public class ProjectModel
     public string RepoName { get; }
     public List<AnalysisSolution> Solutions { get; set; }
     public List<AnalysisProject> Projects { get; set; }
+    public CoverageReport? CoverageReport { get; set; }
     public string DirectoryPath { get; set; }
     public string? TempDirPath { get; set; }
     private string? LogsDirPath { get; }
@@ -63,8 +67,9 @@ public class ProjectModel
     public string? OutputPath { get; set; }
     public string? LogsFilePath { get; private set; }
     public Dictionary<string, List<string>>? TestingFrameworks { get; set; }
+    public Dictionary<string, string>? Docker { get; set; }
     public Dictionary<string, string>? Scripts { get; set; }
-    public ILogger Logger { get; private set; }
+    public ILogger? Logger { get; private set; }
 
     // methods
     /// <summary>
@@ -87,7 +92,7 @@ public class ProjectModel
     {
         if (ProjectId != null)
         {
-            var logDirPath = Path.Combine(LogsDirPath, _runDate, ProjectId);
+            var logDirPath = Path.Combine(LogsDirPath ?? string.Empty, _runDate, ProjectId);
 
             if (!Directory.Exists(logDirPath)) Directory.CreateDirectory(logDirPath);
             CreateLog(logDirPath);
@@ -103,7 +108,7 @@ public class ProjectModel
     {
         if (ProjectId != null)
         {
-            var outputPath = Path.Combine(OutputDirPath, _runDate, ProjectId);
+            var outputPath = Path.Combine(OutputDirPath ?? string.Empty, _runDate, ProjectId);
             if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
             OutputPath = outputPath;
         }

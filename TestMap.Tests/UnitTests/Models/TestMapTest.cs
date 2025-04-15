@@ -15,7 +15,7 @@ namespace TestMap.Tests.UnitTests.Models;
 public class TestMapTest
 {
     private readonly Mock<AnalyzeProjectService> _mockAnalyzeProjectService;
-    private readonly Mock<BuildSolutionService> _mockBuildSolutionService;
+    private readonly Mock<ExtractInformationService> _mockBuildSolutionService;
     private readonly Mock<CloneRepoService> _mockCloneRepoService;
     private readonly Mock<DeleteProjectService> _mockDeleteProjectService;
     private readonly Mock<ProjectModel> _projectModelMock;
@@ -49,7 +49,7 @@ public class TestMapTest
         _projectModelMock.Object.EnsureProjectOutputDir();
         _projectModelMock.Object.EnsureProjectLogDir();
         _mockCloneRepoService = new Mock<CloneRepoService>(_projectModelMock.Object);
-        _mockBuildSolutionService = new Mock<BuildSolutionService>(_projectModelMock.Object);
+        _mockBuildSolutionService = new Mock<ExtractInformationService>(_projectModelMock.Object);
         _mockAnalyzeProjectService = new Mock<AnalyzeProjectService>(_projectModelMock.Object);
         _mockDeleteProjectService = new Mock<DeleteProjectService>(_projectModelMock.Object);
 
@@ -89,7 +89,7 @@ public class TestMapTest
     {
         // Arrange
         _mockBuildSolutionService
-            .Setup(service => service.BuildSolutionsAsync())
+            .Setup(service => service.ExtractInfoAsync())
             .Returns(Task.CompletedTask)
             .Verifiable();
 

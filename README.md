@@ -8,31 +8,21 @@
 
 TestMap is a tool for gathering software tests from C# repositories from GitHub and other Git based developer platforms.
 
-It collects software tests using SyntaxTrees and the Roslyn API. Then creates two CSV files for each target C# repository.
-
-CSV files:
-- ```test_methods_{random_number}_{Repo}.csv```
-    - File containing test methods found in ```.cs``` files in the repo and definitions for methods invoked within the test method.
-- ```test_classes_{random_number}_{Repo}.csv```
-    - File containing test classes found in ```.cs``` files in the repo and their corresponding source code class.
-
-__Note:__ There may be some overlap between the two files. However, the ```test_methods``` is generally a more complete picture of the tests found in the repo.
-```test_methods``` uses a more fine-grained search. ```test_classes``` assumes a 1-to-1 mapping between test code files and source code files, which is typically not the case unless for unit tests.
-```test_methods``` captures all the tests using the frameworks and attributes defined by the user and does NOT assume the 1-to-1 mapping between test code files and source code files.
-
+It collects software tests using SyntaxTrees and the Roslyn API.
 ## Dependencies
 
-
-- .NET SDK 8.0 or greater
+- Windows 11
+- .NET SDK 9.0 or greater
   - [Instructions](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
   - (winget is suggested)
-      - ```winget install Microsoft.DotNet.SDK.8```
+      - ```winget install Microsoft.DotNet.SDK.9```
 
   __Note: dotnet needs to be on PATH. Make sure that ```dotnet --version``` works through the CLI__
 
 - Git
   - [Instructions](https://git-scm.com/downloads/win)
-- Windows 11 (theoretically this could work from Linux)
+- Docker Desktop
+  - [Instructions](https://docs.docker.com/get-started/introduction/get-docker-desktop/)
 
 
 ## Installation
@@ -43,34 +33,30 @@ Create a directory, named ```Projects```.
 Navigate to the ```Projects``` directory.
 - ```cd .\Projects\```
 
-Now clone TestMap
-- ```git clone https://github.com/consulthunter/TestMap```
+Create a directory, named ```TestMap```.
+- ```mkdir TestMap```
 
-Next, edit the ```collection-config.json``` located under ```.\TestMap\TestMap\Config\```
-- Modify ```FilePaths```
-    - ```TargetFilePath``` to: ```<Your__DIR_Prefix>\\Projects\\TestMap\\TestMap\\Date\\example_project.txt```
-    - ```LogsDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Logs```
-    - ```TempDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\Temp```
-    - ```OutputDirPath``` to: ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Output```
-- Modify ```Scripts```
-    - ```Delete``` to:  ```<Your_DIR_Prefix>\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.bat```
+Navigate to the `TestMap` directory.
+- `cd TestMap`
 
-Navigate to the TestMap root
-- ```cd TestMap```
+Download and Extract the latest release.
 
-Try restoring the dependencies:
-- ```dotnet restore .\TestMap\TestMap.csproj```
+Change into the Release directory:
+- ```cd Release```
 
-Next try building the project:
-- ```dotnet build .\TestMap\TestMap.csproj```
+Generate the config:
+- ```.\TestMap.exe generate-config --path D:\Projects\TestMap\TestMap\Config\new-config.json --base-path D:\Projects\TestMap```
+- _Note_: Replace ```D:\Projects``` with your directory prefix.
 
-If both restoring the dependencies and building the project succeeded without errors, you can now use the tool.
+Next try running the project:
+- ```.\TestMap.exe collect --config D:\Projects\TestMap\TestMap\Config\new-config.json```
+- _Note_: Update the path to the generated config.
 
-## Example Usage
+If this didn't work, try building and publishing yourself. See [Building.](#building-and-publishing)
 
-After completing the installation, try running the example:
+## Building And Publishing
 
-```dotnet run --project .\TestMap\TestMap.csproj collect --config .\TestMap\Config\collection-config.json```
+More details on building and publishing the tool for use [here.](./Docs/BUILDING-PUBLISHING.md)
 
 ## How To Use
 
@@ -84,9 +70,6 @@ Integration tests typically need to be done locally.
 
 For details on testing you can find more information [here.](./Docs/TESTING.md)
 
-## Motivation
-
-Detailed motivation for this tool is available [here.](./Docs/MOTIVATION.md)
 
 ## How It Works
 
@@ -95,11 +78,3 @@ Technical detail on how the tool works is available [here.](./Docs/HOW-IT-WORKS.
 ## Future Work
 
 We have some ideas for future work located [here.](./Docs/FUTURE-WORK.md)
-
-## Data Availability
-
-Information on datasets created using this tool is located [here.](./Docs/DATA-AVAILABILITY.md)
-
-## Reproducibility
-
-Information on re-creating the datasets listed ih Data Availability is located [here.](./Docs/REPRODUCIBILITY.md)

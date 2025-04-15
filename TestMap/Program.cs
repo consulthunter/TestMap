@@ -11,6 +11,7 @@ using CommandLine;
 using Microsoft.Extensions.Configuration;
 using TestMap.CLIOptions;
 using TestMap.Services;
+using TestMap.Services.Configuration;
 
 namespace TestMap;
 
@@ -46,6 +47,9 @@ public class Program
             case CollectOptions c:
                 await RunCollect(c);
                 break;
+            case GenerateConfigOptions g:
+                RunSetup(g);
+                break;
         }
     }
 
@@ -61,5 +65,17 @@ public class Program
         var configurationService = new ConfigurationService(config);
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
+    }
+    
+    /// <summary>
+    ///     Generates the correct configuration for TestMap
+    /// </summary>
+    /// <param name="options">CLI options parsed by CommandLine</param>
+    private static void RunSetup(GenerateConfigOptions options)
+    {
+        var configPath = options.GenerateConfigFilePath;
+        var basePath = options.BasePath;
+        var configurationService = new GenerateConfigurationService(configPath, basePath);
+        configurationService.GenerateConfiguration();
     }
 }

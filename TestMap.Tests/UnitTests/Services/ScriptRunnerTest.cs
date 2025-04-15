@@ -24,7 +24,7 @@ public class ScriptRunnerTest
         var commands = new List<string> { "dir" };
 
         // Act
-        await _mockScriptRunner.RunScriptAsync(commands, "/not/a/path");
+        await _mockScriptRunner.RunBatchScriptAsync(commands, "/not/a/path");
 
         // Assert
         Assert.Empty(_mockScriptRunner.Output);

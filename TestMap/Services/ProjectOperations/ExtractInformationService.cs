@@ -5,23 +5,26 @@
  * and their projects
  * BuildSolutionService.cs
  */
-
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.MSBuild;
+using Newtonsoft.Json.Linq;
 using TestMap.Models;
 
 namespace TestMap.Services.ProjectOperations;
 
-public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionService
+public class ExtractInformationService(ProjectModel projectModel) : IExtractInformationService
 {
+    private string _globalTargetFramework;
+
     /// <summary>
     ///     Entry point for service
     /// </summary>
-    public virtual async Task BuildSolutionsAsync()
+    public virtual async Task ExtractInfoAsync()
     {
+        _globalTargetFramework = FindGlobalTargetFramework();
         await FindAllSolutionFilesAsync();
     }
 
@@ -39,42 +42,10 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
             // then do the projects outside the loop
             foreach (var solution in solutions)
             {
-                projectModel.Logger.Information($"Solution file found: {solution}");
-                // await BuildSolutionAsync(solution);
+                projectModel.Logger?.Information($"Solution file found: {solution}");
                 await LoadSolutionAsync(solution);
             }
         }
-    }
-
-    /// <summary>
-    ///     DEPRECATED
-    ///     Used to clean, build, and restore the project
-    ///     Ran into issues with different SDKs
-    ///     Also, not entirely necessary
-    /// </summary>
-    /// <param name="solutionPath"></param>
-    private async Task BuildSolutionAsync(string solutionPath)
-    {
-        var runner = new ScriptRunner();
-
-        // clean project
-        projectModel.Logger.Information($"Cleaning solution {solutionPath}");
-        await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Clean"]);
-        projectModel.Logger.Information($"Cleaning {solutionPath} finished.");
-
-        // restore
-        projectModel.Logger.Information($"Restoring solution {solutionPath}");
-        await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Restore"]);
-        projectModel.Logger.Information($"Restoring {solutionPath} finished.");
-
-        // build
-        projectModel.Logger.Information($"Building solution {solutionPath}");
-        await runner.RunScriptAsync([solutionPath], projectModel.Scripts["Build"]);
-        projectModel.Logger.Information($"Building {solutionPath} finished.");
-
-        if (runner.HasError)
-            foreach (var e in runner.Errors)
-                projectModel.Logger.Error(e);
     }
 
     /// <summary>
@@ -86,7 +57,7 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     {
         try
         {
-            projectModel.Logger.Information($"Loading solution {solutionPath}");
+            projectModel.Logger?.Information($"Loading solution {solutionPath}");
             using (var workspace = MSBuildWorkspace.Create())
             {
                 var solution = await workspace.OpenSolutionAsync(solutionPath);
@@ -100,41 +71,45 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                 {
                     // the compilation gives us access to SemanticModeling 
                     // and symbol resolving
-                    var compilation = (CSharpCompilation)await project.GetCompilationAsync();
+                    var compilation = await project.GetCompilationAsync() as CSharpCompilation;
 
-                    // target framework is typically defined within the project (.csproj) file
-                    var doc = XDocument.Load(project.FilePath);
-                    var targetFramework = doc.Descendants("TargetFramework").FirstOrDefault()?.Value;
-                    if (targetFramework == null)
-                        targetFramework = doc.Descendants("TargetFrameworks").FirstOrDefault()?.Value;
+                    var targetFramework = _globalTargetFramework;
+                    
+                    
+                    if (targetFramework == "")
+                        targetFramework = FindProjectTargetFramework(project);
+                    
 
                     List<string> documents = GetDocuments(project);
                     Dictionary<string, SyntaxTree>? syntaxTrees = await GetSyntaxTrees(project, documents);
 
-                    var analysisProject = new AnalysisProject(solution.FilePath,
-                        projectReferences: GetProjectReferences(solution, project),
-                        syntaxTrees: syntaxTrees, projectFilePath: project.FilePath, compilation: compilation,
-                        languageFramework: targetFramework);
-
                     if (project.FilePath != null)
                     {
-                        var filepath = project.FilePath;
+                        var analysisProject = new AnalysisProject(solution.FilePath,
+                            projectReferences: GetProjectReferences(solution, project),
+                            syntaxTrees: syntaxTrees, projectFilePath: project.FilePath, compilation: compilation,
+                            languageFramework: targetFramework);
 
-                        if (!projectModel.Projects.Exists(proj => proj.ProjectFilePath == filepath) &&
-                            !solutionProjects.Exists(path => path == filepath))
+                        if (project.FilePath != null)
                         {
-                            projectModel.Projects.Add(analysisProject);
-                            solutionProjects.Add(filepath);
+                            var filepath = project.FilePath;
+
+                            if (!projectModel.Projects.Exists(proj => proj.ProjectFilePath == filepath) &&
+                                !solutionProjects.Exists(path => path == filepath))
+                            {
+                                projectModel.Projects.Add(analysisProject);
+                                solutionProjects.Add(filepath);
+                            }
+                            else
+                            {
+                                projectModel.Logger?.Warning($"Project {project.Id} filepath already exists in the list.");
+                            }
                         }
                         else
                         {
-                            projectModel.Logger.Warning($"Project {project.Id} filepath already exists in the list.");
+                            // If filepath already exists in addedProjects, skip adding
+                            projectModel.Logger?.Warning($"Project {project.Id} filepath is null.");
                         }
-                    }
-                    else
-                    {
-                        // If filepath already exists in addedProjects, skip adding
-                        projectModel.Logger.Warning($"Project {project.Id} filepath is null.");
                     }
                 }
 
@@ -145,16 +120,16 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                 }
                 else
                 {
-                    projectModel.Logger.Warning($"Solution {solution.FilePath} already exists in the list.");
+                    projectModel.Logger?.Warning($"Solution {solution.FilePath} already exists in the list.");
                 }
             }
         }
         catch (Exception ex)
         {
-            projectModel.Logger.Error(ex.Message);
+            projectModel.Logger?.Error(ex.Message);
         }
 
-        projectModel.Logger.Information($"Loading {solutionPath} finished.");
+        projectModel.Logger?.Information($"Loading {solutionPath} finished.");
     }
 
     /// <summary>
@@ -170,9 +145,9 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     /// <param name="solution">Solution (.sln)</param>
     /// <param name="project">Project (.csproj)</param>
     /// <returns>List of the absolute paths of the references listed for the project (.csproj)</returns>
-    private List<string>? GetProjectReferences(Solution solution, Project project)
+    private List<string> GetProjectReferences(Solution solution, Project project)
     {
-        List<string>? projectReferences = new();
+        List<string> projectReferences = new();
         if (project.AllProjectReferences.Any())
             // project can reference projects outside of the solution
             foreach (var projectReference in project.AllProjectReferences)
@@ -185,7 +160,7 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                     if (!projectReferences.Contains(referencedProject.FilePath))
                         projectReferences.Add(referencedProject.FilePath);
                     else
-                        projectModel.Logger.Information(
+                        projectModel.Logger?.Information(
                             $"Skipping project {referencedProject}. Already in project references.");
                 }
                 // this is the lookup for project references
@@ -217,9 +192,9 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                                 // Join the last two parts to form the trimmed filepath
                                 var trimmedPath = string.Join("\\", parts[2..]);
 
-                                projectModel.Logger.Information(
+                                projectModel.Logger?.Information(
                                     $"Original outside project reference filepath {filepath}");
-                                projectModel.Logger.Information(
+                                projectModel.Logger?.Information(
                                     $"Trimmed outside project reference filepath {trimmedPath}");
 
                                 var fullRefPath = Path.Combine(projectModel.DirectoryPath, trimmedPath);
@@ -229,21 +204,21 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                             }
                             else
                             {
-                                projectModel.Logger.Warning(
+                                projectModel.Logger?.Warning(
                                     $"Cannot trim the first two directories from filepath: {filepath}");
                             }
                         }
                         else
                         {
-                            projectModel.Logger.Error("No filepath found.");
+                            projectModel.Logger?.Error("No filepath found.");
                         }
                     }
                     catch (Exception ex)
                     {
-                        projectModel.Logger.Error($"Couldn't extract project reference {projectReference.ProjectId}");
+                        projectModel.Logger?.Error($"Couldn't extract project reference {projectReference.ProjectId}: {ex.Message}");
                     }
 
-                    projectModel.Logger.Information($"Project {referencedProject} filepath is null.");
+                    projectModel.Logger?.Information($"Project {referencedProject} filepath is null.");
                 }
             }
 
@@ -275,8 +250,8 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
     /// <returns>Dictionary, key is the absolute path to the document, value is the SyntaxTree</returns>
     private async Task<Dictionary<string, SyntaxTree>?> GetSyntaxTrees(Project project, List<string> documents)
     {
-        projectModel.Logger.Information($"Creating project {project.FilePath} syntax trees.");
-        Dictionary<string, SyntaxTree>? treeDict = new();
+        projectModel.Logger?.Information($"Creating project {project.FilePath} syntax trees.");
+        Dictionary<string, SyntaxTree> treeDict = new();
         try
         {
             foreach (var document in documents)
@@ -285,16 +260,82 @@ public class BuildSolutionService(ProjectModel projectModel) : IBuildSolutionSer
                 // for the semantic analysis using CSharpCompilation
                 var syntaxTree = CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(document), path: document);
                 if (treeDict.TryAdd(document, syntaxTree))
-                    projectModel.Logger.Information($"Added {document} syntax tree.");
+                    projectModel.Logger?.Information($"Added {document} syntax tree.");
                 else
-                    projectModel.Logger.Information($"Skipping {document} syntax tree. Already exists.");
+                    projectModel.Logger?.Information($"Skipping {document} syntax tree. Already exists.");
             }
         }
         catch (Exception ex)
         {
-            projectModel.Logger.Error(ex.Message);
+            projectModel.Logger?.Error(ex.Message);
         }
 
         return treeDict;
+    }
+
+    private string FindGlobalTargetFramework()
+    {
+        // Step 1: Recursively search for all global.json files
+        var globalJsonFiles = Directory.GetFiles(projectModel.DirectoryPath, "global.json", SearchOption.AllDirectories);
+
+        // Step 2: Iterate through each global.json file
+        foreach (var globalJsonPath in globalJsonFiles)
+        {
+            if (File.Exists(globalJsonPath))
+            {
+                    // Step 3: Read the global.json file and extract the SDK version
+                    var globalJson = JObject.Parse(File.ReadAllText(globalJsonPath));
+                    var sdkVersion = globalJson["sdk"]?["version"]?.ToString();
+                    if (!string.IsNullOrEmpty(sdkVersion))
+                    {
+                        // Return the first found SDK version
+                        return sdkVersion;
+                    }
+            }
+        }
+
+        // Return empty if no SDK version is found in any global.json
+        return "";
+    }
+
+    private string FindProjectTargetFramework(Project project)
+    {
+        try
+        {
+            if (!File.Exists(project.FilePath))
+            {
+                throw new FileNotFoundException($"The project file '{project.FilePath}' was not found.");
+            }
+
+            // Load the .csproj file
+            var doc = XDocument.Load(project.FilePath);
+
+            // Handle potential namespaces in the XML
+            var namespaceManager = doc.Root?.GetDefaultNamespace();
+            XNamespace ns = namespaceManager ?? string.Empty;
+
+            // Try to retrieve <TargetFramework>
+            var targetFramework = doc.Descendants(ns + "TargetFramework").FirstOrDefault()?.Value;
+
+            if (string.IsNullOrEmpty(targetFramework))
+            {
+                // Try to retrieve <TargetFrameworks>
+                targetFramework = doc.Descendants(ns + "TargetFrameworks").FirstOrDefault()?.Value;
+
+                // Handle multiple frameworks if present
+                if (!string.IsNullOrEmpty(targetFramework) && targetFramework.Contains(";"))
+                {
+                    return targetFramework.Split(';')[0]; // Return the first framework as default
+                }
+            }
+
+            return targetFramework ?? string.Empty; // Return empty string if nothing is found
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An error occurred: {ex.Message}");
+            return string.Empty;
+
+        }
     }
 }

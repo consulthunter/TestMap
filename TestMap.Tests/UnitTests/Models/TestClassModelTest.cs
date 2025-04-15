@@ -1,11 +1,12 @@
 ﻿using JetBrains.Annotations;
 using TestMap.Models;
+using TestMap.Models.Code;
 using Xunit;
 
 namespace TestMap.Tests.UnitTests.Models;
 
-[TestSubject(typeof(TestClassRecord))]
-public class TestClassRecordTest
+[TestSubject(typeof(TestClass))]
+public class TestClassTest
 {
     private readonly string _bodyEndPosition;
     private readonly string _bodyStartPosition;
@@ -23,7 +24,7 @@ public class TestClassRecordTest
     private readonly string _testFramework;
     private readonly string _usingStatements;
 
-    public TestClassRecordTest()
+    public TestClassTest()
     {
         _owner = "owner";
         _repo = "repo";
@@ -43,9 +44,9 @@ public class TestClassRecordTest
         _sourceBody = "public class Class { public int Method1() => 42; }";
     }
 
-    private TestClassRecord CreateTestClassRecord()
+    private TestClass CreateTestClassRecord()
     {
-        return new TestClassRecord(_owner, _repo, _solutionFilePath, _projectPath, _filePath,
+        return new TestClass(_owner, _repo, _solutionFilePath, _projectPath, _filePath,
             _ns, _classDeclaration, _classFields, _usingStatements, _testFramework, _languageFramework,
             _classBody, _bodyStartPosition, _bodyEndPosition, _sourceBody);
     }

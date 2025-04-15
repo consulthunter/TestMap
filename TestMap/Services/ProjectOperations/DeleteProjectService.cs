@@ -24,15 +24,16 @@ public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectSer
             {
                 // script
                 var runner = new ScriptRunner();
-                projectModel.Logger.Information($"Deleting repository: {projectModel.GitHubUrl}");
-                await runner.RunScriptAsync([projectModel.DirectoryPath], projectModel.Scripts["Delete"]);
-                projectModel.Logger.Information($"Finished deleting repository: {projectModel.GitHubUrl}");
+                projectModel.Logger?.Information($"Deleting repository: {projectModel.GitHubUrl}");
+                if (projectModel.Scripts != null)
+                    await runner.RunPowershellScriptAsync([projectModel.DirectoryPath], projectModel.Scripts["Delete"]);
+                projectModel.Logger?.Information($"Finished deleting repository: {projectModel.GitHubUrl}");
             }
             catch (Exception ex)
             {
-                projectModel.Logger.Error($"Failed to delete repository: {ex.Message}");
+                projectModel.Logger?.Error($"Failed to delete repository: {ex.Message}");
             }
         else
-            projectModel.Logger.Error($"Directory {projectModel.DirectoryPath} does not exist.");
+            projectModel.Logger?.Error($"Directory {projectModel.DirectoryPath} does not exist.");
     }
 }
