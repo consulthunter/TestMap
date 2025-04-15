@@ -42,7 +42,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
             // then do the projects outside the loop
             foreach (var solution in solutions)
             {
-                projectModel.Logger.Information($"Solution file found: {solution}");
+                projectModel.Logger?.Information($"Solution file found: {solution}");
                 await LoadSolutionAsync(solution);
             }
         }
@@ -57,7 +57,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     {
         try
         {
-            projectModel.Logger.Information($"Loading solution {solutionPath}");
+            projectModel.Logger?.Information($"Loading solution {solutionPath}");
             using (var workspace = MSBuildWorkspace.Create())
             {
                 var solution = await workspace.OpenSolutionAsync(solutionPath);
@@ -71,7 +71,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                 {
                     // the compilation gives us access to SemanticModeling 
                     // and symbol resolving
-                    var compilation = (CSharpCompilation)await project.GetCompilationAsync();
+                    var compilation = await project.GetCompilationAsync() as CSharpCompilation;
 
                     var targetFramework = _globalTargetFramework;
                     
@@ -83,30 +83,33 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                     List<string> documents = GetDocuments(project);
                     Dictionary<string, SyntaxTree>? syntaxTrees = await GetSyntaxTrees(project, documents);
 
-                    var analysisProject = new AnalysisProject(solution.FilePath,
-                        projectReferences: GetProjectReferences(solution, project),
-                        syntaxTrees: syntaxTrees, projectFilePath: project.FilePath, compilation: compilation,
-                        languageFramework: targetFramework);
-
                     if (project.FilePath != null)
                     {
-                        var filepath = project.FilePath;
+                        var analysisProject = new AnalysisProject(solution.FilePath,
+                            projectReferences: GetProjectReferences(solution, project),
+                            syntaxTrees: syntaxTrees, projectFilePath: project.FilePath, compilation: compilation,
+                            languageFramework: targetFramework);
 
-                        if (!projectModel.Projects.Exists(proj => proj.ProjectFilePath == filepath) &&
-                            !solutionProjects.Exists(path => path == filepath))
+                        if (project.FilePath != null)
                         {
-                            projectModel.Projects.Add(analysisProject);
-                            solutionProjects.Add(filepath);
+                            var filepath = project.FilePath;
+
+                            if (!projectModel.Projects.Exists(proj => proj.ProjectFilePath == filepath) &&
+                                !solutionProjects.Exists(path => path == filepath))
+                            {
+                                projectModel.Projects.Add(analysisProject);
+                                solutionProjects.Add(filepath);
+                            }
+                            else
+                            {
+                                projectModel.Logger?.Warning($"Project {project.Id} filepath already exists in the list.");
+                            }
                         }
                         else
                         {
-                            projectModel.Logger.Warning($"Project {project.Id} filepath already exists in the list.");
+                            // If filepath already exists in addedProjects, skip adding
+                            projectModel.Logger?.Warning($"Project {project.Id} filepath is null.");
                         }
-                    }
-                    else
-                    {
-                        // If filepath already exists in addedProjects, skip adding
-                        projectModel.Logger.Warning($"Project {project.Id} filepath is null.");
                     }
                 }
 
@@ -117,16 +120,16 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                 }
                 else
                 {
-                    projectModel.Logger.Warning($"Solution {solution.FilePath} already exists in the list.");
+                    projectModel.Logger?.Warning($"Solution {solution.FilePath} already exists in the list.");
                 }
             }
         }
         catch (Exception ex)
         {
-            projectModel.Logger.Error(ex.Message);
+            projectModel.Logger?.Error(ex.Message);
         }
 
-        projectModel.Logger.Information($"Loading {solutionPath} finished.");
+        projectModel.Logger?.Information($"Loading {solutionPath} finished.");
     }
 
     /// <summary>
@@ -142,9 +145,9 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     /// <param name="solution">Solution (.sln)</param>
     /// <param name="project">Project (.csproj)</param>
     /// <returns>List of the absolute paths of the references listed for the project (.csproj)</returns>
-    private List<string>? GetProjectReferences(Solution solution, Project project)
+    private List<string> GetProjectReferences(Solution solution, Project project)
     {
-        List<string>? projectReferences = new();
+        List<string> projectReferences = new();
         if (project.AllProjectReferences.Any())
             // project can reference projects outside of the solution
             foreach (var projectReference in project.AllProjectReferences)
@@ -157,7 +160,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                     if (!projectReferences.Contains(referencedProject.FilePath))
                         projectReferences.Add(referencedProject.FilePath);
                     else
-                        projectModel.Logger.Information(
+                        projectModel.Logger?.Information(
                             $"Skipping project {referencedProject}. Already in project references.");
                 }
                 // this is the lookup for project references
@@ -189,9 +192,9 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                                 // Join the last two parts to form the trimmed filepath
                                 var trimmedPath = string.Join("\\", parts[2..]);
 
-                                projectModel.Logger.Information(
+                                projectModel.Logger?.Information(
                                     $"Original outside project reference filepath {filepath}");
-                                projectModel.Logger.Information(
+                                projectModel.Logger?.Information(
                                     $"Trimmed outside project reference filepath {trimmedPath}");
 
                                 var fullRefPath = Path.Combine(projectModel.DirectoryPath, trimmedPath);
@@ -201,21 +204,21 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                             }
                             else
                             {
-                                projectModel.Logger.Warning(
+                                projectModel.Logger?.Warning(
                                     $"Cannot trim the first two directories from filepath: {filepath}");
                             }
                         }
                         else
                         {
-                            projectModel.Logger.Error("No filepath found.");
+                            projectModel.Logger?.Error("No filepath found.");
                         }
                     }
                     catch (Exception ex)
                     {
-                        projectModel.Logger.Error($"Couldn't extract project reference {projectReference.ProjectId}");
+                        projectModel.Logger?.Error($"Couldn't extract project reference {projectReference.ProjectId}: {ex.Message}");
                     }
 
-                    projectModel.Logger.Information($"Project {referencedProject} filepath is null.");
+                    projectModel.Logger?.Information($"Project {referencedProject} filepath is null.");
                 }
             }
 
@@ -247,8 +250,8 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     /// <returns>Dictionary, key is the absolute path to the document, value is the SyntaxTree</returns>
     private async Task<Dictionary<string, SyntaxTree>?> GetSyntaxTrees(Project project, List<string> documents)
     {
-        projectModel.Logger.Information($"Creating project {project.FilePath} syntax trees.");
-        Dictionary<string, SyntaxTree>? treeDict = new();
+        projectModel.Logger?.Information($"Creating project {project.FilePath} syntax trees.");
+        Dictionary<string, SyntaxTree> treeDict = new();
         try
         {
             foreach (var document in documents)
@@ -257,14 +260,14 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                 // for the semantic analysis using CSharpCompilation
                 var syntaxTree = CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(document), path: document);
                 if (treeDict.TryAdd(document, syntaxTree))
-                    projectModel.Logger.Information($"Added {document} syntax tree.");
+                    projectModel.Logger?.Information($"Added {document} syntax tree.");
                 else
-                    projectModel.Logger.Information($"Skipping {document} syntax tree. Already exists.");
+                    projectModel.Logger?.Information($"Skipping {document} syntax tree. Already exists.");
             }
         }
         catch (Exception ex)
         {
-            projectModel.Logger.Error(ex.Message);
+            projectModel.Logger?.Error(ex.Message);
         }
 
         return treeDict;

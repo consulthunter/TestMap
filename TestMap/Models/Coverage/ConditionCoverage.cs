@@ -1,4 +1,14 @@
-﻿using System.Xml.Serialization;
+﻿/*
+ * consulthunter
+ * 2025-04-09
+ *
+ * Coverage for a condition 
+ * As represented in cobertura XML
+ *
+ * ConditionCoverage.cs
+ */
+
+using System.Xml.Serialization;
 
 namespace TestMap.Models.Coverage;
 

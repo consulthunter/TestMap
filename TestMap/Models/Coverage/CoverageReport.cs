@@ -1,5 +1,14 @@
-﻿using System.Xml.Serialization;
-using Microsoft.VisualBasic.CompilerServices;
+﻿/*
+ * consulthunter
+ * 2025-04-09
+ *
+ * Coverage Report for a testing project
+ * As represented in cobertura XML
+ *
+ * CoverageReport.cs
+ */
+
+using System.Xml.Serialization;
 
 namespace TestMap.Models.Coverage;
 

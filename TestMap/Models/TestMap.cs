@@ -80,7 +80,7 @@ public class TestMap(
     {
         try
         {
-            ProjectModel.Logger.Information(
+            ProjectModel.Logger?.Information(
                 $"Number of projects in {ProjectModel.ProjectId}: {ProjectModel.Projects.Count}");
             // iterates over the project and loads project information
             foreach (var project in ProjectModel.Projects)
@@ -92,7 +92,7 @@ public class TestMap(
         }
         catch (Exception e)
         {
-            ProjectModel.Logger.Error(e.Message);
+            ProjectModel.Logger?.Error(e.Message);
         }
     }
 

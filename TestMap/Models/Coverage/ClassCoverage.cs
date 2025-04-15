@@ -1,4 +1,15 @@
-﻿using System.Xml.Serialization;
+﻿/*
+ * consulthunter
+ * 2025-04-09
+ *
+ * Coverage for a class
+ * As represented in cobertura XML
+ *
+ * ClassCoverage.cs
+ */
+
+
+using System.Xml.Serialization;
 
 namespace TestMap.Models.Coverage;
 

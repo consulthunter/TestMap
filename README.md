@@ -33,10 +33,13 @@ Create a directory, named ```Projects```.
 Navigate to the ```Projects``` directory.
 - ```cd .\Projects\```
 
-Now clone TestMap
-- ```git clone https://github.com/consulthunter/TestMap```
+Create a directory, named ```TestMap```.
+- ```mkdir TestMap```
 
-Download the latest release into the Release directory.
+Navigate to the `TestMap` directory.
+- `cd TestMap`
+
+Download and Extract the latest release.
 
 Change into the Release directory:
 - ```cd Release```
@@ -67,9 +70,6 @@ Integration tests typically need to be done locally.
 
 For details on testing you can find more information [here.](./Docs/TESTING.md)
 
-## Motivation
-
-Detailed motivation for this tool is available [here.](./Docs/MOTIVATION.md)
 
 ## How It Works
 
@@ -78,11 +78,3 @@ Technical detail on how the tool works is available [here.](./Docs/HOW-IT-WORKS.
 ## Future Work
 
 We have some ideas for future work located [here.](./Docs/FUTURE-WORK.md)
-
-## Data Availability
-
-Information on datasets created using this tool is located [here.](./Docs/DATA-AVAILABILITY.md)
-
-## Reproducibility
-
-Information on re-creating the datasets listed ih Data Availability is located [here.](./Docs/REPRODUCIBILITY.md)

@@ -59,7 +59,7 @@ public class ProjectModel
     public string RepoName { get; }
     public List<AnalysisSolution> Solutions { get; set; }
     public List<AnalysisProject> Projects { get; set; }
-    public CoverageReport CoverageReport { get; set; }
+    public CoverageReport? CoverageReport { get; set; }
     public string DirectoryPath { get; set; }
     public string? TempDirPath { get; set; }
     private string? LogsDirPath { get; }
@@ -69,7 +69,7 @@ public class ProjectModel
     public Dictionary<string, List<string>>? TestingFrameworks { get; set; }
     public Dictionary<string, string>? Docker { get; set; }
     public Dictionary<string, string>? Scripts { get; set; }
-    public ILogger Logger { get; private set; }
+    public ILogger? Logger { get; private set; }
 
     // methods
     /// <summary>
@@ -92,7 +92,7 @@ public class ProjectModel
     {
         if (ProjectId != null)
         {
-            var logDirPath = Path.Combine(LogsDirPath, _runDate, ProjectId);
+            var logDirPath = Path.Combine(LogsDirPath ?? string.Empty, _runDate, ProjectId);
 
             if (!Directory.Exists(logDirPath)) Directory.CreateDirectory(logDirPath);
             CreateLog(logDirPath);
@@ -108,7 +108,7 @@ public class ProjectModel
     {
         if (ProjectId != null)
         {
-            var outputPath = Path.Combine(OutputDirPath, _runDate, ProjectId);
+            var outputPath = Path.Combine(OutputDirPath ?? string.Empty, _runDate, ProjectId);
             if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
             OutputPath = outputPath;
         }
