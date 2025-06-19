@@ -13,27 +13,51 @@ namespace TestMap.Services.ProjectOperations;
 public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectService
 {
     /// <summary>
-    ///     Removes the project from the Temp directory
-    ///     using a custom script
+    ///     Removes the project directory from the file system
     /// </summary>
-    public async Task DeleteProjectAsync()
+    public Task DeleteProjectAsync()
     {
-        // Delete if the directory exists
-        if (Directory.Exists(projectModel.DirectoryPath))
-            try
-            {
-                // script
-                var runner = new ScriptRunner();
-                projectModel.Logger?.Information($"Deleting repository: {projectModel.GitHubUrl}");
-                if (projectModel.Scripts != null)
-                    await runner.RunPowershellScriptAsync([projectModel.DirectoryPath], projectModel.Scripts["Delete"]);
-                projectModel.Logger?.Information($"Finished deleting repository: {projectModel.GitHubUrl}");
-            }
-            catch (Exception ex)
-            {
-                projectModel.Logger?.Error($"Failed to delete repository: {ex.Message}");
-            }
-        else
-            projectModel.Logger?.Error($"Directory {projectModel.DirectoryPath} does not exist.");
+        if (!Directory.Exists(projectModel.DirectoryPath))
+        {
+            projectModel.Logger?.Warning($"Directory {projectModel.DirectoryPath} does not exist.");
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            projectModel.Logger?.Information($"Deleting repository: {projectModel.GitHubUrl}");
+
+            // Remove ReadOnly attribute recursively before deleting
+            RemoveReadOnlyAttributes(projectModel.DirectoryPath);
+
+            // Recursively delete the directory
+            Directory.Delete(projectModel.DirectoryPath, recursive: true);
+
+            projectModel.Logger?.Information($"Successfully deleted repository: {projectModel.GitHubUrl}");
+        }
+        catch (Exception ex)
+        {
+            projectModel.Logger?.Error($"Failed to delete repository: {ex.Message}");
+        }
+
+        return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Recursively removes ReadOnly attribute from all files in the given directory.
+    /// </summary>
+    private void RemoveReadOnlyAttributes(string directoryPath)
+    {
+        var directoryInfo = new DirectoryInfo(directoryPath);
+
+        foreach (var file in directoryInfo.GetFiles("*", SearchOption.AllDirectories))
+        {
+            if (file.IsReadOnly)
+            {
+                file.IsReadOnly = false;
+                projectModel.Logger?.Information($"Removed ReadOnly attribute from file: {file.FullName}");
+            }
+        }
+    }
+
 }

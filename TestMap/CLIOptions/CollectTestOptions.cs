@@ -10,8 +10,8 @@ using CommandLine;
 
 namespace TestMap.CLIOptions;
 
-[Verb("collect", HelpText = "Collect tests from source code.")]
-public class CollectOptions
+[Verb("collect-tests", HelpText = "Collect tests from source code.")]
+public class CollectTestOptions
 {
     [Option('c', "config", SetName = "collect", Required = true, HelpText = "Config File path.")]
     public string CollectConfigFilePath { get; set; }

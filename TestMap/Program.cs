@@ -10,6 +10,7 @@ using System.Reflection;
 using CommandLine;
 using Microsoft.Extensions.Configuration;
 using TestMap.CLIOptions;
+using TestMap.Models.Configuration;
 using TestMap.Services;
 using TestMap.Services.Configuration;
 
@@ -44,8 +45,14 @@ public class Program
     {
         switch (obj)
         {
-            case CollectOptions c:
+            case CollectTestOptions c:
                 await RunCollect(c);
+                break;
+            case GenerateTestsOptions gt:
+                await RunGenTests(gt);
+                break;
+            case FullAnalysisOptions f:
+                await RunFullAnalysis(f);
                 break;
             case GenerateConfigOptions g:
                 RunSetup(g);
@@ -56,13 +63,50 @@ public class Program
     /// <summary>
     ///     Builds the configuration using options, starts the TestMapRunner
     /// </summary>
-    /// <param name="options">CLI options parsed by CommandLine</param>
-    private static async Task RunCollect(CollectOptions options)
+    /// <param name="testOptions">CLI options parsed by CommandLine</param>
+    private static async Task RunCollect(CollectTestOptions testOptions)
     {
         var config = new ConfigurationBuilder()
-            .AddJsonFile(options.CollectConfigFilePath, false, true)
+            .AddJsonFile(testOptions.CollectConfigFilePath, false, true)
             .Build();
-        var configurationService = new ConfigurationService(config);
+        var configObj = new TestMapConfig();
+        config.Bind(configObj);
+        var configurationService = new ConfigurationService(configObj);
+        configurationService.SetRunMode("collect-tests");
+        var testMapRunner = new TestMapRunner(configurationService);
+        await testMapRunner.RunAsync();
+    }
+    /// <summary>
+    ///     Builds the configuration using options, starts the TestMapRunner
+    /// </summary>
+    /// <param name="options">CLI options parsed by CommandLine</param>
+    private static async Task RunGenTests(GenerateTestsOptions options)
+    {
+        var config = new ConfigurationBuilder()
+            .AddJsonFile(options.GenTestsConfigFilePath, false, true)
+            .Build();
+        var configObj = new TestMapConfig();
+        config.Bind(configObj);
+        var configurationService = new ConfigurationService(configObj);
+        configurationService.SetRunMode("generate-tests");
+        configurationService.SetAnalysisDataPath(options.TestMapCollectTestsFilePath);
+        var testMapRunner = new TestMapRunner(configurationService);
+        await testMapRunner.RunAsync();
+    }
+    
+    /// <summary>
+    ///     Builds the configuration using options, starts the TestMapRunner
+    /// </summary>
+    /// <param name="options">CLI options parsed by CommandLine</param>
+    private static async Task RunFullAnalysis(FullAnalysisOptions options)
+    {
+        var config = new ConfigurationBuilder()
+            .AddJsonFile(options.FullAnalysisConfigFilePath, false, true)
+            .Build();
+        var configObj = new TestMapConfig();
+        config.Bind(configObj);
+        var configurationService = new ConfigurationService(configObj);
+        configurationService.SetRunMode("full-analysis");
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }

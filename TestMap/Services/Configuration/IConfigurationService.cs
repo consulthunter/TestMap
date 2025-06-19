@@ -7,6 +7,7 @@
  */
 
 using TestMap.Models;
+using TestMap.Models.Configuration;
 
 namespace TestMap.Services.Configuration;
 
@@ -17,6 +18,7 @@ public interface IConfigurationService
     List<ProjectModel> GetProjectModels();
     string GetRunDate();
     string? GetLogsDirectory();
+    RunMode RunMode { get; set; }
     string? GetTempDirPath();
     Dictionary<string, string>? GetScripts();
     Dictionary<string, string>? GetEnvironmentVariables();

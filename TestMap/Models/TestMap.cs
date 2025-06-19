@@ -9,6 +9,7 @@
  */
 
 using Microsoft.CodeAnalysis.CSharp;
+using TestMap.Models.Configuration;
 using TestMap.Services.ProjectOperations;
 
 namespace TestMap.Models;
@@ -28,7 +29,9 @@ public class TestMap(
     IExtractInformationService extractInformationService,
     IBuildTestService buildTestService,
     IAnalyzeProjectService analyzeProjectService,
-    IDeleteProjectService deleteProjectService)
+    IGenerateTestService generateTestService,
+    IDeleteProjectService deleteProjectService,
+    RunMode runMode)
 {
     // fields
     public ProjectModel ProjectModel { get; } = projectModel;
@@ -36,12 +39,51 @@ public class TestMap(
     private IExtractInformationService ExtractInformationService { get; } = extractInformationService;
     private IBuildTestService BuildTestService { get; } = buildTestService;
     private IAnalyzeProjectService AnalyzeProjectService { get; } = analyzeProjectService;
+    private IGenerateTestService GenerateTestService { get; } = generateTestService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
+    
+    private RunMode RunMode { get; } = runMode;
 
     // methods
     public async Task RunAsync()
     {
+        switch (RunMode)
+        {
+            case RunMode.CollectTests:
+                await CollectTestsModeAsync();
+                break;
+            case RunMode.GenerateTests:
+                await GenerateTestsModeAsync();
+                break;
+        }
+    }
+
+    private async Task CollectTestsModeAsync()
+    {
         await CloneRepoAsync();
+        await ExtractInformationAsync();
+        await BuildTestAsync();
+        await AnalyzeProjectsAsync();
+        await DeleteProjectAsync();
+    }
+
+    private async Task GenerateTestsModeAsync()
+    {
+        await CloneRepoAsync();
+        await GenerateTestAsync();
+        await ExtractInformationAsync();
+        await BuildTestAsync();
+        await AnalyzeProjectsAsync();
+        await DeleteProjectAsync();
+    }
+
+    private async Task FullAnalysisModeAsync()
+    {
+        await CloneRepoAsync();
+        await ExtractInformationAsync();
+        await BuildTestAsync();
+        await AnalyzeProjectsAsync();
+        await GenerateTestAsync();
         await ExtractInformationAsync();
         await BuildTestAsync();
         await AnalyzeProjectsAsync();
@@ -104,6 +146,11 @@ public class TestMap(
     private async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
     {
         await AnalyzeProjectService.AnalyzeProjectAsync(analysisProject, cSharpCompilation);
+    }
+
+    private async Task GenerateTestAsync()
+    {
+        await GenerateTestService.GenerateTestAsync();
     }
 
     /// <summary>

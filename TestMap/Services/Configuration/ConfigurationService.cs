@@ -8,8 +8,8 @@
  * ConfigurationService.cs
  */
 
-using Microsoft.Extensions.Configuration;
 using TestMap.Models;
+using TestMap.Models.Configuration;
 
 namespace TestMap.Services.Configuration;
 
@@ -19,185 +19,86 @@ namespace TestMap.Services.Configuration;
 ///     Configures variables for the run.
 /// </summary>
 /// <param name="configuration">Configuration parsed from the JSON file</param>
-public class ConfigurationService(IConfiguration configuration) : IConfigurationService
+public class ConfigurationService(TestMapConfig config) : IConfigurationService
 {
-    private readonly Dictionary<string, string>? _environmentVariables =
-        configuration.GetSection("EnvironmentVariables").Get<Dictionary<string, string>>();
-
-    private readonly string? _logsDirPath = configuration["FilePaths:LogsDirPath"];
-    private readonly int _maxConcurrency = int.Parse(configuration["Settings:MaxConcurrency"] ?? string.Empty);
-    private readonly string? _outputDirPath = configuration["FilePaths:OutputDirPath"];
-    private readonly List<ProjectModel> _projectModels = new();
-    private readonly string _runDate = DateTime.UtcNow.ToString(configuration["Settings:RunDateFormat"]);
+    private readonly TestMapConfig _config = config;
     
-    private readonly Dictionary<string, string>? _docker =
-        configuration.GetSection("Docker").Get<Dictionary<string, string>>();
+    private readonly List<ProjectModel> _projectModels = new();
+    private readonly string _runDate = DateTime.UtcNow.ToString(config.Settings.RunDateFormat);
+    
+    public int GetConcurrency() => _config.Settings.MaxConcurrency;
+    public string GetRunDate() => _runDate;
+    public string? GetTempDirPath() => _config.FilePaths.TempDirPath;
+    public string? GetLogsDirectory() => _config.FilePaths.LogsDirPath;
+    public RunMode RunMode { get; set; }
+    public Dictionary<string, string>? GetScripts() => _config.Scripts;
+    public Dictionary<string, string>? GetEnvironmentVariables() => _config.EnvironmentVariables;
+    public bool GetKeepProjectFiles() => _config.Persistence.KeepProjectFiles;
+    public string GetGenerationProvider() => _config.Generation.Provider;
+    public Dictionary<string, object> GetGenerationParameters() => _config.Generation.Parameters;
+    public string? GetAnalysisDataPath() => _config.FilePaths.AnalysisDataPath;
+    public void SetAnalysisDataPath(string path) => _config.FilePaths.AnalysisDataPath = path;
 
-    private readonly Dictionary<string, string>? _scripts =
-        configuration.GetSection("Scripts").Get<Dictionary<string, string>>();
+    public List<ProjectModel> GetProjectModels() => _projectModels;
 
-    // fields
-    private readonly string? _targetFilePath = configuration["FilePaths:TargetFilePath"];
-    private readonly string? _tempDirPath = configuration["FilePaths:TempDirPath"];
+    public void SetRunMode(string mode) =>
+        RunMode = mode switch
+        {
+            "collect-tests" => RunMode.CollectTests,
+            "generate-tests" => RunMode.GenerateTests,
+            "full-analysis" => RunMode.FullAnalysis,
+            _ => RunMode
+        };
 
-    private readonly Dictionary<string, List<string>>? _testingFrameworks =
-        configuration.GetSection("Frameworks").Get<Dictionary<string, List<string>>>();
-
-    public int GetConcurrency()
-    {
-        return _maxConcurrency;
-    }
-
-    public List<ProjectModel> GetProjectModels()
-    {
-        return _projectModels;
-    }
-
-    public string GetRunDate()
-    {
-        return _runDate;
-    }
-
-    public string? GetTempDirPath()
-    {
-        return _tempDirPath;
-    }
-
-    public string? GetLogsDirectory()
-    {
-        return _logsDirPath;
-    }
-
-    public Dictionary<string, string>? GetScripts()
-    {
-        return _scripts;
-    }
-
-    public Dictionary<string, string>? GetEnvironmentVariables()
-    {
-        return _environmentVariables;
-    }
-
-    /// <summary>
-    ///     Core function of the configuration service
-    /// </summary>
     public async Task ConfigureRunAsync()
     {
-        EnsureRunLogsDirectory();
-        EnsureTempDirectory();
-        EnsureRunOutputDirectory();
+        EnsureDirectory(_config.FilePaths.LogsDirPath, _runDate);
+        EnsureDirectory(_config.FilePaths.TempDirPath);
+        EnsureDirectory(_config.FilePaths.OutputDirPath, _runDate);
         await ReadTargetAsync();
     }
 
-    /// <summary>
-    ///     Reads the file defined in the config, TargetFilePath
-    /// </summary>
-    private async Task ReadTargetAsync()
+    private void EnsureDirectory(string? path, string? subfolder = null)
     {
-        if (Path.Exists(_targetFilePath))
-            // Open the file for reading using StreamReader
-            using (var sr = new StreamReader(_targetFilePath))
-            {
-                string? line;
+        if (string.IsNullOrWhiteSpace(path)) return;
 
-                // Read and display lines from the file until the end of the file is reached
-                while ((line = await sr.ReadLineAsync()) != null) InitializeProjectModel(line);
-            }
-    }
-
-    /// <summary>
-    ///     Creates a project model for each
-    ///     targeted repo defined in the text file
-    ///     for TargetFilePath
-    /// </summary>
-    /// <param name="projectUrl">Full URL from the list in target file</param>
-    private void InitializeProjectModel(string projectUrl)
-    {
-        var githubUrl = projectUrl;
-        var (owner, repoName) = ExtractOwnerAndRepo(githubUrl);
-        if (_tempDirPath != null)
+        if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+        if (!string.IsNullOrWhiteSpace(subfolder))
         {
-            var directoryPath = Path.Combine(_tempDirPath, repoName);
-
-            var projectModel = new ProjectModel(githubUrl, owner, repoName, _runDate,
-                directoryPath, _logsDirPath, _outputDirPath, _tempDirPath, _testingFrameworks, _docker, _scripts);
-
-            _projectModels.Add(projectModel);
+            var full = Path.Combine(path, subfolder);
+            if (!Directory.Exists(full)) Directory.CreateDirectory(full);
         }
     }
 
-    /// <summary>
-    ///     Makes sure the Logs directory
-    ///     is present
-    /// </summary>
-    private void EnsureRunLogsDirectory()
+    private async Task ReadTargetAsync()
     {
-        // Check if Logs directory exists, create if not
-        if (!Directory.Exists(_logsDirPath))
-            if (_logsDirPath != null)
-            {
-                Directory.CreateDirectory(_logsDirPath);
+        var target = _config.FilePaths.TargetFilePath;
+        if (!File.Exists(target)) return;
 
-                if (!Directory.Exists(Path.Combine(_logsDirPath, _runDate)))
-                    Directory.CreateDirectory(Path.Combine(_logsDirPath, _runDate));
-            }
+        using var sr = new StreamReader(target);
+        string? line;
+        while ((line = await sr.ReadLineAsync()) != null)
+        {
+            InitializeProjectModel(line);
+        }
     }
 
-    /// <summary>
-    ///     Makes sure the Temp directory
-    ///     is present
-    /// </summary>
-    private void EnsureTempDirectory()
+    private void InitializeProjectModel(string projectUrl)
     {
-        // Check if Temp directory exists, create if not
-        if (!Directory.Exists(_tempDirPath))
-            if (_tempDirPath != null)
-                Directory.CreateDirectory(_tempDirPath);
+        var (owner, repoName) = ExtractOwnerAndRepo(projectUrl);
+        var dirPath = Path.Combine(_config.FilePaths.TempDirPath ?? "", repoName);
+        var model = new ProjectModel(
+            projectUrl, owner, repoName, _runDate,
+            dirPath, _config.FilePaths.LogsDirPath,
+            _config.FilePaths.OutputDirPath, _config.FilePaths.TempDirPath,
+            _config.Frameworks, _config.Docker, _config.Scripts
+        );
+        _projectModels.Add(model);
     }
 
-    /// <summary>
-    ///     Makes sure the Output directory
-    ///     is present
-    /// </summary>
-    private void EnsureRunOutputDirectory()
-    {
-        // Check if Output directory exists, create if not
-        if (!Directory.Exists(_outputDirPath))
-            if (_outputDirPath != null)
-            {
-                Directory.CreateDirectory(_outputDirPath);
-
-                if (!Directory.Exists(Path.Combine(_outputDirPath, _runDate)))
-                    Directory.CreateDirectory(Path.Combine(_outputDirPath, _runDate));
-            }
-    }
-
-    /// <summary>
-    ///     Extracts the owner and repo name
-    ///     from the URL
-    /// </summary>
-    /// <param name="url">Full url for the targeted repo</param>
-    /// <returns>Tuple: (owner, repo)</returns>
-    /// <exception cref="ArgumentException">If the URL isn't in the expected form</exception>
     private (string, string) ExtractOwnerAndRepo(string url)
     {
-        if (url.StartsWith("https://"))
-            // HTTP(S) URL format: https://github.com/owner/repoName
-            return ExtractOwnerAndRepoFromHttpUrl(url);
-        throw new ArgumentException("Unsupported URL format");
-    }
-
-    /// <summary>
-    ///     Parses the owner and repo from the URL
-    /// </summary>
-    /// <param name="url">Full url for the targeted repo</param>
-    /// <returns>Tuple: (owner, repo)</returns>
-    private (string, string) ExtractOwnerAndRepoFromHttpUrl(string url)
-    {
         var uri = new Uri(url);
-        var owner = uri.Segments[1].TrimEnd('/');
-        var repoName = uri.Segments[2].TrimEnd('/');
-
-        return (owner, repoName);
+        return (uri.Segments[1].Trim('/'), uri.Segments[2].Trim('/'));
     }
 }

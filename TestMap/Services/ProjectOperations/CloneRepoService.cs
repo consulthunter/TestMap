@@ -23,26 +23,45 @@ public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
 
     /// <summary>
     ///     Clones a repository using LibGit2Sharp
-    ///     and the URL
+    ///     if it's not already cloned.
     /// </summary>
     /// <returns></returns>
     private Task Clone()
     {
-        // Clone repository
-        if (Directory.GetParent(projectModel.DirectoryPath) is { Exists: true })
-            try
+        try
+        {
+            if (Repository.IsValid(projectModel.DirectoryPath))
+            {
+                // Ensure no file handles are left open
+                using (var repo = new Repository(projectModel.DirectoryPath)) { }
+
+                projectModel.Logger?.Information($"Repository already exists at {projectModel.DirectoryPath}, skipping clone.");
+                return Task.CompletedTask;
+            }
+
+            var parentDir = Directory.GetParent(projectModel.DirectoryPath);
+            if (parentDir is { Exists: true })
             {
                 projectModel.Logger?.Information($"Cloning repository: {projectModel.GitHubUrl}");
+
                 Repository.Clone(projectModel.GitHubUrl, projectModel.DirectoryPath);
+
+                // Immediately dispose to release file locks
+                using (var repo = new Repository(projectModel.DirectoryPath)) { }
+
                 projectModel.Logger?.Information($"Finished cloning repository: {projectModel.GitHubUrl}");
             }
-            catch (Exception ex)
+            else
             {
-                projectModel.Logger?.Error($"Failed to clone repository: {ex.Message}");
+                projectModel.Logger?.Error($"Parent directory {parentDir?.FullName} does not exist.");
             }
-        else
-            projectModel.Logger?.Error($"Directory {projectModel.DirectoryPath} does not exist.");
+        }
+        catch (Exception ex)
+        {
+            projectModel.Logger?.Error($"Failed to clone repository: {ex.Message}");
+        }
 
         return Task.CompletedTask;
     }
+
 }

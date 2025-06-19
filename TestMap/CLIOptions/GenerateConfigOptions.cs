@@ -19,5 +19,4 @@ public class GenerateConfigOptions
     [Option('b', "base-path", SetName = "generate-config", Required = true, HelpText = "Working directory path.")]
     public string BasePath { get; set; }
     
-    
 }

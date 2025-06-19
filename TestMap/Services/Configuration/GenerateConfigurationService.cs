@@ -23,6 +23,7 @@ public class GenerateConfigurationService(string configurationFilePath, string b
                 ["LogsDirPath"] = Path.Combine(basePath, "TestMap" ,"Logs"),
                 ["TempDirPath"] = Path.Combine(basePath, "Temp"),
                 ["OutputDirPath"] = Path.Combine(basePath, "TestMap", "Output"),
+                ["AnalysisDataPath"] = ""
             },
             ["Settings"] = new Dictionary<string, object>()
             {
@@ -45,6 +46,19 @@ public class GenerateConfigurationService(string configurationFilePath, string b
                 ["Docker"] = Path.Combine(basePath, "TestMap", "Scripts", "run_docker.ps1"),
                 ["Docker-Cleanup"] = Path.Combine(basePath, "TestMap", "Scripts", "run_docker_cleanup.ps1"),
                 ["Delete"] = Path.Combine(basePath, "TestMap", "Scripts", "run_rm.ps1")
+            },
+            ["Persistence"] = new Dictionary<string, object>()
+            {
+                ["KeepProjectFiles"] = true,
+            },
+            ["Generation"] = new Dictionary<string, object>()
+            {
+                ["Provider"] = "heuristic",
+                ["Parameters"] = new Dictionary<string, object>()
+                {
+                    ["maxTests"] = 20,
+                    ["timeoutSeconds"] = 30
+                }
             }
         };
         
