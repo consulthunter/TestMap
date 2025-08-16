@@ -18,8 +18,12 @@ namespace TestMap.Models;
 /// </summary>
 /// <param name="solution">Solution (.sln) found within the repo</param>
 /// <param name="projects">Projects (.csproj) found contained in that solution</param>
-public class AnalysisSolution(Solution solution, List<string> projects)
+public class AnalysisSolution(int projectModelId, string guid, Solution solution, List<string> projects)
 {
+    public int Id { get; set; } = 0;
+    public int ProjectModelId { get; set; } = projectModelId;
+    public string Guid { get; set; } = guid;
+    public string SolutionFilePath { get; set; } = solution.FilePath ?? "";
     public readonly List<string> Projects = projects;
     public readonly Solution Solution = solution;
 }

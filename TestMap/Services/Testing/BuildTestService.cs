@@ -1,8 +1,10 @@
 ﻿using System.Diagnostics;
+using System.Xml.Linq;
 using System.Xml.Serialization;
 using Serilog;
 using TestMap.Models;
 using TestMap.Models.Coverage;
+using TestMap.Models.Results;
 
 namespace TestMap.Services.ProjectOperations;
 
@@ -25,6 +27,7 @@ public class BuildTestService : IBuildTestService
             await WaitForContainerExitAsync(_containerName);
             await MergeCoverageReportsAsync(Path.Combine(_projectModel.DirectoryPath, "coverage"));
             CopyMergedCoverageReport();
+            ProcessTrxResults();
             await CaptureContainerLogsAsync();
         }
         catch (Exception ex)
@@ -33,6 +36,7 @@ public class BuildTestService : IBuildTestService
         }
 
         LoadCoverageReport();
+        CleanupCoverageDirectory();
     }
 
     private async Task RunDockerContainerAsync()
@@ -98,6 +102,88 @@ public class BuildTestService : IBuildTestService
             _projectModel.Logger?.Warning($"Merged coverage file not found at: {source}");
         }
     }
+    
+    private void CleanupCoverageDirectory()
+    {
+        var coverageDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
+        if (Directory.Exists(coverageDir))
+        {
+            try
+            {
+                Directory.Delete(coverageDir, recursive: true);
+                _projectModel.Logger?.Information($"Coverage directory '{coverageDir}' deleted successfully.");
+            }
+            catch (Exception ex)
+            {
+                _projectModel.Logger?.Warning($"Failed to delete coverage directory '{coverageDir}': {ex.Message}");
+            }
+        }
+    }
+    
+    private void ProcessTrxResults()
+    {
+        var trxDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
+        if (!Directory.Exists(trxDir))
+        {
+            _projectModel.Logger?.Warning($"TRX results directory not found: {trxDir}");
+            return;
+        }
+
+        var trxFiles = Directory.GetFiles(trxDir, "*.trx");
+        foreach (var trxFile in trxFiles)
+        {
+            _projectModel.Logger?.Information($"Parsing TRX file: {trxFile}");
+            var results = ParseTrxFile(trxFile);
+
+            // Append or replace results — depends on your design intent
+            _projectModel.TestResults.AddRange(results);
+
+            foreach (var result in results)
+            {
+                var outcomeText = result.Outcome == "Passed" ? "Passed" : "Failed";
+                _projectModel.Logger?.Information($"{outcomeText} Test: {result.TestName}, Duration: {result.Duration}");
+                if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                {
+                    _projectModel.Logger?.Warning($"Error: {result.ErrorMessage}");
+                }
+            }
+        }
+    }
+
+
+    private List<TrxTestResult> ParseTrxFile(string trxFilePath)
+    {
+        var results = new List<TrxTestResult>();
+        var doc = XDocument.Load(trxFilePath);
+        XNamespace ns = doc.Root?.Name.Namespace ?? "";
+
+        var unitTestResults = doc.Descendants(ns + "UnitTestResult");
+
+        foreach (var result in unitTestResults)
+        {
+            string testName = (string?)result.Attribute("testName") ?? "";
+            string outcome = (string?)result.Attribute("outcome") ?? "";
+            string durationStr = (string?)result.Attribute("duration") ?? "00:00:00";
+            TimeSpan.TryParse(durationStr, out TimeSpan duration);
+
+            string? errorMessage = result
+                .Element(ns + "Output")
+                ?.Element(ns + "ErrorInfo")
+                ?.Element(ns + "Message")
+                ?.Value;
+
+            results.Add(new TrxTestResult
+            {
+                TestName = testName,
+                Outcome = outcome,
+                Duration = duration,
+                ErrorMessage = errorMessage
+            });
+        }
+
+        return results;
+    }
+
 
     private async Task CaptureContainerLogsAsync()
     {

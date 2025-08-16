@@ -25,7 +25,7 @@ for sln in $sln_files; do
     sln_dir=$(dirname "$sln")
 
     echo "Running dotnet test..."
-    if ! dotnet test $sln --collect:"Code Coverage;Format=Cobertura" --results-directory $COV_DIR; then
+    if ! dotnet test $sln --collect:"Code Coverage;Format=Cobertura" --logger "trx;LogFileName=$(basename "$sln" .sln)_results.trx" --results-directory $COV_DIR; then
       echo "Testing failed for solution: $sln. Skipping to the next one."
       continue
     fi

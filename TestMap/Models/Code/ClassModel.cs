@@ -7,6 +7,8 @@
  * ClassModel.cs
  */
 
+using System.Text.Json;
+
 namespace TestMap.Models.Code;
 
 /// <summary>
@@ -19,17 +21,28 @@ namespace TestMap.Models.Code;
 /// <param name="location">Location of the class in the tree</param>
 /// <param name="classBody">Complete body of the class</param>
 public class ClassModel(
+    int fileId = 0,
+    string guid = "",
     string name = "",
+    string visibility = "",
     List<string>? attributes = null,
     List<string>? modifiers = null,
-    List<string>? classFields = null,
-    Location? location = null,
-    string classBody = "")
+    string fullString = "",
+    string docString = "",
+    bool isTestClass = false,
+    string testingFramework = "",
+    Location? location = null)
 {
+    public int Id { get; set; } = 0;
+    public int FileId { get; set; } = fileId;
+    public string Guid { get; set; } = guid;
     public string Name {get; set; } = name;
-    public List<string> Attributes { get; set; } = attributes ?? new List<string>();
-    public List<string> Modifiers { get; set; } = modifiers ?? new List<string>();
-    public List<string> ClassFields { get; set; } = classFields ?? new List<string>();
-    public Location Location { get; set; } = location ?? new Location(0,0);
-    public string ClassBody { get; set; } = classBody;
+    public string Visibility { get; set; } = visibility;
+    public string Modifiers { get; set; } = JsonSerializer.Serialize(modifiers) ?? JsonSerializer.Serialize(new List<string>());
+    public string Attributes { get; set; } = JsonSerializer.Serialize(attributes) ?? JsonSerializer.Serialize(new List<string>());
+    public string FullString { get; set; } = fullString;
+    public string DocString { get; set; } = docString;
+    public bool IsTestClass { get; set; } = isTestClass;
+    public string TestingFramework { get; set; } = testingFramework;
+    public Location Location { get; set; } = location ?? new Location(0,0,0,0);
 }

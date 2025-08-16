@@ -8,7 +8,9 @@
  */
 
 using Serilog;
+using TestMap.Models.Configuration;
 using TestMap.Models.Coverage;
+using TestMap.Models.Results;
 
 namespace TestMap.Models;
 
@@ -32,7 +34,8 @@ public class ProjectModel
     /// <param name="scripts">Batch or shell scripts defined in the config</param>
     public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "", string runDate = "",
         string directoryPath = "", string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
-        Dictionary<string, List<string>>? testingFrameworks = null, Dictionary<string, string>? docker = null, Dictionary<string, string>? scripts = null)
+        Dictionary<string, List<string>>? testingFrameworks = null, Dictionary<string, string>? docker = null,
+        string? databasePath = null, TestMapConfig config = null)
     {
         GitHubUrl = gitHubUrl;
         Owner = owner;
@@ -46,20 +49,30 @@ public class ProjectModel
         TempDirPath = tempDirPath;
         TestingFrameworks = testingFrameworks;
         Docker = docker;
-        Scripts = scripts;
+        DatabasePath = databasePath;
+        Config = config ?? new();
 
-        // unique id for this particular project run
         CreateUniqueId();
     }
 
+
     // fields
     public string? ProjectId { get; set; }
+    public int DbId { get; set; }
     public string GitHubUrl { get; set; }
     public string Owner { get; private set; }
     public string RepoName { get; }
+    public TestMapConfig Config { get; set; }
+    
+    public string? Branch { get; set; }
+    public string? Commit { get; set; }
+    public string? LastAnalyzedCommit { get; set; }
+    public string? DatabasePath { get; set; }
+
     public List<AnalysisSolution> Solutions { get; set; }
     public List<AnalysisProject> Projects { get; set; }
     public CoverageReport? CoverageReport { get; set; }
+    public List<TrxTestResult> TestResults { get; set; } = new();
     public string DirectoryPath { get; set; }
     public string? TempDirPath { get; set; }
     private string? LogsDirPath { get; }
@@ -69,6 +82,7 @@ public class ProjectModel
     public Dictionary<string, List<string>>? TestingFrameworks { get; set; }
     public Dictionary<string, string>? Docker { get; set; }
     public Dictionary<string, string>? Scripts { get; set; }
+    public bool IsBaselineEstablished { get; set; }
     public ILogger? Logger { get; private set; }
 
     // methods
@@ -108,7 +122,7 @@ public class ProjectModel
     {
         if (ProjectId != null)
         {
-            var outputPath = Path.Combine(OutputDirPath ?? string.Empty, _runDate, ProjectId);
+            var outputPath = Path.Combine(OutputDirPath ?? string.Empty, RepoName);
             if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
             OutputPath = outputPath;
         }

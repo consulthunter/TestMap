@@ -18,28 +18,12 @@ namespace TestMap.Services.Configuration;
 ///     Takes in the configuration parsed from the JSON
 ///     Configures variables for the run.
 /// </summary>
-/// <param name="configuration">Configuration parsed from the JSON file</param>
 public class ConfigurationService(TestMapConfig config) : IConfigurationService
 {
-    private readonly TestMapConfig _config = config;
-    
-    private readonly List<ProjectModel> _projectModels = new();
-    private readonly string _runDate = DateTime.UtcNow.ToString(config.Settings.RunDateFormat);
-    
-    public int GetConcurrency() => _config.Settings.MaxConcurrency;
-    public string GetRunDate() => _runDate;
-    public string? GetTempDirPath() => _config.FilePaths.TempDirPath;
-    public string? GetLogsDirectory() => _config.FilePaths.LogsDirPath;
-    public RunMode RunMode { get; set; }
-    public Dictionary<string, string>? GetScripts() => _config.Scripts;
-    public Dictionary<string, string>? GetEnvironmentVariables() => _config.EnvironmentVariables;
-    public bool GetKeepProjectFiles() => _config.Persistence.KeepProjectFiles;
-    public string GetGenerationProvider() => _config.Generation.Provider;
-    public Dictionary<string, object> GetGenerationParameters() => _config.Generation.Parameters;
-    public string? GetAnalysisDataPath() => _config.FilePaths.AnalysisDataPath;
-    public void SetAnalysisDataPath(string path) => _config.FilePaths.AnalysisDataPath = path;
-
-    public List<ProjectModel> GetProjectModels() => _projectModels;
+    public TestMapConfig Config { get; } = config;
+    public RunMode RunMode { get; set;  }
+    public string RunDate { get; } = DateTime.UtcNow.ToString(config.Settings.RunDateFormat);
+    public List<ProjectModel> ProjectModels { get; } = new();
 
     public void SetRunMode(string mode) =>
         RunMode = mode switch
@@ -49,12 +33,13 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
             "full-analysis" => RunMode.FullAnalysis,
             _ => RunMode
         };
+    
 
     public async Task ConfigureRunAsync()
     {
-        EnsureDirectory(_config.FilePaths.LogsDirPath, _runDate);
-        EnsureDirectory(_config.FilePaths.TempDirPath);
-        EnsureDirectory(_config.FilePaths.OutputDirPath, _runDate);
+        EnsureDirectory(Config.FilePaths.LogsDirPath, RunDate);
+        EnsureDirectory(Config.FilePaths.TempDirPath);
+        EnsureDirectory(Config.FilePaths.OutputDirPath);
         await ReadTargetAsync();
     }
 
@@ -63,6 +48,7 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
         if (string.IsNullOrWhiteSpace(path)) return;
 
         if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+
         if (!string.IsNullOrWhiteSpace(subfolder))
         {
             var full = Path.Combine(path, subfolder);
@@ -72,7 +58,7 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
 
     private async Task ReadTargetAsync()
     {
-        var target = _config.FilePaths.TargetFilePath;
+        var target = Config.FilePaths.TargetFilePath;
         if (!File.Exists(target)) return;
 
         using var sr = new StreamReader(target);
@@ -83,18 +69,30 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
         }
     }
 
-    private void InitializeProjectModel(string projectUrl)
+    private void InitializeProjectModel(string repoUrl)
     {
-        var (owner, repoName) = ExtractOwnerAndRepo(projectUrl);
-        var dirPath = Path.Combine(_config.FilePaths.TempDirPath ?? "", repoName);
+        var (owner, repoName) = ExtractOwnerAndRepo(repoUrl);
+        
+        var dirPath = Path.Combine(Config.FilePaths.TempDirPath ?? "", repoName);
+        
+        var repoOutputPath = Path.Combine(Config.FilePaths.OutputDirPath ?? "", repoName);
+
+        var dbFilePath = Path.Combine(repoOutputPath, "analysis.db");
+
         var model = new ProjectModel(
-            projectUrl, owner, repoName, _runDate,
-            dirPath, _config.FilePaths.LogsDirPath,
-            _config.FilePaths.OutputDirPath, _config.FilePaths.TempDirPath,
-            _config.Frameworks, _config.Docker, _config.Scripts
-        );
-        _projectModels.Add(model);
+            repoUrl, owner, repoName, RunDate,
+            directoryPath: dirPath,
+            logsDirPath: config.FilePaths.LogsDirPath,
+            outputDirPath: config.FilePaths.OutputDirPath,
+            tempDirPath: Config.FilePaths.TempDirPath,
+            testingFrameworks: Config.Frameworks,
+            docker: Config.Docker,
+            databasePath: dbFilePath,
+            config: Config);
+
+        ProjectModels.Add(model);
     }
+
 
     private (string, string) ExtractOwnerAndRepo(string url)
     {

@@ -6,6 +6,9 @@
  *
  * MethodModel.cs
  */
+
+using System.Text.Json;
+
 namespace TestMap.Models.Code;
 
 /// <summary>
@@ -18,18 +21,30 @@ namespace TestMap.Models.Code;
 /// <param name="methodBody">Complete body of the method</param>
 /// <param name="location">Location of the method in the tree</param>
 public class MethodModel(
+    int classId = 0,
+    string guid = "",
     string name = "",
+    string visibility = "",
     List<string>? attributes = null,
     List<string>? modifiers = null,
-    List<string>? invocations = null,
-    string methodBody = "",
+    string fullString = "",
+    string docString = "",
+    bool isTestMethod = false,
+    string testingFramework = "",
     Location? location =  null)
 {
+    public int Id { get; set; } = 0;
+    public int ClassId { get; set; } = classId;
+    public string Guid { get; set; } = guid;
     public string Name { get; set; } = name;
-    public List<string> Attributes { get; set; } = attributes ?? new List<string>();
-    public List<string> Modifiers { get; set; } = modifiers ?? new List<string>();
-    public List<string> Invocations { get; set; } = invocations ?? new List<string>();
-    public string MethodBody { get; set; } = methodBody;
-    public Location Location = location ?? new Location(0,0);
+    public string Visibility { get; set; } = visibility;
+    public string Modifiers { get; set; } = JsonSerializer.Serialize(modifiers) ?? JsonSerializer.Serialize(new List<string>());
+    public string Attributes { get; set; } = JsonSerializer.Serialize(attributes) ?? JsonSerializer.Serialize(new List<string>());
+    public string FullString { get; set; } = fullString;
+    public string DocString { get; set; } = docString;
+    public bool IsTestMethod { get; set; } = isTestMethod;
+    public string TestingFramework { get; set; } = testingFramework;
+    public string TestType { get; set; } = "";
+    public Location Location = location ?? new Location(0,0, 0, 0);
     
 }

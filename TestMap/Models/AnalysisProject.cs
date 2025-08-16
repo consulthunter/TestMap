@@ -8,6 +8,7 @@
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using TestMap.Models.Code;
 
 namespace TestMap.Models;
 
@@ -24,6 +25,8 @@ namespace TestMap.Models;
 /// <param name="compilation">Compilation loaded for the project</param>
 /// <param name="languageFramework">Target framework found within the project file</param>
 public class AnalysisProject(
+    int solutionId = 0,
+    string guid = "",
     string? solutionFilePath = null,
     Dictionary<string, SyntaxTree>? syntaxTrees = null,
     List<string>? projectReferences = null,
@@ -32,6 +35,9 @@ public class AnalysisProject(
     CSharpCompilation? compilation = null,
     string languageFramework = "")
 {
+    public int Id { get; set; } = 0;
+    public int SolutionId { get; set; } = solutionId;
+    public string Guid { get; set; } = guid;
     public readonly List<MetadataReference>? Assemblies = assemblies;
     public readonly CSharpCompilation? Compilation = compilation;
     public readonly string LanguageFramework = languageFramework;
@@ -39,4 +45,6 @@ public class AnalysisProject(
     public readonly List<string>? ProjectReferences = projectReferences;
     public readonly string? SolutionFilePath = solutionFilePath;
     public readonly Dictionary<string, SyntaxTree>? SyntaxTrees = syntaxTrees;
+    
+    List<PackageModel> Packages = new List<PackageModel>();
 }

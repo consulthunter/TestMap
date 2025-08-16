@@ -23,7 +23,7 @@ public class GenerateConfigurationService(string configurationFilePath, string b
                 ["LogsDirPath"] = Path.Combine(basePath, "TestMap" ,"Logs"),
                 ["TempDirPath"] = Path.Combine(basePath, "Temp"),
                 ["OutputDirPath"] = Path.Combine(basePath, "TestMap", "Output"),
-                ["AnalysisDataPath"] = ""
+                ["MigrationsFilePath"] = Path.Combine(basePath, "TestMap", "Migrations", "testmap.sql")
             },
             ["Settings"] = new Dictionary<string, object>()
             {
@@ -41,12 +41,6 @@ public class GenerateConfigurationService(string configurationFilePath, string b
                 ["MSTest"] = new List<string> { "TestMethod", "DataSource" },
                 ["Microsoft.VisualStudio.TestTools.UnitTesting"] = new List<string> { "TestMethod", "DataSource" }
             },
-            ["Scripts"] = new Dictionary<string, string>
-            {
-                ["Docker"] = Path.Combine(basePath, "TestMap", "Scripts", "run_docker.ps1"),
-                ["Docker-Cleanup"] = Path.Combine(basePath, "TestMap", "Scripts", "run_docker_cleanup.ps1"),
-                ["Delete"] = Path.Combine(basePath, "TestMap", "Scripts", "run_rm.ps1")
-            },
             ["Persistence"] = new Dictionary<string, object>()
             {
                 ["KeepProjectFiles"] = true,
@@ -59,6 +53,12 @@ public class GenerateConfigurationService(string configurationFilePath, string b
                     ["maxTests"] = 20,
                     ["timeoutSeconds"] = 30
                 }
+            }
+            ["Export"] = new Dictionary<string, object>()
+            {
+                ["Format"] = "json",
+                ["Type"] = "TestMethods",
+                ["FilePath"] = Path.Combine(basePath, "TestMap", "Output")
             }
         };
         

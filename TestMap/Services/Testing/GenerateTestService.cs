@@ -1,15 +1,16 @@
 using TestMap.Models;
+using TestMap.Models.Configuration;
 
 namespace TestMap.Services.ProjectOperations;
 
 public class GenerateTestService :  IGenerateTestService
 {
     private readonly ProjectModel _projectModel;
-    private readonly string _containerName;
-    public GenerateTestService(ProjectModel project, string testProvider)
+    private readonly GenerationConfig _generationConfig;
+    public GenerateTestService(ProjectModel project, GenerationConfig  config)
     {
         _projectModel = project;
-        _containerName = _projectModel.RepoName.ToLower() + "-testing";
+        _generationConfig = config;
         
     }
 

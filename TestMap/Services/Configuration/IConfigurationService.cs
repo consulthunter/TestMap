@@ -14,12 +14,9 @@ namespace TestMap.Services.Configuration;
 public interface IConfigurationService
 {
     Task ConfigureRunAsync();
-    int GetConcurrency();
-    List<ProjectModel> GetProjectModels();
-    string GetRunDate();
-    string? GetLogsDirectory();
     RunMode RunMode { get; set; }
-    string? GetTempDirPath();
-    Dictionary<string, string>? GetScripts();
-    Dictionary<string, string>? GetEnvironmentVariables();
+    
+    TestMapConfig Config { get; }
+    string RunDate { get; }
+    List<ProjectModel> ProjectModels { get; }
 }

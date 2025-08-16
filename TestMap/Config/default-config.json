@@ -3,7 +3,8 @@
     "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
     "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
     "TempDirPath": "D:\\Projects\\TestMap\\Temp",
-    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
+    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output",
+    "MigrationsFilePath": "D:\\Projects\\TestMap\\TestMap\\Migrations\\testmap.sql"
   },
   "Settings": {
     "MaxConcurrency": 5,
@@ -32,9 +33,12 @@
       "DataSource"
     ]
   },
-  "Scripts": {
-    "Docker": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_docker.ps1",
-    "Docker-Cleanup": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_docker_cleanup.ps1",
-    "Delete": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.ps1"
+  "Persistence": {
+    "KeepProjectFiles": true
+  },
+  "Generation": {
+    "Format": "json",
+    "Type": "TestMethods",
+    "FilePath": "D:\\Projects\\TestMap\\TestMap\\Output"
   }
 }

@@ -85,7 +85,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
 
                     if (project.FilePath != null)
                     {
-                        var analysisProject = new AnalysisProject(solution.FilePath,
+                        var analysisProject = new AnalysisProject(0, Guid.NewGuid().ToString(), solution.FilePath,
                             projectReferences: GetProjectReferences(solution, project),
                             syntaxTrees: syntaxTrees, projectFilePath: project.FilePath, compilation: compilation,
                             languageFramework: targetFramework);
@@ -115,7 +115,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
 
                 if (!projectModel.Solutions.Exists(sol => sol.Solution.FilePath == solution.FilePath))
                 {
-                    var analysisSolution = new AnalysisSolution(solution, solutionProjects);
+                    var analysisSolution = new AnalysisSolution(0, Guid.NewGuid().ToString(), solution, solutionProjects);
                     projectModel.Solutions.Add(analysisSolution);
                 }
                 else

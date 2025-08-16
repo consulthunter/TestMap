@@ -89,7 +89,6 @@ public class Program
         config.Bind(configObj);
         var configurationService = new ConfigurationService(configObj);
         configurationService.SetRunMode("generate-tests");
-        configurationService.SetAnalysisDataPath(options.TestMapCollectTestsFilePath);
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }

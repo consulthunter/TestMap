@@ -10,6 +10,7 @@
 
 using Microsoft.CodeAnalysis.CSharp;
 using TestMap.Models.Configuration;
+using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
 
 namespace TestMap.Models;
@@ -25,9 +26,11 @@ namespace TestMap.Models;
 /// <param name="deleteProjectService">Service to remove the repo from the Temp directory</param>
 public class TestMap(
     ProjectModel projectModel,
+    TestMapConfig config,
     ICloneRepoService cloneRepoService,
     IExtractInformationService extractInformationService,
     IBuildTestService buildTestService,
+    ISqliteDatabaseService sqliteDatabaseService,
     IAnalyzeProjectService analyzeProjectService,
     IGenerateTestService generateTestService,
     IDeleteProjectService deleteProjectService,
@@ -35,18 +38,24 @@ public class TestMap(
 {
     // fields
     public ProjectModel ProjectModel { get; } = projectModel;
+    private TestMapConfig Config { get; } = config;
     private ICloneRepoService CloneRepoService { get; } = cloneRepoService;
     private IExtractInformationService ExtractInformationService { get; } = extractInformationService;
     private IBuildTestService BuildTestService { get; } = buildTestService;
+    private ISqliteDatabaseService SqliteDatabaseService { get; } = sqliteDatabaseService;
     private IAnalyzeProjectService AnalyzeProjectService { get; } = analyzeProjectService;
     private IGenerateTestService GenerateTestService { get; } = generateTestService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
+    private readonly HashSet<string> _analyzedProjectIds = new();
+
     
     private RunMode RunMode { get; } = runMode;
 
     // methods
     public async Task RunAsync()
     {
+        await CloneRepoAsync();
+        await LoadDatabaseAsync();
         switch (RunMode)
         {
             case RunMode.CollectTests:
@@ -55,31 +64,35 @@ public class TestMap(
             case RunMode.GenerateTests:
                 await GenerateTestsModeAsync();
                 break;
+            case RunMode.FullAnalysis:
+                await FullAnalysisModeAsync();
+                break;
+        }
+
+        if (!Config.Persistence.KeepProjectFiles)
+        {
+            await DeleteProjectAsync();
         }
     }
 
     private async Task CollectTestsModeAsync()
     {
-        await CloneRepoAsync();
         await ExtractInformationAsync();
+        await InsertProjectionInformation();
         await BuildTestAsync();
         await AnalyzeProjectsAsync();
-        await DeleteProjectAsync();
     }
 
     private async Task GenerateTestsModeAsync()
     {
-        await CloneRepoAsync();
         await GenerateTestAsync();
         await ExtractInformationAsync();
         await BuildTestAsync();
         await AnalyzeProjectsAsync();
-        await DeleteProjectAsync();
     }
 
     private async Task FullAnalysisModeAsync()
     {
-        await CloneRepoAsync();
         await ExtractInformationAsync();
         await BuildTestAsync();
         await AnalyzeProjectsAsync();
@@ -87,7 +100,6 @@ public class TestMap(
         await ExtractInformationAsync();
         await BuildTestAsync();
         await AnalyzeProjectsAsync();
-        await DeleteProjectAsync();
     }
 
     /// <summary>
@@ -97,6 +109,16 @@ public class TestMap(
     private async Task CloneRepoAsync()
     {
         await CloneRepoService.CloneRepoAsync();
+    }
+
+    private async Task LoadDatabaseAsync()
+    {
+        await SqliteDatabaseService.InitializeAsync();
+    }
+
+    private async Task InsertProjectionInformation()
+    {
+        await SqliteDatabaseService.InsertProjectInformation();
     }
 
     /// <summary>
@@ -124,13 +146,19 @@ public class TestMap(
         {
             ProjectModel.Logger?.Information(
                 $"Number of projects in {ProjectModel.ProjectId}: {ProjectModel.Projects.Count}");
-            // iterates over the project and loads project information
+
             foreach (var project in ProjectModel.Projects)
-                // assuming all project information is loaded
-                // create project compilation
-                // BuildProjectService.BuildProjectCompilation(project);
-                // analyze the project
+            {
+                if (!_analyzedProjectIds.Add(project.ProjectFilePath))
+                {
+                    ProjectModel.Logger?.Information($"Skipping already analyzed project: {project.ProjectFilePath}");
+                    continue;
+                }
+
+                // Mark as analyzed before or after to avoid double work in concurrency
+
                 await AnalyzeProjectAsync(project, project.Compilation);
+            }
         }
         catch (Exception e)
         {

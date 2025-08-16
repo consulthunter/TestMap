@@ -10,7 +10,10 @@
 using Microsoft.Build.Locator;
 using Serilog;
 using TestMap.Models;
+using TestMap.Models.Configuration;
+using TestMap.Services.CollectInformation;
 using TestMap.Services.Configuration;
+using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
 
 namespace TestMap.Services;
@@ -18,6 +21,7 @@ namespace TestMap.Services;
 public class TestMapRunner
 {
     private readonly List<ProjectModel> _projects;
+    private readonly TestMapConfig _testMapConfig;
 
     /// <summary>
     ///     Constructor
@@ -29,13 +33,14 @@ public class TestMapRunner
 
         MSBuildLocator.RegisterDefaults();
         ConfigurationService.ConfigureRunAsync().GetAwaiter().GetResult();
+        _testMapConfig = configurationService.Config;
 
-        _projects = ConfigurationService.GetProjectModels();
-        MaxConcurrency = ConfigurationService.GetConcurrency();
+        _projects = ConfigurationService.ProjectModels;
+        MaxConcurrency = _testMapConfig.Settings.MaxConcurrency;
 
-        var logPath = Path.Combine(ConfigurationService.GetLogsDirectory() ?? string.Empty,
-            ConfigurationService.GetRunDate(),
-            $"collection_{ConfigurationService.GetRunDate()}.log");
+        var logPath = Path.Combine(_testMapConfig.FilePaths.LogsDirPath ?? string.Empty,
+            ConfigurationService.RunDate,
+            $"collection_{ConfigurationService.RunDate}.log");
 
         // Configure logging for this instance of TestMap using Serilog
         Logger = new LoggerConfiguration()
@@ -58,7 +63,7 @@ public class TestMapRunner
     private int MaxConcurrency { get; }
     private ILogger Logger { get; }
 
-    private IConfigurationService? ConfigurationService { get; }
+    private IConfigurationService ConfigurationService { get; }
 
     // methods
     /// <summary>
@@ -85,14 +90,19 @@ public class TestMapRunner
                 project.EnsureProjectOutputDir();
 
                 Logger.Information($"Creating TestMap {project.ProjectId}.");
+                var db = new SqliteDatabaseService(project);
                 var testMap = new Models.TestMap
                 (
                     project,
+                    _testMapConfig,
                     new CloneRepoService(project),
                     new ExtractInformationService(project),
                     new BuildTestService(project),
-                    new AnalyzeProjectService(project),
-                    new DeleteProjectService(project)
+                    db,
+                    new AnalyzeProjectService(project, db),
+                    new GenerateTestService(project, _testMapConfig.Generation),
+                    new DeleteProjectService(project),
+                    ConfigurationService.RunMode
                 );
 
                 tasks.Add(RunTestMapAsync(testMap, semaphore));

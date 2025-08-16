@@ -7,8 +7,8 @@ public class TestMapConfig
     public SettingsConfig Settings { get; set; } = new();
     public Dictionary<string, string>? Docker { get; set; }
     public Dictionary<string, List<string>>? Frameworks { get; set; }
-    public Dictionary<string, string>? Scripts { get; set; }
-    public Dictionary<string, string>? EnvironmentVariables { get; set; }
     public PersistenceConfig Persistence { get; set; } = new();
     public GenerationConfig Generation { get; set; } = new();
+    
+    public ExportConfig Export { get; set; } = new();
 }
