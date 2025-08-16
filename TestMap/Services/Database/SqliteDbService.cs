@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using TestMap.Models;
 using TestMap.Models.Code;
+using TestMap.Models.Database;
 
 namespace TestMap.Services.Database;
 
@@ -675,5 +676,123 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             var newId = (Int64)(await lastIdCmd.ExecuteScalarAsync());
             property.Id = (int)newId;
         }
+    }
+
+    public async Task<List<InvocationDetails>> GetUnresolvedInvocations()
+    {
+        var results = new List<InvocationDetails>();
+
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT 
+                i.id, i.target_method_id, i.source_method_id, i.guid, i.full_string,
+                m.id, m.class_id, m.guid, m.name,
+                c.id, c.file_id, c.guid, c.name,
+                s.name, s.path, s.package_id, s.guid,
+                sp.id, sp.package_name, sp.analysis_project_id, sp.guid,
+                ap.id, ap.project_path, ap.solution_id, ap.guid,
+                asol.id, asol.solution_path, asol.guid
+            FROM invocations AS i
+            JOIN methods AS m ON i.target_method_id = m.id
+            JOIN classes AS c ON m.class_id = c.id
+            JOIN source_files AS s ON c.file_id = s.id
+            JOIN source_packages AS sp ON s.package_id = sp.id
+            JOIN analysis_projects AS ap ON sp.analysis_project_id = ap.id
+            JOIN analysis_solutions AS asol ON ap.solution_id = asol.id
+            WHERE i.source_method_id = 0;
+        ";
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var item = new InvocationDetails
+            {
+                InvocationId      = reader.GetInt32(0),
+                TargetMethodId    = reader.GetInt32(1),
+                SourceMethodId    = reader.GetInt32(2),
+                InvocationGuid    = reader.GetString(3),
+                FullString        = reader.GetString(4),
+
+                MethodId          = reader.GetInt32(5),
+                MethodClassId     = reader.GetInt32(6),
+                MethodGuid        = reader.GetString(7),
+                MethodName        = reader.GetString(8),
+
+                ClassId           = reader.GetInt32(9),
+                FileId            = reader.GetInt32(10),
+                ClassGuid         = reader.GetString(11),
+                ClassName         = reader.GetString(12),
+
+                FileName          = reader.GetString(13),
+                FilePath          = reader.GetString(14),
+                PackageId         = reader.GetInt32(15),
+                FileGuid          = reader.GetString(16),
+
+                SourcePackageId   = reader.GetInt32(17),
+                PackageName       = reader.GetString(18),
+                AnalysisProjectId = reader.GetInt32(19),
+                PackageGuid       = reader.GetString(20),
+
+                ProjectId         = reader.GetInt32(21),
+                ProjectPath       = reader.GetString(22),
+                SolutionId        = reader.GetInt32(23),
+                ProjectGuid       = reader.GetString(24),
+
+                SolutionDbId      = reader.GetInt32(25),
+                SolutionPath      = reader.GetString(26),
+                SolutionGuid      = reader.GetString(27),
+            };
+
+            results.Add(item);
+        }
+
+        return results;
+    }
+
+    public async Task<int> FindMethod(string name, string filepath)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT m.id
+        FROM methods AS m
+        JOIN classes AS c ON m.class_id = c.id
+        JOIN source_files AS sf ON c.file_id = sf.id
+        WHERE m.name = @name AND sf.path = @filepath;
+    ";
+
+        cmd.Parameters.AddWithValue("@name", name);
+        cmd.Parameters.AddWithValue("@filepath", filepath);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return reader.GetInt32(0); // m.guid
+        }
+
+        return 0; // not found
+    }
+    
+    public async Task UpdateInvocationSourceId(int invocationId, int sourceMethodId)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        UPDATE invocations
+        SET source_method_id = @sourceMethodId
+        WHERE id = @invocationId;
+    ";
+
+        cmd.Parameters.AddWithValue("@sourceMethodId", sourceMethodId);
+        cmd.Parameters.AddWithValue("@invocationId", invocationId);
+
+        await cmd.ExecuteNonQueryAsync();
     }
 }

@@ -46,5 +46,5 @@ public class AnalysisProject(
     public readonly string? SolutionFilePath = solutionFilePath;
     public readonly Dictionary<string, SyntaxTree>? SyntaxTrees = syntaxTrees;
     
-    List<PackageModel> Packages = new List<PackageModel>();
+    public List<PackageModel> Packages = new List<PackageModel>();
 }

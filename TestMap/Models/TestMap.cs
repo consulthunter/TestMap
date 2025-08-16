@@ -10,6 +10,7 @@
 
 using Microsoft.CodeAnalysis.CSharp;
 using TestMap.Models.Configuration;
+using TestMap.Services.CollectInformation;
 using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
 
@@ -32,6 +33,7 @@ public class TestMap(
     IBuildTestService buildTestService,
     ISqliteDatabaseService sqliteDatabaseService,
     IAnalyzeProjectService analyzeProjectService,
+    IMapUnresolvedService  mapUnresolvedService,
     IGenerateTestService generateTestService,
     IDeleteProjectService deleteProjectService,
     RunMode runMode)
@@ -44,6 +46,7 @@ public class TestMap(
     private IBuildTestService BuildTestService { get; } = buildTestService;
     private ISqliteDatabaseService SqliteDatabaseService { get; } = sqliteDatabaseService;
     private IAnalyzeProjectService AnalyzeProjectService { get; } = analyzeProjectService;
+    private IMapUnresolvedService MapUnresolvedService { get; } = mapUnresolvedService;
     private IGenerateTestService GenerateTestService { get; } = generateTestService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
     private readonly HashSet<string> _analyzedProjectIds = new();
@@ -81,6 +84,7 @@ public class TestMap(
         await InsertProjectionInformation();
         await BuildTestAsync();
         await AnalyzeProjectsAsync();
+        await MapUnresolvedServiceAsync();
     }
 
     private async Task GenerateTestsModeAsync()
@@ -174,6 +178,11 @@ public class TestMap(
     private async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
     {
         await AnalyzeProjectService.AnalyzeProjectAsync(analysisProject, cSharpCompilation);
+    }
+
+    private async Task MapUnresolvedServiceAsync()
+    {
+        await MapUnresolvedService.MapUnresolvedAsync();
     }
 
     private async Task GenerateTestAsync()

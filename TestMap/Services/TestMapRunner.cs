@@ -100,6 +100,7 @@ public class TestMapRunner
                     new BuildTestService(project),
                     db,
                     new AnalyzeProjectService(project, db),
+                    new MapUnresolvedService(project, db),
                     new GenerateTestService(project, _testMapConfig.Generation),
                     new DeleteProjectService(project),
                     ConfigurationService.RunMode
