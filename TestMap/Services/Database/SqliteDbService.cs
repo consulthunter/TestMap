@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using TestMap.Models;
 using TestMap.Models.Code;
 using TestMap.Models.Database;
+using TestMap.Models.Results;
 
 namespace TestMap.Services.Database;
 
@@ -795,4 +796,138 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
         await cmd.ExecuteNonQueryAsync();
     }
+
+    public async Task GetImports()
+    {
+        var results = new List<ImportModel>();
+
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT 
+                i.id, i.target_method_id, i.source_method_id, i.guid, i.full_string,
+                m.id, m.class_id, m.guid, m.name,
+                c.id, c.file_id, c.guid, c.name,
+                s.name, s.path, s.package_id, s.guid,
+                sp.id, sp.package_name, sp.analysis_project_id, sp.guid,
+                ap.id, ap.project_path, ap.solution_id, ap.guid,
+                asol.id, asol.solution_path, asol.guid
+            FROM invocations AS i
+            JOIN methods AS m ON i.target_method_id = m.id
+            JOIN classes AS c ON m.class_id = c.id
+            JOIN source_files AS s ON c.file_id = s.id
+            JOIN source_packages AS sp ON s.package_id = sp.id
+            JOIN analysis_projects AS ap ON sp.analysis_project_id = ap.id
+            JOIN analysis_solutions AS asol ON ap.solution_id = asol.id
+            WHERE i.source_method_id = 0;
+        ";
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var item = new InvocationDetails
+            {
+                InvocationId      = reader.GetInt32(0),
+                TargetMethodId    = reader.GetInt32(1),
+                SourceMethodId    = reader.GetInt32(2),
+                InvocationGuid    = reader.GetString(3),
+                FullString        = reader.GetString(4),
+
+                MethodId          = reader.GetInt32(5),
+                MethodClassId     = reader.GetInt32(6),
+                MethodGuid        = reader.GetString(7),
+                MethodName        = reader.GetString(8),
+
+                ClassId           = reader.GetInt32(9),
+                FileId            = reader.GetInt32(10),
+                ClassGuid         = reader.GetString(11),
+                ClassName         = reader.GetString(12),
+
+                FileName          = reader.GetString(13),
+                FilePath          = reader.GetString(14),
+                PackageId         = reader.GetInt32(15),
+                FileGuid          = reader.GetString(16),
+
+                SourcePackageId   = reader.GetInt32(17),
+                PackageName       = reader.GetString(18),
+                AnalysisProjectId = reader.GetInt32(19),
+                PackageGuid       = reader.GetString(20),
+
+                ProjectId         = reader.GetInt32(21),
+                ProjectPath       = reader.GetString(22),
+                SolutionId        = reader.GetInt32(23),
+                ProjectGuid       = reader.GetString(24),
+
+                SolutionDbId      = reader.GetInt32(25),
+                SolutionPath      = reader.GetString(26),
+                SolutionGuid      = reader.GetString(27),
+            };
+
+           // results.Add(item);
+        }
+
+        // return results;
+        
+    }
+    
+    public async Task<int> FindMethod(string name)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT m.id
+        FROM methods AS m
+        WHERE m.is_test_method = 1
+         AND @name LIKE '%' || m.name || '%' COLLATE NOCASE
+        LIMIT 1;
+    ";
+
+        cmd.Parameters.AddWithValue("@name", name);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return reader.GetInt32(0); // m.guid
+        }
+
+        return 0; // not found
+    }
+
+    public async Task InsertTestResults(List<TrxTestResult> testResults)
+    {
+        await using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        await using var tx = conn.BeginTransaction();
+
+        foreach (var testResult in testResults)
+        {
+            await using var insertCmd = conn.CreateCommand();
+            insertCmd.Transaction = tx;
+
+            insertCmd.CommandText = @"
+            INSERT INTO test_results (
+              method_id, run_id, run_date, test_name, test_outcome, test_duration, error_message
+            ) VALUES (
+              @methodId, @runId, @runDate, @testName, @testOutcome, @testDuration, @testErrorMessage
+            );";
+
+            insertCmd.Parameters.AddWithValue("@methodId", testResult.MethodId);
+            insertCmd.Parameters.AddWithValue("@runId", testResult.RunId);
+            insertCmd.Parameters.AddWithValue("@runDate", testResult.RunDate);
+            insertCmd.Parameters.AddWithValue("@testName", testResult.TestName ?? (object)DBNull.Value);
+            insertCmd.Parameters.AddWithValue("@testOutcome", testResult.Outcome ?? (object)DBNull.Value);
+            insertCmd.Parameters.AddWithValue("@testDuration", testResult.Duration);
+            insertCmd.Parameters.AddWithValue("@testErrorMessage", (object?)testResult.ErrorMessage ?? DBNull.Value);
+
+            await insertCmd.ExecuteNonQueryAsync();
+        }
+
+        await tx.CommitAsync();
+    }
+
 }

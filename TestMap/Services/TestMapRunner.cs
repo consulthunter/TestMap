@@ -97,7 +97,7 @@ public class TestMapRunner
                     _testMapConfig,
                     new CloneRepoService(project),
                     new ExtractInformationService(project),
-                    new BuildTestService(project),
+                    new BuildTestService(project, db),
                     db,
                     new AnalyzeProjectService(project, db),
                     new MapUnresolvedService(project, db),

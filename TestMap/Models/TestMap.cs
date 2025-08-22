@@ -82,8 +82,8 @@ public class TestMap(
     {
         await ExtractInformationAsync();
         await InsertProjectionInformation();
-        await BuildTestAsync();
         await AnalyzeProjectsAsync();
+        await BuildTestAsync();
         await MapUnresolvedServiceAsync();
     }
 
@@ -102,8 +102,8 @@ public class TestMap(
         await AnalyzeProjectsAsync();
         await GenerateTestAsync();
         await ExtractInformationAsync();
-        await BuildTestAsync();
         await AnalyzeProjectsAsync();
+        await BuildTestAsync();
     }
 
     /// <summary>

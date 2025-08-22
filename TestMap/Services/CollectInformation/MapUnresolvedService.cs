@@ -20,6 +20,11 @@ public class MapUnresolvedService : IMapUnresolvedService
 
     public async Task MapUnresolvedAsync()
     {
+        await MapUnresolvedInvocations();
+    }
+
+    private async Task MapUnresolvedInvocations()
+    {
         List<InvocationDetails> invocationDetails = await _sqliteDatabaseService.GetUnresolvedInvocations();
 
         foreach (InvocationDetails invocationDetail in invocationDetails)
@@ -115,5 +120,10 @@ public class MapUnresolvedService : IMapUnresolvedService
                 _projectModel.Logger?.Warning($"No such project: {invocationDetail.ProjectGuid}");
             }
         }
+    }
+
+    private async Task MapLocalImports()
+    {
+        
     }
 }

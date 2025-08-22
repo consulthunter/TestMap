@@ -134,12 +134,16 @@ CREATE TABLE IF NOT EXISTS properties (
     );
 
 
-CREATE TABLE IF NOT EXISTS test_runs (
-                           id TEXT PRIMARY KEY,
-                           project_id TEXT NOT NULL,
-                           run_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                           commit_hash TEXT,
-                           FOREIGN KEY (project_id) REFERENCES projects(id)
+CREATE TABLE IF NOT EXISTS test_results (
+                                         id TEXT PRIMARY KEY AUTOINCREMENT,
+                                         method_id INTEGER NOT NULL,
+                                         run_id TEXT,
+                                         run_date TEXT,
+                                         test_name TEXT,
+                                         test_outcome TEXT,
+                                         test_duration TEXT,
+                                         error_message TEXT,
+                                         FOREIGN KEY (method_id) REFERENCES methods(id)
 );
 
 CREATE TABLE IF NOT EXISTS generated_tests (

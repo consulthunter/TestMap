@@ -5,6 +5,7 @@ using Serilog;
 using TestMap.Models;
 using TestMap.Models.Coverage;
 using TestMap.Models.Results;
+using TestMap.Services.Database;
 
 namespace TestMap.Services.ProjectOperations;
 
@@ -12,22 +13,28 @@ public class BuildTestService : IBuildTestService
 {
     private readonly ProjectModel _projectModel;
     private readonly string _containerName;
-    public BuildTestService(ProjectModel project)
+    private readonly SqliteDatabaseService _sqliteDatabaseService;
+    private string runId;
+    private string runDate;
+    public BuildTestService(ProjectModel project, SqliteDatabaseService sqliteDatabaseService)
     {
         _projectModel = project;
         _containerName = _projectModel.RepoName.ToLower() + "-testing";
+        _sqliteDatabaseService = sqliteDatabaseService;
         
     }
 
     public async Task BuildTestAsync()
     {
+        runId = Guid.NewGuid().ToString();
+        runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
         try
         {
             await RunDockerContainerAsync();
             await WaitForContainerExitAsync(_containerName);
             await MergeCoverageReportsAsync(Path.Combine(_projectModel.DirectoryPath, "coverage"));
             CopyMergedCoverageReport();
-            ProcessTrxResults();
+            await ProcessTrxResults();
             await CaptureContainerLogsAsync();
         }
         catch (Exception ex)
@@ -120,7 +127,7 @@ public class BuildTestService : IBuildTestService
         }
     }
     
-    private void ProcessTrxResults()
+    private async Task ProcessTrxResults()
     {
         var trxDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
         if (!Directory.Exists(trxDir))
@@ -137,16 +144,12 @@ public class BuildTestService : IBuildTestService
 
             // Append or replace results — depends on your design intent
             _projectModel.TestResults.AddRange(results);
-
             foreach (var result in results)
             {
-                var outcomeText = result.Outcome == "Passed" ? "Passed" : "Failed";
-                _projectModel.Logger?.Information($"{outcomeText} Test: {result.TestName}, Duration: {result.Duration}");
-                if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
-                {
-                    _projectModel.Logger?.Warning($"Error: {result.ErrorMessage}");
-                }
+                var methodId = await _sqliteDatabaseService.FindMethod(result.TestName);
+                result.MethodId = methodId;
             }
+            await _sqliteDatabaseService.InsertTestResults(results);
         }
     }
 
@@ -174,6 +177,8 @@ public class BuildTestService : IBuildTestService
 
             results.Add(new TrxTestResult
             {
+                RunId = runId,
+                RunDate = runDate,
                 TestName = testName,
                 Outcome = outcome,
                 Duration = duration,
