@@ -13,6 +13,7 @@ using TestMap.Models.Configuration;
 using TestMap.Services.CollectInformation;
 using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
+using TestMap.Services.Testing;
 
 namespace TestMap.Models;
 
@@ -67,9 +68,6 @@ public class TestMap(
             case RunMode.GenerateTests:
                 await GenerateTestsModeAsync();
                 break;
-            case RunMode.FullAnalysis:
-                await FullAnalysisModeAsync();
-                break;
         }
 
         if (!Config.Persistence.KeepProjectFiles)
@@ -90,22 +88,8 @@ public class TestMap(
     private async Task GenerateTestsModeAsync()
     {
         await GenerateTestAsync();
-        await ExtractInformationAsync();
-        await BuildTestAsync();
-        await AnalyzeProjectsAsync();
     }
-
-    private async Task FullAnalysisModeAsync()
-    {
-        await ExtractInformationAsync();
-        await BuildTestAsync();
-        await AnalyzeProjectsAsync();
-        await GenerateTestAsync();
-        await ExtractInformationAsync();
-        await AnalyzeProjectsAsync();
-        await BuildTestAsync();
-    }
-
+    
     /// <summary>
     ///     Uses LibGit2Sharp to clone the repo to
     ///     the Temp directory

@@ -18,6 +18,13 @@
         <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.3" />
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.3" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+        <PackageReference Include="Microsoft.SemanticKernel" Version="1.64.0" />
+        <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.64.0" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Amazon" Version="1.64.0-alpha" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Google" Version="1.64.0-alpha" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.HuggingFace" Version="1.64.0-preview" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.MistralAI" Version="1.64.0-alpha" />
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama" Version="1.64.0-alpha" />
         <PackageReference Include="Moq" Version="4.20.72"/>
         <PackageReference Include="System.Data.SQLite" Version="1.0.119" />
         <PackageReference Include="System.Formats.Asn1" Version="9.0.3" />
@@ -35,8 +42,10 @@
 
     <ItemGroup>
         <Folder Include="Logs\"/>
+        <Folder Include="Models\Code\" />
         <Folder Include="Output\"/>
         <Folder Include="UnitTests\"/>
+        <Folder Include="UnitTests\Services\" />
     </ItemGroup>
 
 </Project>

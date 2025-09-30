@@ -1,4 +1,4 @@
-﻿namespace TestMap.Services.ProjectOperations;
+﻿namespace TestMap.Services.Testing;
 
 public interface IBuildTestService
 {

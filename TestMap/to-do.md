@@ -89,14 +89,14 @@ We may also want to add something for classes and methods that are not tested or
 3. Create the Insertion logic
    - ~~insert the project info -> package info -> file info -> class info -> (method info, property info, import info)~~
    - Need to update insertion to make sure we don't get duplicate data, currently it keeps adding, not sure why
-   - Need to create dedicated class for updated the invocation sourceId, where we find the declaration for a method if possible
+   - ~~Need to create dedicated class for updated the invocation sourceId, where we find the declaration for a method if possible~~
      - Not all invocations will have a source method
    - Add insertion for test results
 4. Create the load Logic
    - Should load into existing objects, should maybe include a nullable DBID field for quick lookups
 5. Update BuildTest
-   - Needs runtime for the test run and a unique ID for that run
-   - TestRun and Coverage also need the relevant information
+   - ~~Needs runtime for the test run and a unique ID for that run~~
+   - ~~TestRun and Coverage also need the relevant information~~
    - May need to add a script for generation, that only tests the solution that contains the project that contains the test
 6. Create the Generation portion
    - Test framework needs to be determined as well

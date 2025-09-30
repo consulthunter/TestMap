@@ -9,6 +9,4 @@ public class TestMapConfig
     public Dictionary<string, List<string>>? Frameworks { get; set; }
     public PersistenceConfig Persistence { get; set; } = new();
     public GenerationConfig Generation { get; set; } = new();
-    
-    public ExportConfig Export { get; set; } = new();
 }

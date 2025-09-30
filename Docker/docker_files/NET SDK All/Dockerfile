@@ -17,6 +17,7 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
 
 RUN chmod +x ./dotnet-install.sh
 
+RUN ./dotnet-install.sh --channel 10.0
 RUN ./dotnet-install.sh --channel 9.0
 RUN ./dotnet-install.sh --channel 8.0
 RUN ./dotnet-install.sh --channel 7.0

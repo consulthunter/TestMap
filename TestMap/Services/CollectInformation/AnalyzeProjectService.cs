@@ -101,9 +101,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     var fullString = classDeclaration.ToFullString().Trim();
                     var docString = GetDocComment(classDeclaration);
                     bool isTestClass = methods.Any(m => m.IsTestMethod);
+                    var spec = classDeclaration.GetLocation().GetLineSpan();
+                    Location location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character, spec.EndLinePosition.Line, spec.EndLinePosition.Character);
                     
                     // insert class get id
-                    ClassModel classModel = new ClassModel(file.Id, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString, docString, isTestClass, testFramework);
+                    ClassModel classModel = new ClassModel(file.Id, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString, docString, isTestClass, testFramework, location);
                     await _databaseService.InsertClassesGetId(classModel);
                     
                     methods.ForEach(method => method.ClassId = classModel.Id);

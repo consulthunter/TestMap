@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using TestMap.Models;
 using TestMap.Models.Code;
+using TestMap.Models.Coverage;
 using TestMap.Models.Database;
 using TestMap.Models.Results;
 
@@ -872,7 +873,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         
     }
     
-    public async Task<int> FindMethod(string name)
+    public async Task<int> FindMethodFromContains(string name)
     {
         using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
         await conn.OpenAsync();
@@ -929,5 +930,432 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
         await tx.CommitAsync();
     }
+    
+        public async Task<int> InsertCoverageReportGetId(CoverageReport report, string runId)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+        
+        // First, check if the invocation already exists
+        var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = @"
+            SELECT id FROM coverage_reports
+            WHERE test_run_id = @runId;
+        ";
 
+        checkCmd.Parameters.AddWithValue("@runId", runId);
+        
+        using var reader = await checkCmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            int id = reader.GetInt16(0);
+
+            return id;
+
+        }
+        else
+        {
+            var insertCmd = conn.CreateCommand();
+            insertCmd.CommandText = @"
+            INSERT INTO coverage_reports (
+              test_run_id, timestamp, line_rate, branch_rate, lines_covered, lines_valid, branches_valid, branches_covered, complexity
+            ) VALUES (
+                      @runId, @timestamp, @lineRate, @branchRate, @linesCovered, @linesValid, @branchesValid, @branchesCovered, @complexity
+            );
+        ";
+            
+            insertCmd.Parameters.AddWithValue("@runId", runId);
+            insertCmd.Parameters.AddWithValue("@timestamp", report.Timestamp);
+            insertCmd.Parameters.AddWithValue("@lineRate", report.LineRate);
+            insertCmd.Parameters.AddWithValue("@branchRate", report.BranchRate);
+            insertCmd.Parameters.AddWithValue("@linesCovered", report.LinesCovered);
+            insertCmd.Parameters.AddWithValue("@linesValid", report.LinesValid);
+            insertCmd.Parameters.AddWithValue("@branchesValid", report.BranchesValid);
+            insertCmd.Parameters.AddWithValue("@branchesCovered", report.BranchesCovered);
+            insertCmd.Parameters.AddWithValue("@complexity", report.Complexity);
+
+            await insertCmd.ExecuteNonQueryAsync();
+        
+            var lastIdCmd = conn.CreateCommand();
+            lastIdCmd.CommandText = "SELECT last_insert_rowid();";
+            var newId = (Int64)(await lastIdCmd.ExecuteScalarAsync());
+            return (int)newId;
+        }
+    }
+        
+    public async Task<int> FindPackage(string name)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT p.id
+        FROM source_packages AS p
+        WHERE p.package_name = @name
+        LIMIT 1;
+    ";
+
+        cmd.Parameters.AddWithValue("@name", name.Replace("-", "_"));
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return reader.GetInt32(0); // m.guid
+        }
+
+        return 0; // not found
+    }
+        
+    public async Task<int> InsertPackageCoverageGetId(PackageCoverage packageCoverage, int reportId, int packageId)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+        
+        // First, check if the invocation already exists
+        var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = @"
+            SELECT id FROM package_coverage
+            WHERE coverage_report_id = @reportId
+            AND name = @name;
+        ";
+
+        checkCmd.Parameters.AddWithValue("@reportId", reportId);
+        checkCmd.Parameters.AddWithValue("@name", packageCoverage.Name);
+        
+        using var reader = await checkCmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            int id = reader.GetInt16(0);
+
+            return id;
+
+        }
+        else
+        {
+            var insertCmd = conn.CreateCommand();
+            insertCmd.CommandText = @"
+            INSERT INTO package_coverage (
+              coverage_report_id, package_id, name, line_rate, branch_rate, complexity
+            ) VALUES (
+                     @reportId, @packageId, @name, @lineRate, @branchRate, @complexity
+            );
+        ";
+            
+            insertCmd.Parameters.AddWithValue("@reportId", reportId);
+            insertCmd.Parameters.AddWithValue("@packageId", packageId);
+            insertCmd.Parameters.AddWithValue("@name", packageCoverage.Name);
+            insertCmd.Parameters.AddWithValue("@lineRate", packageCoverage.LineRate);
+            insertCmd.Parameters.AddWithValue("@branchRate", packageCoverage.BranchRate);
+            insertCmd.Parameters.AddWithValue("@complexity", packageCoverage.Complexity);
+
+            await insertCmd.ExecuteNonQueryAsync();
+        
+            var lastIdCmd = conn.CreateCommand();
+            lastIdCmd.CommandText = "SELECT last_insert_rowid();";
+            var newId = (Int64)(await lastIdCmd.ExecuteScalarAsync());
+            return (int)newId;
+        }
+    }
+    
+    public async Task<int> FindClass(string name)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT c.id
+        FROM classes AS c
+        WHERE c.name = @name
+        LIMIT 1;
+    ";
+
+        cmd.Parameters.AddWithValue("@name", name.Split(".")[1]);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return reader.GetInt32(0); // m.guid
+        }
+
+        return 0; // not found
+    }
+    
+        public async Task<int> InsertClassCoverageGetId(ClassCoverage classCoverage, int packageCovId, int classId)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+        
+        // First, check if the invocation already exists
+        var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = @"
+            SELECT id FROM class_coverage
+            WHERE package_coverage_id = @packageCovId
+            AND name = @name;
+        ";
+        
+        checkCmd.Parameters.AddWithValue("@packageCovId", packageCovId);
+        checkCmd.Parameters.AddWithValue("@name", classCoverage.Name);
+        
+        using var reader = await checkCmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            int id = reader.GetInt16(0);
+
+            return id;
+
+        }
+        else
+        {
+            var insertCmd = conn.CreateCommand();
+            insertCmd.CommandText = @"
+            INSERT INTO class_coverage (
+              package_coverage_id, class_id, name, line_rate, branch_rate, complexity
+            ) VALUES (
+                     @packageCovId, @classId, @name, @lineRate, @branchRate, @complexity
+            );
+        ";
+            
+            insertCmd.Parameters.AddWithValue("@packageCovId", packageCovId);
+            insertCmd.Parameters.AddWithValue("@classId", classId);
+            insertCmd.Parameters.AddWithValue("@name", classCoverage.Name);
+            insertCmd.Parameters.AddWithValue("@lineRate", classCoverage.LineRate);
+            insertCmd.Parameters.AddWithValue("@branchRate", classCoverage.BranchRate);
+            insertCmd.Parameters.AddWithValue("@complexity", classCoverage.Complexity);
+
+            await insertCmd.ExecuteNonQueryAsync();
+        
+            var lastIdCmd = conn.CreateCommand();
+            lastIdCmd.CommandText = "SELECT last_insert_rowid();";
+            var newId = (Int64)(await lastIdCmd.ExecuteScalarAsync());
+            return (int)newId;
+        }
+    }
+        
+    public async Task<int> FindMethodFromExact(string name)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT m.id
+        FROM methods AS m
+        WHERE m.name = @name
+        LIMIT 1;
+    ";
+
+        cmd.Parameters.AddWithValue("@name", name);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            return reader.GetInt32(0); // m.guid
+        }
+
+        return 0; // not found
+    }
+    
+    public async Task<int> InsertMethodCoverageGetId(MethodCoverage methodCoverage, int classCoverageId, int methodId)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+        
+        // First, check if the invocation already exists
+        var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = @"
+            SELECT id FROM method_coverage
+            WHERE class_coverage_id = @classCoverageId
+            AND name = @name;
+        ";
+        
+        checkCmd.Parameters.AddWithValue("@classCoverageId", classCoverageId);
+        checkCmd.Parameters.AddWithValue("@name", methodCoverage.Name);
+        
+        using var reader = await checkCmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            int id = reader.GetInt16(0);
+
+            return id;
+
+        }
+        else
+        {
+            var insertCmd = conn.CreateCommand();
+            insertCmd.CommandText = @"
+            INSERT INTO method_coverage (
+              class_coverage_id, method_id, name, line_rate, branch_rate, complexity
+            ) VALUES (
+                     @classCoverageId, @methodId, @name, @lineRate, @branchRate, @complexity
+            );
+        ";
+            insertCmd.Parameters.AddWithValue("@classCoverageId", classCoverageId);
+            insertCmd.Parameters.AddWithValue("@methodId", methodId);
+            insertCmd.Parameters.AddWithValue("@name", methodCoverage.Name);
+            insertCmd.Parameters.AddWithValue("@lineRate", methodCoverage.LineRate);
+            insertCmd.Parameters.AddWithValue("@branchRate", methodCoverage.BranchRate);
+            insertCmd.Parameters.AddWithValue("@complexity", methodCoverage.Complexity);
+
+            await insertCmd.ExecuteNonQueryAsync();
+        
+            var lastIdCmd = conn.CreateCommand();
+            lastIdCmd.CommandText = "SELECT last_insert_rowid();";
+            var newId = (Int64)(await lastIdCmd.ExecuteScalarAsync());
+            return (int)newId;
+        }
+    }
+
+    public async Task<List<CoverageMethodResult>> FindMethodsWithLowCoverage()
+    {
+        var results = new List<CoverageMethodResult>();
+
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+                with UncoveredMethods as (
+                    select 
+                        mc.method_id, 
+                        mc.line_rate, 
+                        m.class_id, 
+                        m.name as method_name,
+                        m.full_string as method_body,
+                        c.name as class_name
+                    from method_coverage mc
+                    join methods m on mc.method_id = m.id
+                    join classes c on m.class_id = c.id
+                    where mc.line_rate != 1
+                ),
+                ClassTests as (
+                    select 
+                        m.class_id,
+                        tc.id   as test_class_id,
+                        tc.name as test_class_name,
+		                tc.testing_framework as testing_framework,
+                        tc.location_start_lin_no as test_class_lin_start,
+                        tc.location_body_start as test_class_body_start,
+                        tc.location_end_lin_no as test_class_lin_end,
+                        tc.location_body_end as test_class_body_end,
+                        tf.path as test_file_path,
+                        tf.usings as test_dependencies,
+                        tm.name as test_method_name,
+                        tm.full_string as test_method,
+                        ROW_NUMBER() OVER(PARTITION BY m.class_id ORDER BY tm.name) as rn
+                    from methods m
+                    join invocations ic on ic.source_method_id = m.id
+                    join methods tm on ic.target_method_id = tm.id
+                    join classes tc on tm.class_id = tc.id
+                    join source_files tf on tc.file_id = tf.id
+                    where tm.is_test_method = 1
+                )
+                select 
+                    um.method_id,
+                    um.method_name,
+                    um.method_body,
+                    um.line_rate,
+                    um.class_id,
+                    um.class_name,
+                    case 
+                        when ct.test_class_id is not null 
+                            then 'Has tests in class'
+                        else 'No tests in class'
+                    end as coverage_status,
+                    ct.test_class_id,
+                    ct.test_class_name,
+	                ct.testing_framework,
+                    ct.test_class_lin_start,
+                    ct.test_class_body_start,
+                    ct.test_class_lin_end,
+                    ct.test_class_body_end,
+                    ct.test_file_path,
+                    ct.test_dependencies,
+                    ct.test_method_name,
+                    ct.test_method
+                from UncoveredMethods um
+                left join ClassTests ct 
+                    on um.class_id = ct.class_id
+                    and ct.rn = 1;  -- only take the first test method per class
+
+        ";
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var item = new CoverageMethodResult
+            {
+                MethodId = reader.GetInt32(0),
+                MethodName = reader.GetString(1),
+                MethodBody = reader.GetString(2),
+                LineRate = reader.GetDouble(3),
+
+                ClassId = reader.GetInt32(4),
+                ClassName = reader.GetString(5),
+    
+                CoverageStatus = reader.GetString(6),
+    
+                TestClassId = reader.GetInt32(7),
+                TestClassName = reader.GetString(8),
+                TestFramework = reader.GetString(9),
+    
+                TestClassLineStart = reader.GetInt32(10),
+                TestClassBodyStart = reader.GetInt32(11),
+                TestClassLineEnd = reader.GetInt32(12),
+                TestClassBodyEnd = reader.GetInt32(13),
+
+                TestFilePath = reader.GetString(14),
+                TestDependencies = reader.GetString(15),
+                
+                TestMethodName = reader.GetString(16),
+                TestMethodBody = reader.GetString(17),
+            };
+
+           results.Add(item);
+        }
+
+        return results;
+    }
+    
+    public async Task<int> InsertTestRun(string runId, string runDate, string result, int coverage, string? logPath, string? error)
+    {
+        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await conn.OpenAsync();
+
+        var insertCmd = conn.CreateCommand();
+        insertCmd.CommandText = @"
+        INSERT INTO test_runs (
+            run_id,
+            run_date,
+            result,
+            coverage,
+            log_path,
+            error
+        ) VALUES (
+            @runId,
+            @runDate,
+            @result,
+            @coverage,
+            @logPath,
+            @error
+        );
+    ";
+
+        insertCmd.Parameters.AddWithValue("@runId", runId);
+        insertCmd.Parameters.AddWithValue("@runDate", runDate);
+        insertCmd.Parameters.AddWithValue("@result", result);
+        insertCmd.Parameters.AddWithValue("@coverage", coverage);
+        insertCmd.Parameters.AddWithValue("@logPath", logPath);
+        insertCmd.Parameters.AddWithValue("@error", error);
+
+        await insertCmd.ExecuteNonQueryAsync();
+
+        var lastIdCmd = conn.CreateCommand();
+        lastIdCmd.CommandText = "SELECT last_insert_rowid();";
+        var newId = (long)(await lastIdCmd.ExecuteScalarAsync());
+
+        return (int)newId;
+    }
+    
 }

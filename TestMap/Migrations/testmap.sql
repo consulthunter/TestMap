@@ -133,9 +133,19 @@ CREATE TABLE IF NOT EXISTS properties (
                                        FOREIGN KEY (class_id) REFERENCES classes(id)
     );
 
+CREATE TABLE IF NOT EXISTS test_runs (
+                           id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                           run_id TEXT,
+                           run_date TEXT NOT NULL,   
+                           result TEXT NOT NULL,     
+                           coverage INTEGER, 
+                           log_path TEXT,           
+                           error TEXT
+);
+
 
 CREATE TABLE IF NOT EXISTS test_results (
-                                         id TEXT PRIMARY KEY AUTOINCREMENT,
+                                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                                          method_id INTEGER NOT NULL,
                                          run_id TEXT,
                                          run_date TEXT,
@@ -147,7 +157,7 @@ CREATE TABLE IF NOT EXISTS test_results (
 );
 
 CREATE TABLE IF NOT EXISTS generated_tests (
-                                 id TEXT PRIMARY KEY,
+                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                  test_run_id TEXT NOT NULL,
                                  original_method_id TEXT NOT NULL,
                                  generated_body TEXT,
@@ -156,8 +166,7 @@ CREATE TABLE IF NOT EXISTS generated_tests (
 );
 
 CREATE TABLE IF NOT EXISTS coverage_reports (
-                                  id TEXT PRIMARY KEY,
-                                  project_id TEXT NOT NULL,
+                                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                                   test_run_id TEXT,
                                   timestamp INTEGER,
                                   line_rate REAL,
@@ -167,26 +176,42 @@ CREATE TABLE IF NOT EXISTS coverage_reports (
                                   lines_valid INTEGER,
                                   branches_covered INTEGER,
                                   branches_valid INTEGER,
-                                  FOREIGN KEY (project_id) REFERENCES projects(id),
-                                  FOREIGN KEY (test_run_id) REFERENCES test_runs(id)
+                                  FOREIGN KEY (test_run_id) REFERENCES test_results(run_id)
 );
 
 CREATE TABLE IF NOT EXISTS package_coverage (
-                                  id TEXT PRIMARY KEY,
-                                  coverage_report_id TEXT NOT NULL,
+                                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                  coverage_report_id INTEGER NOT NULL,
+                                  package_id INTEGER NOT NULL,
                                   name TEXT NOT NULL,
                                   line_rate REAL,
                                   branch_rate REAL,
                                   complexity INTEGER,
+                                  FOREIGN KEY (package_id) REFERENCES source_packages(id),
                                   FOREIGN KEY (coverage_report_id) REFERENCES coverage_reports(id)
 );
 
+CREATE TABLE IF NOT EXISTS class_coverage (
+                                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                package_coverage_id INTEGER NOT NULL,
+                                                class_id INTEGER NOT NULL,
+                                                name TEXT NOT NULL,
+                                                line_rate REAL,
+                                                branch_rate REAL,
+                                                complexity INTEGER,
+                                                FOREIGN KEY (class_id) REFERENCES classes(id),
+                                                FOREIGN KEY (package_coverage_id) REFERENCES package_coverage(id)
+    );
+
+
 CREATE TABLE IF NOT EXISTS method_coverage (
-                                 id TEXT PRIMARY KEY,
-                                 method_id TEXT NOT NULL,
-                                 coverage_report_id TEXT NOT NULL,
+                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                 class_coverage_id INTEGER NOT NULL,
+                                 method_id INTEGER NOT NULL,
+                                 name TEXT NOT NULL,
                                  line_rate REAL,
                                  branch_rate REAL,
-                                 FOREIGN KEY (method_id) REFERENCES methods(id),
-                                 FOREIGN KEY (coverage_report_id) REFERENCES coverage_reports(id)
+                                 complexity INTEGER,      
+                                 FOREIGN KEY (class_coverage_id) REFERENCES class_coverage(id),
+                                 FOREIGN KEY (method_id) REFERENCES methods(id)
 );

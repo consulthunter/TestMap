@@ -15,6 +15,7 @@ using TestMap.Services.CollectInformation;
 using TestMap.Services.Configuration;
 using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
+using TestMap.Services.Testing;
 
 namespace TestMap.Services;
 
@@ -91,17 +92,18 @@ public class TestMapRunner
 
                 Logger.Information($"Creating TestMap {project.ProjectId}.");
                 var db = new SqliteDatabaseService(project);
+                var buildTest = new BuildTestService(project, db);
                 var testMap = new Models.TestMap
                 (
                     project,
                     _testMapConfig,
                     new CloneRepoService(project),
                     new ExtractInformationService(project),
-                    new BuildTestService(project, db),
+                    buildTest,
                     db,
                     new AnalyzeProjectService(project, db),
                     new MapUnresolvedService(project, db),
-                    new GenerateTestService(project, _testMapConfig.Generation),
+                    new GenerateTestService(project, _testMapConfig, db, buildTest),
                     new DeleteProjectService(project),
                     ConfigurationService.RunMode
                 );

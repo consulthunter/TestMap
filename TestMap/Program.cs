@@ -51,9 +51,6 @@ public class Program
             case GenerateTestsOptions gt:
                 await RunGenTests(gt);
                 break;
-            case FullAnalysisOptions f:
-                await RunFullAnalysis(f);
-                break;
             case GenerateConfigOptions g:
                 RunSetup(g);
                 break;
@@ -89,23 +86,6 @@ public class Program
         config.Bind(configObj);
         var configurationService = new ConfigurationService(configObj);
         configurationService.SetRunMode("generate-tests");
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
-    }
-    
-    /// <summary>
-    ///     Builds the configuration using options, starts the TestMapRunner
-    /// </summary>
-    /// <param name="options">CLI options parsed by CommandLine</param>
-    private static async Task RunFullAnalysis(FullAnalysisOptions options)
-    {
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(options.FullAnalysisConfigFilePath, false, true)
-            .Build();
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
-        var configurationService = new ConfigurationService(configObj);
-        configurationService.SetRunMode("full-analysis");
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }

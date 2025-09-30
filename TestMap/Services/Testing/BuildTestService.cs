@@ -7,7 +7,7 @@ using TestMap.Models.Coverage;
 using TestMap.Models.Results;
 using TestMap.Services.Database;
 
-namespace TestMap.Services.ProjectOperations;
+namespace TestMap.Services.Testing;
 
 public class BuildTestService : IBuildTestService
 {
@@ -16,18 +16,30 @@ public class BuildTestService : IBuildTestService
     private readonly SqliteDatabaseService _sqliteDatabaseService;
     private string runId;
     private string runDate;
+    
+    public string? LatestLogPath { get; private set; }
+    public List<TrxTestResult> LatestTestResults { get; private set; } = new();
+    public CoverageReport? LatestCoverageReport { get; private set; }
+    public bool LatestSuccess { get; private set; }
+    public int LatestCoverage { get; private set; }
+
     public BuildTestService(ProjectModel project, SqliteDatabaseService sqliteDatabaseService)
     {
         _projectModel = project;
         _containerName = _projectModel.RepoName.ToLower() + "-testing";
         _sqliteDatabaseService = sqliteDatabaseService;
-        
+        runId = "";
+        runDate = "";
     }
 
     public async Task BuildTestAsync()
     {
         runId = Guid.NewGuid().ToString();
         runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+        // Insert run start event
+        await _sqliteDatabaseService.InsertTestRun(runId, runDate, "started", 0, null , null);
+
         try
         {
             await RunDockerContainerAsync();
@@ -36,15 +48,137 @@ public class BuildTestService : IBuildTestService
             CopyMergedCoverageReport();
             await ProcessTrxResults();
             await CaptureContainerLogsAsync();
+
+            // Coverage check
+            var coverageFile = Path.Combine(_projectModel.OutputPath ?? "", "merged.cobertura.xml");
+            bool hasCoverage = File.Exists(coverageFile);
+
+            await _sqliteDatabaseService.InsertTestRun(
+                runId,
+                runDate,
+                hasCoverage ? "success" : "no-coverage",
+                hasCoverage ? 1 : 0,
+                null,
+                null
+            );
         }
         catch (Exception ex)
         {
+            await CaptureContainerLogsAsync();
+
+            await _sqliteDatabaseService.InsertTestRun(
+                runId,
+                runDate,
+                "failed",
+                0,
+                null,
+                ex.Message
+            );
+
             _projectModel.Logger?.Error($"BuildTestAsync failed: {ex.Message}");
         }
 
-        LoadCoverageReport();
+        await LoadCoverageReport();
         CleanupCoverageDirectory();
     }
+    
+    public async Task<TestRunResult> RunForGenerationAsync(string methodName)
+    {
+        // reset per-run state
+        LatestLogPath = null;
+        LatestTestResults = new List<TrxTestResult>();
+        LatestCoverageReport = null;
+        LatestSuccess = false;
+        LatestCoverage = 0;
+
+        runId = Guid.NewGuid().ToString();
+        runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+        var result = new TestRunResult
+        {
+            RunId = runId,
+            RunDate = runDate
+        };
+
+        bool containerStarted = false;
+
+        try
+        {
+            await RunDockerContainerAsync();
+            containerStarted = true;
+
+            await WaitForContainerExitAsync(_containerName);
+            await MergeCoverageReportsAsync(Path.Combine(_projectModel.DirectoryPath, "coverage"));
+            CopyMergedCoverageReport();
+
+            await ProcessTrxResults(); // populates LatestTestResults
+            await CaptureContainerLogsAsync(); // populates LatestLogPath
+            await LoadCoverageReport(); // populates LatestCoverageReport
+            LatestSuccess = true;
+
+            // compute coverage if available
+            if (LatestCoverageReport != null)
+            {
+                LatestCoverage = (int)(LatestCoverageReport.LineRate * 100);
+            }
+
+            var coverageLookup = LatestCoverageReport?.Packages
+                .SelectMany(p => p.Classes)
+                .SelectMany(c => c.Methods)
+                .ToDictionary(m => m.Name) ?? new Dictionary<string, MethodCoverage>();
+
+            result.Success = LatestSuccess;
+            result.Coverage = LatestCoverage;
+            result.LogPath = LatestLogPath;
+            result.CoveredMethod = methodName;
+            result.MethodCoverage = coverageLookup.ContainsKey(methodName) ? coverageLookup[methodName].LineRate : 0;
+            result.Results = LatestTestResults;
+        }
+        catch (Exception ex)
+        {
+            _projectModel.Logger?.Error($"RunForGenerationAsync failed: {ex.Message}");
+            result.Success = false;
+            LatestSuccess = false;
+        }
+        finally
+        {
+            // ensure container logs and removal
+            if (containerStarted)
+            {
+                try
+                {
+                    // capture logs if not done yet
+                    if (LatestLogPath == null)
+                    {
+                        await CaptureContainerLogsAsync();
+                    }
+
+                    // remove container
+                    await RunProcessAsync("docker", $"rm {_containerName}");
+                    _projectModel.Logger?.Information($"Container '{_containerName}' removed.");
+                }
+                catch (Exception cleanupEx)
+                {
+                    _projectModel.Logger?.Warning($"Failed to clean up container '{_containerName}': {cleanupEx.Message}");
+                }
+            }
+
+            CleanupCoverageDirectory();
+        }
+
+        // persist test run
+        await _sqliteDatabaseService.InsertTestRun(
+            result.RunId,
+            result.RunDate,
+            result.Success ? "success" : "fail",
+            result.Coverage,
+            result.LogPath,
+            null
+        );
+
+        return result;
+    }
+
 
     private async Task RunDockerContainerAsync()
     {
@@ -109,7 +243,7 @@ public class BuildTestService : IBuildTestService
             _projectModel.Logger?.Warning($"Merged coverage file not found at: {source}");
         }
     }
-    
+
     private void CleanupCoverageDirectory()
     {
         var coverageDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
@@ -126,7 +260,7 @@ public class BuildTestService : IBuildTestService
             }
         }
     }
-    
+
     private async Task ProcessTrxResults()
     {
         var trxDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
@@ -141,18 +275,18 @@ public class BuildTestService : IBuildTestService
         {
             _projectModel.Logger?.Information($"Parsing TRX file: {trxFile}");
             var results = ParseTrxFile(trxFile);
+            
+            LatestTestResults = results;
 
-            // Append or replace results — depends on your design intent
             _projectModel.TestResults.AddRange(results);
             foreach (var result in results)
             {
-                var methodId = await _sqliteDatabaseService.FindMethod(result.TestName);
+                var methodId = await _sqliteDatabaseService.FindMethodFromContains(result.TestName);
                 result.MethodId = methodId;
             }
             await _sqliteDatabaseService.InsertTestResults(results);
         }
     }
-
 
     private List<TrxTestResult> ParseTrxFile(string trxFilePath)
     {
@@ -189,29 +323,36 @@ public class BuildTestService : IBuildTestService
         return results;
     }
 
-
     private async Task CaptureContainerLogsAsync()
     {
         string containerName = _containerName ?? throw new InvalidOperationException("Container name is null.");
-        string logsFilePath = (_projectModel.LogsFilePath ?? throw new InvalidOperationException("LogsFilePath is null!")).Replace(".log", "") + "-docker.log";
+        string logsFilePath = (_projectModel.LogsFilePath ?? throw new InvalidOperationException("LogsFilePath is null!")).Replace(".log", "") + $"-docker-{runId}.log";
 
         _projectModel.Logger?.Information($"Capturing logs for container: {containerName}");
 
-        // Get the logs from the Docker container
         string logs = await RunProcessAsync("docker", $"logs {containerName}");
 
-        // Write logs as plain text to the dedicated Docker logs file
         await File.WriteAllTextAsync(logsFilePath, logs);
+        
+        LatestLogPath = logsFilePath;
+
+        // Record run log event in DB
+        await _sqliteDatabaseService.InsertTestRun(
+            runId,
+            runDate,
+            "logs-captured",
+            0,
+            logsFilePath,
+            null
+        );
 
         _projectModel.Logger?.Information($"Docker container logs written to: {logsFilePath}");
 
-        // Remove the container
         await RunProcessAsync("docker", $"rm {containerName}");
         _projectModel.Logger?.Information($"Container '{containerName}' removed.");
     }
 
-
-    private void LoadCoverageReport()
+    private async Task LoadCoverageReport()
     {
         try
         {
@@ -220,12 +361,36 @@ public class BuildTestService : IBuildTestService
             XmlSerializer serializer = new XmlSerializer(typeof(CoverageReport));
             using FileStream fs = new FileStream(coverageFile, FileMode.Open);
             _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
+            if (_projectModel.CoverageReport != null)
+                await SaveCoverageReport(_projectModel.CoverageReport);
             _projectModel.Logger?.Information("Coverage report loaded successfully.");
         }
         catch (Exception ex)
         {
             _projectModel.Logger?.Error($"Error loading coverage report: {ex.Message}");
             _projectModel.CoverageReport = new CoverageReport();
+        }
+    }
+
+    private async Task SaveCoverageReport(CoverageReport coverageReport)
+    {
+        var reportId = await _sqliteDatabaseService.InsertCoverageReportGetId(coverageReport, runId);
+        foreach (var package in coverageReport.Packages)
+        {
+            var packageId = await _sqliteDatabaseService.FindPackage(package.Name);
+            var packCoverId = await _sqliteDatabaseService.InsertPackageCoverageGetId(package, reportId, packageId);
+
+            foreach (var claCov in package.Classes)
+            {
+                var claId = await _sqliteDatabaseService.FindClass(claCov.Name);
+                var claCoverId = await _sqliteDatabaseService.InsertClassCoverageGetId(claCov, packCoverId, claId);
+
+                foreach (var methodCov in claCov.Methods)
+                {
+                    var methodId = await _sqliteDatabaseService.FindMethodFromExact(methodCov.Name);
+                    var methodCoverId = await _sqliteDatabaseService.InsertMethodCoverageGetId(methodCov, claCoverId, methodId);
+                }
+            }
         }
     }
 

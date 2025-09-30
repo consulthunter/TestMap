@@ -3,15 +3,21 @@
     "TargetFilePath": "D:\\Projects\\TestMap\\TestMap.Tests\\Data\\example_project.txt",
     "LogsDirPath": "D:\\Projects\\TestMap\\TestMap.Tests\\Logs",
     "TempDirPath": "D:\\Projects\\TestMap\\Temp",
-    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap.Tests\\Output"
+    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap.Tests\\Output",
+    "MigrationsFilePath": "D:\\Projects\\TestMap\\TestMap\\Migrations\\testmap.sql"
   },
   "Settings": {
     "MaxConcurrency": 5,
     "RunDateFormat": "yyyy-MM-dd"
   },
+  "Docker": {
+    "all": "net-sdk-all"
+  },
   "Frameworks": {
     "NUnit": [
       "Test",
+      "TestCase",
+      "TestCaseSource",
       "Theory"
     ],
     "xUnit": [
@@ -27,20 +33,15 @@
       "DataSource"
     ]
   },
-  "Scripts": {
-    "Clone": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_git_clone.bat",
-    "Clean": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_clean.bat",
-    "Restore": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_restore.bat",
-    "Build": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_build.bat",
-    "Test": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_coverage_dotnet_test.bat",
-    "Stryker": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_dotnet_stryker.bat",
-    "Delete": "D:\\Projects\\TestMap\\TestMap\\Scripts\\run_rm.bat"
+  "Persistence": {
+    "KeepProjectFiles": true
   },
-  "EnvironmentVariables": {
-    "DOTNET_ROOT": "C:\\Program Files\\dotnet\\",
-    "DOTNET_HOST_PATH": "C:\\Program Files\\dotnet\\dotnet.exe",
-    "MSBuildExtensionsPath": "C:\\Program Files\\dotnet\\sdk\\8.0.302",
-    "MSBUILD_EXE_PATH": "C:\\Program Files\\dotnet\\sdk\\8.0.302\\MSBuild.dll",
-    "MSBuildSDKsPath": "C:\\Program Files\\dotnet\\sdk\\8.0.302\\Sdks"
+  "Generation": {
+    "Provider": "openai",
+    "OrgId": "",
+    "Model": "gpt-4o",
+    "ApiKey": "",
+    "Endpoint": "http://localhost:11434",
+    "MaxRetries": 5
   }
 }

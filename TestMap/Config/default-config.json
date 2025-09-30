@@ -37,8 +37,11 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Format": "json",
-    "Type": "TestMethods",
-    "FilePath": "D:\\Projects\\TestMap\\TestMap\\Output"
+    "Provider": "openai",
+    "OrgId": "",
+    "Model": "gpt-4o",
+    "ApiKey": "",
+    "Endpoint": "http://localhost:11434",
+    "MaxRetries": 5
   }
 }

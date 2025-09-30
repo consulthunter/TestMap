@@ -47,18 +47,12 @@ public class GenerateConfigurationService(string configurationFilePath, string b
             },
             ["Generation"] = new Dictionary<string, object>()
             {
-                ["Provider"] = "heuristic",
-                ["Parameters"] = new Dictionary<string, object>()
-                {
-                    ["maxTests"] = 20,
-                    ["timeoutSeconds"] = 30
-                }
-            }
-            ["Export"] = new Dictionary<string, object>()
-            {
-                ["Format"] = "json",
-                ["Type"] = "TestMethods",
-                ["FilePath"] = Path.Combine(basePath, "TestMap", "Output")
+                ["Provider"] = "openai",
+                ["OrgId"] = "",
+                ["Model"] = "gpt-3.5-turbo",
+                ["ApiKey"] = "",
+                ["Endpoint"] = "",
+                ["MaxRetries"] = 1,
             }
         };
         
