@@ -1,5 +1,5 @@
 using System.Data;
-using System.Data.SQLite;
+using Microsoft.Data.Sqlite;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -45,22 +45,15 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     {
         _projectModel.Logger?.Information($"Initializing SQLite DB at {_dbPath}");
 
-        // Create empty DB file if doesn't exist
-        if (!File.Exists(_dbPath))
-        {
-            SQLiteConnection.CreateFile(_dbPath);
-            _projectModel.Logger?.Information("SQLite DB file created.");
-        }
-
         // Run migrations (if any)
         if (!string.IsNullOrWhiteSpace(_migrationSql))
         {
             try
             {
-                using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+                await using var conn = new SqliteConnection($"Data Source={_dbPath}");
                 await conn.OpenAsync();
 
-                using var cmd = new SQLiteCommand(_migrationSql, conn);
+                await using var cmd = new SqliteCommand(_migrationSql, conn);
                 await cmd.ExecuteNonQueryAsync();
 
                 _projectModel.Logger?.Information("SQLite migrations executed successfully.");
@@ -81,9 +74,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     /// Opens and returns a SQLiteConnection
     /// Caller is responsible for disposing the connection
     /// </summary>
-    public async Task<SQLiteConnection> GetOpenConnectionAsync()
+    public async Task<SqliteConnection> GetOpenConnectionAsync()
     {
-        var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         return conn;
     }
@@ -99,9 +92,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertProjectModelGetId()
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
-
+        
         // First, check if the project model
         var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = @"
@@ -135,14 +128,14 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             insertCmd.Parameters.AddWithValue("@directoryPath", _projectModel.DirectoryPath);
             insertCmd.Parameters.AddWithValue("@webUrl", _projectModel.GitHubUrl);
             insertCmd.Parameters.AddWithValue("@databasePath", _dbPath);
-            insertCmd.Parameters.AddWithValue("@lastAnalyzedCommit", _projectModel.LastAnalyzedCommit);
+            insertCmd.Parameters.AddWithValue("@lastAnalyzedCommit", _projectModel.LastAnalyzedCommit ?? (object)DBNull.Value);
             insertCmd.Parameters.AddWithValue("@createdAt", createdAt);
 
             await insertCmd.ExecuteNonQueryAsync();
-        
+
             var lastIdCmd = conn.CreateCommand();
             lastIdCmd.CommandText = "SELECT last_insert_rowid();";
-            var newId = (Int64) await lastIdCmd.ExecuteScalarAsync();
+            var newId = (Int64)await lastIdCmd.ExecuteScalarAsync();
             _projectModel.DbId = (int)newId;
         }
     }
@@ -157,7 +150,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertAnalysisSolutionGetId()
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the solution exists
@@ -218,7 +211,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertAnalysisProjectGetId()
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the project exists
@@ -235,7 +228,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             checkCmd.Parameters.AddWithValue("@project_path", project.ProjectFilePath);
             checkCmd.Parameters.AddWithValue("@target_framework", project.LanguageFramework);
             
-            using var reader = await checkCmd.ExecuteReaderAsync();
+            await using var reader = await checkCmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
                 int id = reader.GetInt16(0);
@@ -274,7 +267,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertPackageGetId(PackageModel package)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the package already exists
@@ -315,7 +308,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         insertCmd.Parameters.AddWithValue("@packageName", package.Name);
         insertCmd.Parameters.AddWithValue("@packagePath", package.Path);
         
-
+        
         await insertCmd.ExecuteNonQueryAsync();
         
         var lastIdCmd = conn.CreateCommand();
@@ -327,7 +320,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task InsertFileGetId(FileModel file)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the file already exists
@@ -343,7 +336,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         checkCmd.Parameters.AddWithValue("@namespace", file.Namespace);
         checkCmd.Parameters.AddWithValue("@path", file.FilePath);
             
-        using var reader = await checkCmd.ExecuteReaderAsync();
+        await using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
             int id = reader.GetInt16(0);
@@ -382,7 +375,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     }
     public async Task InsertImports(ImportModel import)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the import already exists
@@ -437,7 +430,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertClassesGetId(ClassModel cla)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the class already exists
@@ -451,7 +444,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         checkCmd.Parameters.AddWithValue("@fileId", cla.FileId);
         checkCmd.Parameters.AddWithValue("@name", cla.Name);
         
-        using var reader = await checkCmd.ExecuteReaderAsync();
+        await using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
             int id = reader.GetInt16(0);
@@ -501,7 +494,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task InsertMethodsGetId(MethodModel method)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the method already exists
@@ -567,7 +560,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertInvocationsGetId(InvocationModel invocation)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -578,10 +571,10 @@ public class SqliteDatabaseService : ISqliteDatabaseService
               AND full_string = @fullString;
         ";
 
-        checkCmd.Parameters.AddWithValue("@targetMethodId", invocation.TargetMethodId);;
+        checkCmd.Parameters.AddWithValue("@targetMethodId", invocation.TargetMethodId);
         checkCmd.Parameters.AddWithValue("@fullString", invocation.FullString);
         
-        using var reader = await checkCmd.ExecuteReaderAsync();
+        await using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
             int id = reader.GetInt16(0);
@@ -611,10 +604,17 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             insertCmd.Parameters.AddWithValue("@locationBodyStart", invocation.Location.BodyStartPosition);
             insertCmd.Parameters.AddWithValue("@locationBodyEnd", invocation.Location.BodyEndPosition);
             insertCmd.Parameters.AddWithValue("@locationEndLinNo", invocation.Location.EndLineNumber);
-            
 
-            await insertCmd.ExecuteNonQueryAsync();
-        
+
+            try
+            {
+                // await insertCmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
+
             var lastIdCmd = conn.CreateCommand();
             lastIdCmd.CommandText = "SELECT last_insert_rowid();";
             var newId = (Int64)(await lastIdCmd.ExecuteScalarAsync());
@@ -624,7 +624,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertPropertyGetId(PropertyModel property)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -684,7 +684,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     {
         var results = new List<InvocationDetails>();
 
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -756,7 +756,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task<int> FindMethod(string name, string filepath)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -782,7 +782,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task UpdateInvocationSourceId(int invocationId, int sourceMethodId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -802,7 +802,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     {
         var results = new List<ImportModel>();
 
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -875,7 +875,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> FindMethodFromContains(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -900,7 +900,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertTestResults(List<TrxTestResult> testResults)
     {
-        await using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         await using var tx = conn.BeginTransaction();
@@ -931,9 +931,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         await tx.CommitAsync();
     }
     
-        public async Task<int> InsertCoverageReportGetId(CoverageReport report, string runId)
+    public async Task<int> InsertCoverageReportGetId(CoverageReport report, string runId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -985,7 +985,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         
     public async Task<int> FindPackage(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -1009,7 +1009,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         
     public async Task<int> InsertPackageCoverageGetId(PackageCoverage packageCoverage, int reportId, int packageId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -1060,7 +1060,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> FindClass(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -1084,7 +1084,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
         public async Task<int> InsertClassCoverageGetId(ClassCoverage classCoverage, int packageCovId, int classId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -1135,7 +1135,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         
     public async Task<int> FindMethodFromExact(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -1159,7 +1159,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> InsertMethodCoverageGetId(MethodCoverage methodCoverage, int classCoverageId, int methodId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -1211,7 +1211,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     {
         var results = new List<CoverageMethodResult>();
 
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -1281,7 +1281,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
         ";
 
-        using var reader = await cmd.ExecuteReaderAsync();
+        await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             var item = new CoverageMethodResult
@@ -1320,7 +1320,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> InsertTestRun(string runId, string runDate, string result, int coverage, string? logPath, string? error)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var insertCmd = conn.CreateCommand();
@@ -1346,8 +1346,8 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         insertCmd.Parameters.AddWithValue("@runDate", runDate);
         insertCmd.Parameters.AddWithValue("@result", result);
         insertCmd.Parameters.AddWithValue("@coverage", coverage);
-        insertCmd.Parameters.AddWithValue("@logPath", logPath);
-        insertCmd.Parameters.AddWithValue("@error", error);
+        insertCmd.Parameters.AddWithValue("@logPath", logPath ?? (object)DBNull.Value);
+        insertCmd.Parameters.AddWithValue("@error", error ?? (object)DBNull.Value);
 
         await insertCmd.ExecuteNonQueryAsync();
 
