@@ -112,9 +112,7 @@ CREATE TABLE IF NOT EXISTS invocations (
                                           location_start_lin_no INTEGER,
                                           location_body_start INTEGER,
                                           location_body_end INTEGER,
-                                          location_end_lin_no INTEGER,
-                                          FOREIGN KEY (target_method_id) REFERENCES methods(id)
-                                          FOREIGN KEY (source_method_id) REFERENCES methods(id)
+                                          location_end_lin_no INTEGER
     );
 
 CREATE TABLE IF NOT EXISTS properties (
@@ -175,8 +173,7 @@ CREATE TABLE IF NOT EXISTS coverage_reports (
                                   lines_covered INTEGER,
                                   lines_valid INTEGER,
                                   branches_covered INTEGER,
-                                  branches_valid INTEGER,
-                                  FOREIGN KEY (test_run_id) REFERENCES test_results(run_id)
+                                  branches_valid INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS package_coverage (

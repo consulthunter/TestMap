@@ -387,8 +387,12 @@ public class BuildTestService : IBuildTestService
 
                 foreach (var methodCov in claCov.Methods)
                 {
-                    var methodId = await _sqliteDatabaseService.FindMethodFromExact(methodCov.Name);
-                    var methodCoverId = await _sqliteDatabaseService.InsertMethodCoverageGetId(methodCov, claCoverId, methodId);
+                    // coverage includes generated methods like getters and setters
+                    if (!methodCov.Name.Contains("get") && !methodCov.Name.Contains("set") && !methodCov.Name.Contains(".ctor"))
+                    {
+                        var methodId = await _sqliteDatabaseService.FindMethodFromExact(methodCov.Name);
+                        var methodCoverId = await _sqliteDatabaseService.InsertMethodCoverageGetId(methodCov, claCoverId, methodId);
+                    }
                 }
             }
         }

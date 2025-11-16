@@ -1,8 +1,6 @@
 using System.Data;
 using Microsoft.Data.Sqlite;
-using System.IO;
-using System.Text;
-using System.Threading.Tasks;
+
 using TestMap.Models;
 using TestMap.Models.Code;
 using TestMap.Models.Coverage;
@@ -608,7 +606,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
             try
             {
-                // await insertCmd.ExecuteNonQueryAsync();
+                await insertCmd.ExecuteNonQueryAsync();
             }
             catch (Exception ex)
             {
@@ -1060,6 +1058,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> FindClass(string name)
     {
+        // Extract simple class name
+        string className = name.Split('.').Last();
+
         await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
@@ -1070,8 +1071,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         WHERE c.name = @name
         LIMIT 1;
     ";
-
-        cmd.Parameters.AddWithValue("@name", name.Split(".")[1]);
+        cmd.Parameters.AddWithValue("@name", className);
 
         using var reader = await cmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
