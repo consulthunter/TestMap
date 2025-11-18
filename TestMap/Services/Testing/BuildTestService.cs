@@ -400,6 +400,11 @@ public class BuildTestService : IBuildTestService
 
     private async Task<string> RunProcessAsync(string fileName, string arguments, string? workingDir = null)
     {
+        if (fileName == "dotnet-coverage")
+        {
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            fileName = Path.Combine(home, ".dotnet", "tools", "dotnet-coverage");
+        }
         var startInfo = new ProcessStartInfo
         {
             FileName = fileName,
