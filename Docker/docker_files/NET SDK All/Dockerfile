@@ -1,33 +1,27 @@
-﻿# Use a base image with a Debian-based OS
-FROM alpine:latest
+﻿FROM mcr.microsoft.com/dotnet/sdk:10.0
 
-# Set the working directory
 WORKDIR /app
 
-# Install dependencies using apk (Alpine's package manager)
-RUN apk add --no-cache \
-    bash \
-    curl \
-    icu-libs \
-    libintl \
-    && rm -rf /var/cache/apk/*
+# Use latest major roll-forward to allow global.json flexibility
+ENV DOTNET_ROLL_FORWARD=latestMajor
 
-# Install .NET SDK 6.0
-RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+# Install multiple SDKs and ensure DOTNET_ROOT is set
+RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
+    && chmod +x dotnet-install.sh \
+    && ./dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet \
+    && ./dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet \
+    && ./dotnet-install.sh --channel 7.0 --install-dir /usr/share/dotnet \
+    && ./dotnet-install.sh --channel 6.0 --install-dir /usr/share/dotnet
 
-RUN chmod +x ./dotnet-install.sh
+# Make sure dotnet CLI can see all SDKs
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="${DOTNET_ROOT}:${PATH}"
 
-RUN ./dotnet-install.sh --channel 10.0
-RUN ./dotnet-install.sh --channel 9.0
-RUN ./dotnet-install.sh --channel 8.0
-RUN ./dotnet-install.sh --channel 7.0
-RUN ./dotnet-install.sh --channel 6.0
-RUN ./dotnet-install.sh --channel 5.0
+# Install Stryker globally
+RUN dotnet tool install -g dotnet-stryker
+ENV PATH="${PATH}:/root/.dotnet/tools"
 
-# Copy scripts and grant execution permissions
-RUN mkdir -p /app/scripts/
+# Add scripts
+RUN mkdir -p /app/scripts
 COPY scripts/*.sh /app/scripts/
 RUN chmod +x /app/scripts/*.sh
-
-# Make sure that the .dotnet tools directory is on the PATH
-ENV PATH="${PATH}:/root/.dotnet/:/root/.dotnet/tools"
