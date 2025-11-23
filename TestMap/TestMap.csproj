@@ -10,7 +10,6 @@
     <ItemGroup>
         <Folder Include="Logs\**" />
         <Folder Include="Output\**" />
-        <Folder Include="Scripts\" />
         <Folder Include="Tools\" />
     </ItemGroup>
 
