@@ -1,8 +1,6 @@
 using System.Data;
-using System.Data.SQLite;
-using System.IO;
-using System.Text;
-using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
+
 using TestMap.Models;
 using TestMap.Models.Code;
 using TestMap.Models.Coverage;
@@ -26,16 +24,6 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         if (!Directory.Exists(dbFolder)) Directory.CreateDirectory(dbFolder);
 
         _dbPath = Path.Combine(dbFolder, "analysis.db");
-
-        // Load migration SQL file - put your migrations.sql path here or embed as resource
-        var migrationsFilePath = _projectModel.Config.FilePaths.MigrationsFilePath;
-        if (File.Exists(migrationsFilePath))
-            _migrationSql = File.ReadAllText(migrationsFilePath);
-        else
-        {
-            _projectModel.Logger?.Warning($"Migration SQL file not found at {migrationsFilePath}");
-            _migrationSql = string.Empty;
-        }
     }
 
     /// <summary>
@@ -44,36 +32,20 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     public async Task InitializeAsync()
     {
         _projectModel.Logger?.Information($"Initializing SQLite DB at {_dbPath}");
-
-        // Create empty DB file if doesn't exist
-        if (!File.Exists(_dbPath))
+        try
         {
-            SQLiteConnection.CreateFile(_dbPath);
-            _projectModel.Logger?.Information("SQLite DB file created.");
+            await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+            await conn.OpenAsync();
+
+            await using var cmd = new SqliteCommand(Migrations.Schema, conn);
+            await cmd.ExecuteNonQueryAsync();
+
+            _projectModel.Logger?.Information("SQLite migrations executed successfully.");
         }
-
-        // Run migrations (if any)
-        if (!string.IsNullOrWhiteSpace(_migrationSql))
+        catch (Exception ex)
         {
-            try
-            {
-                using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
-                await conn.OpenAsync();
-
-                using var cmd = new SQLiteCommand(_migrationSql, conn);
-                await cmd.ExecuteNonQueryAsync();
-
-                _projectModel.Logger?.Information("SQLite migrations executed successfully.");
-            }
-            catch (Exception ex)
-            {
-                _projectModel.Logger?.Error($"Error executing migrations: {ex.Message}");
-                throw;
-            }
-        }
-        else
-        {
-            _projectModel.Logger?.Information("No migration SQL to execute.");
+            _projectModel.Logger?.Error($"Error executing migrations: {ex.Message}");
+            throw;
         }
     }
 
@@ -81,9 +53,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     /// Opens and returns a SQLiteConnection
     /// Caller is responsible for disposing the connection
     /// </summary>
-    public async Task<SQLiteConnection> GetOpenConnectionAsync()
+    public async Task<SqliteConnection> GetOpenConnectionAsync()
     {
-        var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         return conn;
     }
@@ -99,9 +71,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertProjectModelGetId()
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
-
+        
         // First, check if the project model
         var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = @"
@@ -135,14 +107,14 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             insertCmd.Parameters.AddWithValue("@directoryPath", _projectModel.DirectoryPath);
             insertCmd.Parameters.AddWithValue("@webUrl", _projectModel.GitHubUrl);
             insertCmd.Parameters.AddWithValue("@databasePath", _dbPath);
-            insertCmd.Parameters.AddWithValue("@lastAnalyzedCommit", _projectModel.LastAnalyzedCommit);
+            insertCmd.Parameters.AddWithValue("@lastAnalyzedCommit", _projectModel.LastAnalyzedCommit ?? (object)DBNull.Value);
             insertCmd.Parameters.AddWithValue("@createdAt", createdAt);
 
             await insertCmd.ExecuteNonQueryAsync();
-        
+
             var lastIdCmd = conn.CreateCommand();
             lastIdCmd.CommandText = "SELECT last_insert_rowid();";
-            var newId = (Int64) await lastIdCmd.ExecuteScalarAsync();
+            var newId = (Int64)await lastIdCmd.ExecuteScalarAsync();
             _projectModel.DbId = (int)newId;
         }
     }
@@ -157,7 +129,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertAnalysisSolutionGetId()
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the solution exists
@@ -218,7 +190,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertAnalysisProjectGetId()
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the project exists
@@ -235,7 +207,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             checkCmd.Parameters.AddWithValue("@project_path", project.ProjectFilePath);
             checkCmd.Parameters.AddWithValue("@target_framework", project.LanguageFramework);
             
-            using var reader = await checkCmd.ExecuteReaderAsync();
+            await using var reader = await checkCmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
                 int id = reader.GetInt16(0);
@@ -274,7 +246,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertPackageGetId(PackageModel package)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the package already exists
@@ -315,7 +287,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         insertCmd.Parameters.AddWithValue("@packageName", package.Name);
         insertCmd.Parameters.AddWithValue("@packagePath", package.Path);
         
-
+        
         await insertCmd.ExecuteNonQueryAsync();
         
         var lastIdCmd = conn.CreateCommand();
@@ -327,7 +299,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task InsertFileGetId(FileModel file)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the file already exists
@@ -343,7 +315,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         checkCmd.Parameters.AddWithValue("@namespace", file.Namespace);
         checkCmd.Parameters.AddWithValue("@path", file.FilePath);
             
-        using var reader = await checkCmd.ExecuteReaderAsync();
+        await using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
             int id = reader.GetInt16(0);
@@ -382,7 +354,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     }
     public async Task InsertImports(ImportModel import)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the import already exists
@@ -437,7 +409,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertClassesGetId(ClassModel cla)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         // First, check if the class already exists
@@ -451,7 +423,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         checkCmd.Parameters.AddWithValue("@fileId", cla.FileId);
         checkCmd.Parameters.AddWithValue("@name", cla.Name);
         
-        using var reader = await checkCmd.ExecuteReaderAsync();
+        await using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
             int id = reader.GetInt16(0);
@@ -501,7 +473,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task InsertMethodsGetId(MethodModel method)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the method already exists
@@ -567,7 +539,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertInvocationsGetId(InvocationModel invocation)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -578,10 +550,10 @@ public class SqliteDatabaseService : ISqliteDatabaseService
               AND full_string = @fullString;
         ";
 
-        checkCmd.Parameters.AddWithValue("@targetMethodId", invocation.TargetMethodId);;
+        checkCmd.Parameters.AddWithValue("@targetMethodId", invocation.TargetMethodId);
         checkCmd.Parameters.AddWithValue("@fullString", invocation.FullString);
         
-        using var reader = await checkCmd.ExecuteReaderAsync();
+        await using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
             int id = reader.GetInt16(0);
@@ -611,10 +583,17 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             insertCmd.Parameters.AddWithValue("@locationBodyStart", invocation.Location.BodyStartPosition);
             insertCmd.Parameters.AddWithValue("@locationBodyEnd", invocation.Location.BodyEndPosition);
             insertCmd.Parameters.AddWithValue("@locationEndLinNo", invocation.Location.EndLineNumber);
-            
 
-            await insertCmd.ExecuteNonQueryAsync();
-        
+
+            try
+            {
+                await insertCmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
+
             var lastIdCmd = conn.CreateCommand();
             lastIdCmd.CommandText = "SELECT last_insert_rowid();";
             var newId = (Int64)(await lastIdCmd.ExecuteScalarAsync());
@@ -624,7 +603,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertPropertyGetId(PropertyModel property)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -684,7 +663,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     {
         var results = new List<InvocationDetails>();
 
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -756,7 +735,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task<int> FindMethod(string name, string filepath)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -782,7 +761,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task UpdateInvocationSourceId(int invocationId, int sourceMethodId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -802,7 +781,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     {
         var results = new List<ImportModel>();
 
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -875,7 +854,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> FindMethodFromContains(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -900,7 +879,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public async Task InsertTestResults(List<TrxTestResult> testResults)
     {
-        await using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         await using var tx = conn.BeginTransaction();
@@ -931,9 +910,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         await tx.CommitAsync();
     }
     
-        public async Task<int> InsertCoverageReportGetId(CoverageReport report, string runId)
+    public async Task<int> InsertCoverageReportGetId(CoverageReport report, string runId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -985,7 +964,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         
     public async Task<int> FindPackage(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -1009,7 +988,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         
     public async Task<int> InsertPackageCoverageGetId(PackageCoverage packageCoverage, int reportId, int packageId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -1060,7 +1039,10 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> FindClass(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        // Extract simple class name
+        string className = name.Split('.').Last();
+
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -1070,8 +1052,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         WHERE c.name = @name
         LIMIT 1;
     ";
-
-        cmd.Parameters.AddWithValue("@name", name.Split(".")[1]);
+        cmd.Parameters.AddWithValue("@name", className);
 
         using var reader = await cmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
@@ -1084,7 +1065,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
         public async Task<int> InsertClassCoverageGetId(ClassCoverage classCoverage, int packageCovId, int classId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -1135,7 +1116,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         
     public async Task<int> FindMethodFromExact(string name)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var cmd = conn.CreateCommand();
@@ -1159,7 +1140,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public async Task<int> InsertMethodCoverageGetId(MethodCoverage methodCoverage, int classCoverageId, int methodId)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
         
         // First, check if the invocation already exists
@@ -1207,120 +1188,124 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         }
     }
 
-    public async Task<List<CoverageMethodResult>> FindMethodsWithLowCoverage()
+public async Task<List<CoverageMethodResult>> FindMethodsWithLowCoverage()
+{
+    var results = new List<CoverageMethodResult>();
+
+    await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+    await conn.OpenAsync();
+
+    var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        WITH UncoveredMethods AS (
+            SELECT 
+                mc.method_id, 
+                mc.line_rate, 
+                m.class_id, 
+                m.name AS method_name,
+                m.full_string AS method_body,
+                c.name AS class_name,
+                sf.id AS source_file_id
+            FROM method_coverage mc
+            JOIN methods m ON mc.method_id = m.id
+            JOIN classes c ON m.class_id = c.id
+            JOIN source_files sf ON c.file_id = sf.id
+            WHERE mc.line_rate != 1
+        ),
+        ClassTests AS (
+            SELECT 
+                m.class_id,
+                tc.id AS test_class_id,
+                tc.name AS test_class_name,
+                tc.testing_framework,
+                tc.location_start_lin_no AS test_class_lin_start,
+                tc.location_body_start AS test_class_body_start,
+                tc.location_end_lin_no AS test_class_lin_end,
+                tc.location_body_end AS test_class_body_end,
+                tf.path AS test_file_path,
+                tf.usings AS test_dependencies,
+                tm.name AS test_method_name,
+                tm.full_string AS test_method,
+                ROW_NUMBER() OVER(PARTITION BY m.class_id ORDER BY tm.name) AS rn
+            FROM methods m
+            JOIN invocations ic ON ic.source_method_id = m.id
+            JOIN methods tm ON ic.target_method_id = tm.id
+            JOIN classes tc ON tm.class_id = tc.id
+            JOIN source_files tf ON tc.file_id = tf.id
+            WHERE tm.is_test_method = 1
+        )
+        SELECT 
+            um.method_id,
+            um.method_name,
+            um.method_body,
+            um.line_rate,
+            um.class_id,
+            um.class_name,
+            CASE WHEN ct.test_class_id IS NOT NULL THEN 'Has tests in class' ELSE 'No tests in class' END AS coverage_status,
+            ct.test_class_id,
+            ct.test_class_name,
+            ct.testing_framework,
+            ct.test_class_lin_start,
+            ct.test_class_body_start,
+            ct.test_class_lin_end,
+            ct.test_class_body_end,
+            ct.test_file_path,
+            ct.test_dependencies,
+            ct.test_method_name,
+            ct.test_method,
+            asol.solution_path AS solution_file_path
+        FROM UncoveredMethods um
+        LEFT JOIN ClassTests ct 
+            ON um.class_id = ct.class_id
+            AND ct.rn = 1
+        LEFT JOIN source_packages sp ON sp.id = (SELECT package_id FROM source_files WHERE id = um.source_file_id)
+        LEFT JOIN analysis_projects ap ON ap.id = sp.analysis_project_id
+        LEFT JOIN analysis_solutions asol ON asol.id = ap.solution_id;
+    ";
+
+    await using var reader = await cmd.ExecuteReaderAsync();
+    while (await reader.ReadAsync())
     {
-        var results = new List<CoverageMethodResult>();
-
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
-        await conn.OpenAsync();
-
-        var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-                with UncoveredMethods as (
-                    select 
-                        mc.method_id, 
-                        mc.line_rate, 
-                        m.class_id, 
-                        m.name as method_name,
-                        m.full_string as method_body,
-                        c.name as class_name
-                    from method_coverage mc
-                    join methods m on mc.method_id = m.id
-                    join classes c on m.class_id = c.id
-                    where mc.line_rate != 1
-                ),
-                ClassTests as (
-                    select 
-                        m.class_id,
-                        tc.id   as test_class_id,
-                        tc.name as test_class_name,
-		                tc.testing_framework as testing_framework,
-                        tc.location_start_lin_no as test_class_lin_start,
-                        tc.location_body_start as test_class_body_start,
-                        tc.location_end_lin_no as test_class_lin_end,
-                        tc.location_body_end as test_class_body_end,
-                        tf.path as test_file_path,
-                        tf.usings as test_dependencies,
-                        tm.name as test_method_name,
-                        tm.full_string as test_method,
-                        ROW_NUMBER() OVER(PARTITION BY m.class_id ORDER BY tm.name) as rn
-                    from methods m
-                    join invocations ic on ic.source_method_id = m.id
-                    join methods tm on ic.target_method_id = tm.id
-                    join classes tc on tm.class_id = tc.id
-                    join source_files tf on tc.file_id = tf.id
-                    where tm.is_test_method = 1
-                )
-                select 
-                    um.method_id,
-                    um.method_name,
-                    um.method_body,
-                    um.line_rate,
-                    um.class_id,
-                    um.class_name,
-                    case 
-                        when ct.test_class_id is not null 
-                            then 'Has tests in class'
-                        else 'No tests in class'
-                    end as coverage_status,
-                    ct.test_class_id,
-                    ct.test_class_name,
-	                ct.testing_framework,
-                    ct.test_class_lin_start,
-                    ct.test_class_body_start,
-                    ct.test_class_lin_end,
-                    ct.test_class_body_end,
-                    ct.test_file_path,
-                    ct.test_dependencies,
-                    ct.test_method_name,
-                    ct.test_method
-                from UncoveredMethods um
-                left join ClassTests ct 
-                    on um.class_id = ct.class_id
-                    and ct.rn = 1;  -- only take the first test method per class
-
-        ";
-
-        using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        var item = new CoverageMethodResult
         {
-            var item = new CoverageMethodResult
-            {
-                MethodId = reader.GetInt32(0),
-                MethodName = reader.GetString(1),
-                MethodBody = reader.GetString(2),
-                LineRate = reader.GetDouble(3),
+            MethodId = reader.GetInt32(0),
+            MethodName = reader.GetString(1),
+            MethodBody = reader.GetString(2),
+            LineRate = reader.GetDouble(3),
 
-                ClassId = reader.GetInt32(4),
-                ClassName = reader.GetString(5),
-    
-                CoverageStatus = reader.GetString(6),
-    
-                TestClassId = reader.GetInt32(7),
-                TestClassName = reader.GetString(8),
-                TestFramework = reader.GetString(9),
-    
-                TestClassLineStart = reader.GetInt32(10),
-                TestClassBodyStart = reader.GetInt32(11),
-                TestClassLineEnd = reader.GetInt32(12),
-                TestClassBodyEnd = reader.GetInt32(13),
+            ClassId = reader.GetInt32(4),
+            ClassName = reader.GetString(5),
 
-                TestFilePath = reader.GetString(14),
-                TestDependencies = reader.GetString(15),
-                
-                TestMethodName = reader.GetString(16),
-                TestMethodBody = reader.GetString(17),
-            };
+            CoverageStatus = reader.GetString(6),
 
-           results.Add(item);
-        }
+            TestClassId = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
+            TestClassName = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+            TestFramework = reader.IsDBNull(9) ? string.Empty : reader.GetString(9),
 
-        return results;
+            TestClassLineStart = reader.IsDBNull(10) ? 0 : reader.GetInt32(10),
+            TestClassBodyStart = reader.IsDBNull(11) ? 0 : reader.GetInt32(11),
+            TestClassLineEnd = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
+            TestClassBodyEnd = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
+
+            TestFilePath = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+            TestDependencies = reader.IsDBNull(15) ? string.Empty : reader.GetString(15),
+
+            TestMethodName = reader.IsDBNull(16) ? string.Empty : reader.GetString(16),
+            TestMethodBody = reader.IsDBNull(17) ? string.Empty : reader.GetString(17),
+
+            SolutionFilePath = reader.IsDBNull(18) ? string.Empty : reader.GetString(18),
+        };
+
+        results.Add(item);
     }
+
+    return results;
+}
+
     
     public async Task<int> InsertTestRun(string runId, string runDate, string result, int coverage, string? logPath, string? error)
     {
-        using var conn = new SQLiteConnection($"Data Source={_dbPath};Version=3;");
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
 
         var insertCmd = conn.CreateCommand();
@@ -1346,8 +1331,8 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         insertCmd.Parameters.AddWithValue("@runDate", runDate);
         insertCmd.Parameters.AddWithValue("@result", result);
         insertCmd.Parameters.AddWithValue("@coverage", coverage);
-        insertCmd.Parameters.AddWithValue("@logPath", logPath);
-        insertCmd.Parameters.AddWithValue("@error", error);
+        insertCmd.Parameters.AddWithValue("@logPath", logPath ?? (object)DBNull.Value);
+        insertCmd.Parameters.AddWithValue("@error", error ?? (object)DBNull.Value);
 
         await insertCmd.ExecuteNonQueryAsync();
 
@@ -1357,5 +1342,32 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
         return (int)newId;
     }
-    
+    public async Task UpdateTestRunStatus(
+        string runId,
+        string result,
+        int coverage,
+        string? logPath,
+        string? error)
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        UPDATE test_runs
+        SET result = @result,
+            coverage = @coverage,
+            log_path = @logPath,
+            error = @error
+        WHERE run_id = @runId;
+    ";
+
+        cmd.Parameters.AddWithValue("@result", result);
+        cmd.Parameters.AddWithValue("@coverage", coverage);
+        cmd.Parameters.AddWithValue("@logPath", logPath ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@error", error ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@runId", runId);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
 }

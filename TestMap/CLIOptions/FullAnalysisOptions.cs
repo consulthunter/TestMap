@@ -11,11 +11,11 @@ using TestMap.Models.Configuration;
 
 namespace TestMap.CLIOptions;
 
-[Verb("collect-tests", HelpText = "Collect tests from source code.")]
-public class CollectTestOptions
+[Verb("full-analysis", HelpText = "Collect tests from source code.")]
+public class FullAnalysisOptions
 {
-    public RunMode Mode => RunMode.CollectTests;
+    public RunMode Mode => RunMode.FullAnalysis;
     
     [Option('c', "config", SetName = "collect", Required = true, HelpText = "Config File path.")]
-    public string CollectConfigFilePath { get; set; }
+    public string FullAnalysisConfigFilePath { get; set; }
 }

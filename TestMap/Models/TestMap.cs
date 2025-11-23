@@ -121,7 +121,12 @@ public class TestMap(
 
     private async Task BuildTestAsync()
     {
-        await BuildTestService.BuildTestAsync();
+        // run baseline for all solutions
+        List<string> sols = ProjectModel.Solutions
+            .Select(x => x.SolutionFilePath)
+            .ToList();
+        
+        await BuildTestService.BuildTestAsync(sols, true);
     }
 
     /// <summary>

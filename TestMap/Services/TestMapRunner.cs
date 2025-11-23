@@ -79,40 +79,38 @@ public class TestMapRunner
         Logger.Information("Starting runner.");
         Logger.Information($"Number of target projects {_projects.Count}");
         // I believe that it still hangs on large projects
-        using (var semaphore = new SemaphoreSlim(MaxConcurrency))
+        using var semaphore = new SemaphoreSlim(MaxConcurrency);
+        foreach (var project in _projects)
         {
-            foreach (var project in _projects)
-            {
-                Logger.Information($"Project number: {_projects.IndexOf(project)}");
-                Logger.Information($"Target project {project.ProjectId}");
-                await semaphore.WaitAsync();
+            Logger.Information($"Project number: {_projects.IndexOf(project)}");
+            Logger.Information($"Target project {project.ProjectId}");
+            await semaphore.WaitAsync();
 
-                project.EnsureProjectLogDir();
-                project.EnsureProjectOutputDir();
+            project.EnsureProjectLogDir();
+            project.EnsureProjectOutputDir();
 
-                Logger.Information($"Creating TestMap {project.ProjectId}.");
-                var db = new SqliteDatabaseService(project);
-                var buildTest = new BuildTestService(project, db);
-                var testMap = new Models.TestMap
-                (
-                    project,
-                    _testMapConfig,
-                    new CloneRepoService(project),
-                    new ExtractInformationService(project),
-                    buildTest,
-                    db,
-                    new AnalyzeProjectService(project, db),
-                    new MapUnresolvedService(project, db),
-                    new GenerateTestService(project, _testMapConfig, db, buildTest),
-                    new DeleteProjectService(project),
-                    ConfigurationService.RunMode
-                );
+            Logger.Information($"Creating TestMap {project.ProjectId}.");
+            var db = new SqliteDatabaseService(project);
+            var buildTest = new BuildTestService(project, db);
+            var testMap = new Models.TestMap
+            (
+                project,
+                _testMapConfig,
+                new CloneRepoService(project),
+                new ExtractInformationService(project),
+                buildTest,
+                db,
+                new AnalyzeProjectService(project, db),
+                new MapUnresolvedService(project, db),
+                new GenerateTestService(project, _testMapConfig, db, buildTest),
+                new DeleteProjectService(project),
+                ConfigurationService.RunMode
+            );
 
-                tasks.Add(RunTestMapAsync(testMap, semaphore));
-            }
-
-            await Task.WhenAll(tasks);
+            tasks.Add(RunTestMapAsync(testMap, semaphore));
         }
+
+        await Task.WhenAll(tasks);
     }
 
     /// <summary>
@@ -125,14 +123,14 @@ public class TestMapRunner
     {
         try
         {
-            Logger.Information($"Running TestMap {testMap.ProjectModel.ProjectId}");
+            Logger.Information("Running TestMap {ProjectModelProjectId}", testMap.ProjectModel.ProjectId);
             await testMap.RunAsync();
         }
         finally
         {
-            Logger.Information($"Finished TestMap {testMap.ProjectModel.ProjectId}");
+            Logger.Information("Finished TestMap {ProjectModelProjectId}", testMap.ProjectModel.ProjectId);
             semaphore.Release();
-            Logger.Information($"Releasing TestMap {testMap.ProjectModel.ProjectId}");
+            Logger.Information("Releasing TestMap {ProjectModelProjectId}", testMap.ProjectModel.ProjectId);
         }
     }
 }

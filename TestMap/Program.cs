@@ -7,6 +7,7 @@
  */
 
 using System.Reflection;
+using System.Threading.Tasks;
 using CommandLine;
 using Microsoft.Extensions.Configuration;
 using TestMap.CLIOptions;
@@ -51,8 +52,11 @@ public class Program
             case GenerateTestsOptions gt:
                 await RunGenTests(gt);
                 break;
-            case GenerateConfigOptions g:
-                RunSetup(g);
+            case FullAnalysisOptions fa:
+                await RunFullAnalysis(fa);
+                break;
+            case SetupOptions s:
+                RunSetup(s);
                 break;
         }
     }
@@ -69,7 +73,7 @@ public class Program
         var configObj = new TestMapConfig();
         config.Bind(configObj);
         var configurationService = new ConfigurationService(configObj);
-        configurationService.SetRunMode("collect-tests");
+        configurationService.RunMode = testOptions.Mode;
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }
@@ -85,7 +89,24 @@ public class Program
         var configObj = new TestMapConfig();
         config.Bind(configObj);
         var configurationService = new ConfigurationService(configObj);
-        configurationService.SetRunMode("generate-tests");
+        configurationService.RunMode = options.Mode;
+        var testMapRunner = new TestMapRunner(configurationService);
+        await testMapRunner.RunAsync();
+    }
+    
+    /// <summary>
+    ///     Builds the configuration using options, starts the TestMapRunner
+    /// </summary>
+    /// <param name="options">CLI options parsed by CommandLine</param>
+    private static async Task RunFullAnalysis(FullAnalysisOptions options)
+    {
+        var config = new ConfigurationBuilder()
+            .AddJsonFile(options.FullAnalysisConfigFilePath, false, true)
+            .Build();
+        var configObj = new TestMapConfig();
+        config.Bind(configObj);
+        var configurationService = new ConfigurationService(configObj);
+        configurationService.RunMode = options.Mode;
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }
@@ -94,11 +115,9 @@ public class Program
     ///     Generates the correct configuration for TestMap
     /// </summary>
     /// <param name="options">CLI options parsed by CommandLine</param>
-    private static void RunSetup(GenerateConfigOptions options)
+    private static void RunSetup(SetupOptions options)
     {
-        var configPath = options.GenerateConfigFilePath;
-        var basePath = options.BasePath;
-        var configurationService = new GenerateConfigurationService(configPath, basePath);
-        configurationService.GenerateConfiguration();
+        SetupService setupService = new SetupService();
+        setupService.Setup();
     }
 }

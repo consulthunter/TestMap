@@ -1,11 +1,11 @@
-using System.Data.SQLite;
+using Microsoft.Data.Sqlite;
 
 namespace TestMap.Services.Database;
 
 public interface ISqliteDatabaseService
 {
     Task InitializeAsync();
-    Task<SQLiteConnection> GetOpenConnectionAsync();
+    Task<SqliteConnection> GetOpenConnectionAsync();
 
     Task InsertProjectInformation();
 }

@@ -4,10 +4,12 @@ obj/
 riderModule.iml
 /_ReSharper.Caches/
 Temp/
+TestMap/Temp/
 TestMap/Output/
 TestMap/Logs/
+TestMap/Tools/
 TestMap.Tests/Output/
 TestMap.Tests/Logs/
 .idea/
-
+*.env
 Release/

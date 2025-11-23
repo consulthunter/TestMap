@@ -8,23 +8,28 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Folder Include="Logs\**"/>
-        <Folder Include="Output\**"/>
-        <Folder Include="Scripts\" />
+        <Folder Include="Config\" />
+        <Folder Include="Logs\**" />
+        <Folder Include="Output\**" />
+        <Content Include="Docker\**\*">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="CommandLineParser" Version="2.9.1"/>
+        <PackageReference Include="CommandLineParser" Version="2.9.1" />
         <PackageReference Include="coverlet.collector" Version="6.0.4">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
-        <PackageReference Include="Microsoft.Build" Version="17.13.9" ExcludeAssets="runtime" />
-        <PackageReference Include="Microsoft.Build.Locator" Version="1.7.8"/>
+        <PackageReference Include="Microsoft.Build" Version="17.14.28" ExcludeAssets="runtime" />
+        <PackageReference Include="Microsoft.Build.Locator" Version="1.10.12" />
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.13.0" />
+        <PackageReference Include="Microsoft.CodeAnalysis.Metrics" Version="4.14.0" />
         <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="4.13.0" />
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0-rc.2.25502.107" />
         <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.3" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.3" />
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.3" />
@@ -33,7 +38,7 @@
         <PackageReference Include="Microsoft.PowerShell.Commands.Management" Version="7.5.0" />
         <PackageReference Include="Microsoft.PowerShell.Commands.Utility" Version="7.5.0" />
         <PackageReference Include="Microsoft.PowerShell.ConsoleHost" Version="7.5.0" />
-        <PackageReference Include="Microsoft.PowerShell.Native" Version="7.4.0"/>
+        <PackageReference Include="Microsoft.PowerShell.Native" Version="7.4.0" />
         <PackageReference Include="Microsoft.SemanticKernel" Version="1.64.0" />
         <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.64.0" />
         <PackageReference Include="Microsoft.SemanticKernel.Connectors.Amazon" Version="1.64.0-alpha" />
@@ -42,10 +47,9 @@
         <PackageReference Include="Microsoft.SemanticKernel.Connectors.MistralAI" Version="1.64.0-alpha" />
         <PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama" Version="1.64.0-alpha" />
         <PackageReference Include="Microsoft.WSMan.Management" Version="7.5.0" />
-        <PackageReference Include="Moq" Version="4.20.72"/>
+        <PackageReference Include="Moq" Version="4.20.72" />
         <PackageReference Include="Serilog" Version="4.2.0" />
-        <PackageReference Include="Serilog.Sinks.File" Version="6.0.0"/>
-        <PackageReference Include="System.Data.SQLite" Version="1.0.119" />
+        <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
         <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.3" />
         <PackageReference Include="System.Formats.Asn1" Version="9.0.3" />
         <PackageReference Include="System.Management" Version="9.0.3" />
@@ -55,6 +59,18 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Remove="Temp\TestMap-Example\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Remove="Temp\TestMap-Example\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="Temp\TestMap-Example\**" />
     </ItemGroup>
 
 </Project>

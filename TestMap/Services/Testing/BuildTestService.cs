@@ -32,57 +32,7 @@ public class BuildTestService : IBuildTestService
         runDate = "";
     }
 
-    public async Task BuildTestAsync()
-    {
-        runId = Guid.NewGuid().ToString();
-        runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-
-        // Insert run start event
-        await _sqliteDatabaseService.InsertTestRun(runId, runDate, "started", 0, null , null);
-
-        try
-        {
-            await RunDockerContainerAsync();
-            await WaitForContainerExitAsync(_containerName);
-            await MergeCoverageReportsAsync(Path.Combine(_projectModel.DirectoryPath, "coverage"));
-            CopyMergedCoverageReport();
-            await ProcessTrxResults();
-            await CaptureContainerLogsAsync();
-
-            // Coverage check
-            var coverageFile = Path.Combine(_projectModel.OutputPath ?? "", "merged.cobertura.xml");
-            bool hasCoverage = File.Exists(coverageFile);
-
-            await _sqliteDatabaseService.InsertTestRun(
-                runId,
-                runDate,
-                hasCoverage ? "success" : "no-coverage",
-                hasCoverage ? 1 : 0,
-                null,
-                null
-            );
-        }
-        catch (Exception ex)
-        {
-            await CaptureContainerLogsAsync();
-
-            await _sqliteDatabaseService.InsertTestRun(
-                runId,
-                runDate,
-                "failed",
-                0,
-                null,
-                ex.Message
-            );
-
-            _projectModel.Logger?.Error($"BuildTestAsync failed: {ex.Message}");
-        }
-
-        await LoadCoverageReport();
-        CleanupCoverageDirectory();
-    }
-    
-    public async Task<TestRunResult> RunForGenerationAsync(string methodName)
+    public async Task<TestRunResult> BuildTestAsync(List<string> solutions, bool isBaseline, string? methodName = null)
     {
         // reset per-run state
         LatestLogPath = null;
@@ -90,116 +40,97 @@ public class BuildTestService : IBuildTestService
         LatestCoverageReport = null;
         LatestSuccess = false;
         LatestCoverage = 0;
-
-        runId = Guid.NewGuid().ToString();
+        
+        runId = (isBaseline ? "baseline_" : "") + Guid.NewGuid();
         runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-        var result = new TestRunResult
-        {
-            RunId = runId,
-            RunDate = runDate
-        };
+        await _sqliteDatabaseService.InsertTestRun(runId, runDate, "started", 0, null, null);
 
-        bool containerStarted = false;
+        // generated test runs include target method
+        TestRunResult result = isBaseline ? new TestRunResult() : new GeneratedTestRunResult();
 
         try
         {
-            await RunDockerContainerAsync();
-            containerStarted = true;
-
-            await WaitForContainerExitAsync(_containerName);
-            await MergeCoverageReportsAsync(Path.Combine(_projectModel.DirectoryPath, "coverage"));
-            CopyMergedCoverageReport();
-
-            await ProcessTrxResults(); // populates LatestTestResults
-            await CaptureContainerLogsAsync(); // populates LatestLogPath
-            await LoadCoverageReport(); // populates LatestCoverageReport
-            LatestSuccess = true;
-
-            // compute coverage if available
-            if (LatestCoverageReport != null)
+            if (isBaseline)
             {
-                LatestCoverage = (int)(LatestCoverageReport.LineRate * 100);
+                // solutions is List<string> with full paths
+                var solutionFilenames = solutions.Select(Path.GetFileName).ToList();
+
+                // join into comma-separated string
+                string allSolutions = string.Join(",", solutionFilenames);
+                
+                await RunDockerContainerAsync(runId, allSolutions);
+                await WaitForContainerExitAsync(_containerName);
+                await CaptureContainerLogsAsync();
+                await ProcessTrxResults();
+                await LoadMergedCoverageReport();
+                
+                result.Success = true;
+                result.LogPath = LatestLogPath;
             }
+            else
+            {
+                var solutionFilenames = solutions.Select(Path.GetFileName).ToList();
+                
+                string solution = solutionFilenames.First() ?? "";
 
-            var coverageLookup = LatestCoverageReport?.Packages
-                .SelectMany(p => p.Classes)
-                .SelectMany(c => c.Methods)
-                .ToDictionary(m => m.Name) ?? new Dictionary<string, MethodCoverage>();
+                await RunDockerContainerAsync(runId, solution);
+                await WaitForContainerExitAsync(_containerName);
+                await ProcessTrxResults();
+                await CaptureContainerLogsAsync();
+                await LoadMergedCoverageReport();
 
-            result.Success = LatestSuccess;
-            result.Coverage = LatestCoverage;
-            result.LogPath = LatestLogPath;
-            result.CoveredMethod = methodName;
-            result.MethodCoverage = coverageLookup.ContainsKey(methodName) ? coverageLookup[methodName].LineRate : 0;
-            result.Results = LatestTestResults;
+                result.Success = true;
+
+                if (LatestCoverageReport != null)
+                    LatestCoverage = (int)(LatestCoverageReport.LineRate * 100);
+
+                if (result is GeneratedTestRunResult gen)
+                {
+                    gen.CoveredMethod = methodName;
+
+                    var coverageLookup = LatestCoverageReport?.Packages?
+                        .SelectMany(p => p.Classes)
+                        .SelectMany(c => c.Methods)
+                        .ToDictionary(m => m.Name);
+
+                    gen.MethodCoverage = coverageLookup?.GetValueOrDefault(methodName)?.LineRate ?? 0;
+                }
+
+                result.Coverage = LatestCoverage;
+                result.LogPath = LatestLogPath;
+                result.Results = LatestTestResults;
+            }
+            await _sqliteDatabaseService.UpdateTestRunStatus( runId, "success", result.Coverage, result.LogPath, null);
         }
         catch (Exception ex)
         {
-            _projectModel.Logger?.Error($"RunForGenerationAsync failed: {ex.Message}");
             result.Success = false;
-            LatestSuccess = false;
+
+            await _sqliteDatabaseService.UpdateTestRunStatus(
+                runId, "failed", 0, LatestLogPath, ex.Message);
         }
         finally
         {
-            // ensure container logs and removal
-            if (containerStarted)
-            {
-                try
-                {
-                    // capture logs if not done yet
-                    if (LatestLogPath == null)
-                    {
-                        await CaptureContainerLogsAsync();
-                    }
-
-                    // remove container
-                    await RunProcessAsync("docker", $"rm {_containerName}");
-                    _projectModel.Logger?.Information($"Container '{_containerName}' removed.");
-                }
-                catch (Exception cleanupEx)
-                {
-                    _projectModel.Logger?.Warning($"Failed to clean up container '{_containerName}': {cleanupEx.Message}");
-                }
-            }
-
             CleanupCoverageDirectory();
         }
-
-        // persist test run
-        await _sqliteDatabaseService.InsertTestRun(
-            result.RunId,
-            result.RunDate,
-            result.Success ? "success" : "fail",
-            result.Coverage,
-            result.LogPath,
-            null
-        );
 
         return result;
     }
 
 
-    private async Task RunDockerContainerAsync()
+
+    public async Task RunDockerContainerAsync(string runId, string solutions)
     {
-        string localDir = _projectModel.DirectoryPath ?? throw new InvalidOperationException("DirectoryPath is null.");
-        string outputDir = _projectModel.OutputPath ?? throw new InvalidOperationException("OutputPath is null.");
-        string imageName = _projectModel.Docker?["all"] ?? throw new InvalidOperationException("Docker image not specified.");
+        string localDir = _projectModel.DirectoryPath!;
+        string imageName = _projectModel.Docker!["all"];
 
-        if (!Directory.Exists(localDir))
-            throw new DirectoryNotFoundException($"Local directory does not exist: {localDir}");
-
-        if (!Directory.Exists(outputDir))
-        {
-            Directory.CreateDirectory(outputDir);
-            _projectModel.Logger?.Information($"Created output directory: {outputDir}");
-        }
-
-        var args = $"run -d --name {_containerName} -v \"{localDir}:/app/project\" {imageName} /bin/bash ./scripts/run-dotnet-steps.sh";
-        _projectModel.Logger?.Information($"Running Docker container: {args}");
+        var args =
+            $"run -d --name {_containerName} -v \"{localDir}:/app/project\" {imageName} /bin/bash ./scripts/run_main.sh \"{runId}\" \"{solutions}\"";
 
         await RunProcessAsync("docker", args);
     }
+
 
     private async Task WaitForContainerExitAsync(string containerName)
     {
@@ -217,30 +148,23 @@ public class BuildTestService : IBuildTestService
         _projectModel.Logger?.Information($"Container '{containerName}' has exited.");
     }
 
-    private async Task MergeCoverageReportsAsync(string coverageDir)
+    private async Task LoadMergedCoverageReport()
     {
-        _projectModel.Logger?.Information($"Merging coverage reports in {coverageDir}");
-
-        if (!Directory.Exists(coverageDir))
-            throw new DirectoryNotFoundException($"Coverage directory not found: {coverageDir}");
-
-        string args = "merge **.cobertura.xml --output merged.cobertura.xml --output-format cobertura";
-        await RunProcessAsync("dotnet-coverage", args, coverageDir);
-    }
-
-    private void CopyMergedCoverageReport()
-    {
-        string source = Path.Combine(_projectModel.DirectoryPath!, "coverage", "merged.cobertura.xml");
-        string destination = Path.Combine(_projectModel.OutputPath!, "merged.cobertura.xml");
-
-        if (File.Exists(source))
+        string source = Path.Combine(_projectModel.DirectoryPath!, "coverage", $"merged_{runId}.cobertura.xml");
+        try
         {
-            File.Copy(source, destination, overwrite: true);
-            _projectModel.Logger?.Information($"Copied coverage report to: {destination}");
+
+            XmlSerializer serializer = new XmlSerializer(typeof(CoverageReport));
+            using FileStream fs = new FileStream(source, FileMode.Open);
+            _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
+            if (_projectModel.CoverageReport != null)
+                await SaveCoverageReport(_projectModel.CoverageReport);
+            _projectModel.Logger?.Information("Coverage report loaded successfully.");
         }
-        else
+        catch (Exception ex)
         {
-            _projectModel.Logger?.Warning($"Merged coverage file not found at: {source}");
+            _projectModel.Logger?.Error($"Error loading coverage report: {ex.Message}");
+            _projectModel.CoverageReport = new CoverageReport();
         }
     }
 
@@ -336,40 +260,10 @@ public class BuildTestService : IBuildTestService
         
         LatestLogPath = logsFilePath;
 
-        // Record run log event in DB
-        await _sqliteDatabaseService.InsertTestRun(
-            runId,
-            runDate,
-            "logs-captured",
-            0,
-            logsFilePath,
-            null
-        );
-
         _projectModel.Logger?.Information($"Docker container logs written to: {logsFilePath}");
 
         await RunProcessAsync("docker", $"rm {containerName}");
         _projectModel.Logger?.Information($"Container '{containerName}' removed.");
-    }
-
-    private async Task LoadCoverageReport()
-    {
-        try
-        {
-            var coverageFile = Path.Combine(_projectModel.OutputPath ?? "", "merged.cobertura.xml");
-
-            XmlSerializer serializer = new XmlSerializer(typeof(CoverageReport));
-            using FileStream fs = new FileStream(coverageFile, FileMode.Open);
-            _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
-            if (_projectModel.CoverageReport != null)
-                await SaveCoverageReport(_projectModel.CoverageReport);
-            _projectModel.Logger?.Information("Coverage report loaded successfully.");
-        }
-        catch (Exception ex)
-        {
-            _projectModel.Logger?.Error($"Error loading coverage report: {ex.Message}");
-            _projectModel.CoverageReport = new CoverageReport();
-        }
     }
 
     private async Task SaveCoverageReport(CoverageReport coverageReport)
@@ -387,8 +281,12 @@ public class BuildTestService : IBuildTestService
 
                 foreach (var methodCov in claCov.Methods)
                 {
-                    var methodId = await _sqliteDatabaseService.FindMethodFromExact(methodCov.Name);
-                    var methodCoverId = await _sqliteDatabaseService.InsertMethodCoverageGetId(methodCov, claCoverId, methodId);
+                    // coverage includes generated methods like getters and setters
+                    if (!methodCov.Name.Contains("get") && !methodCov.Name.Contains("set") && !methodCov.Name.Contains(".ctor"))
+                    {
+                        var methodId = await _sqliteDatabaseService.FindMethodFromExact(methodCov.Name);
+                        var methodCoverId = await _sqliteDatabaseService.InsertMethodCoverageGetId(methodCov, claCoverId, methodId);
+                    }
                 }
             }
         }
@@ -396,6 +294,11 @@ public class BuildTestService : IBuildTestService
 
     private async Task<string> RunProcessAsync(string fileName, string arguments, string? workingDir = null)
     {
+        if (fileName == "dotnet-coverage")
+        {
+            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            fileName = Path.Combine(home, ".dotnet", "tools", "dotnet-coverage");
+        }
         var startInfo = new ProcessStartInfo
         {
             FileName = fileName,

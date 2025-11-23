@@ -1,6 +1,8 @@
-﻿namespace TestMap.Services.Testing;
+﻿using TestMap.Models.Results;
+
+namespace TestMap.Services.Testing;
 
 public interface IBuildTestService
 {
-    Task BuildTestAsync();
+    Task<TestRunResult> BuildTestAsync(List<string> solutions, bool isBaseline, string? methodName = null);
 }
