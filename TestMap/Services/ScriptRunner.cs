@@ -39,8 +39,8 @@ public class ScriptRunner
     /// <param name="environmentVariables"></param>
     public ScriptRunner(Dictionary<string, string> environmentVariables)
     {
-        Errors = new List<string>();
-        Output = new List<string>();
+        Errors = [];
+        Output = [];
         EnvironmentVariables = environmentVariables;
     }
 
@@ -58,7 +58,7 @@ public class ScriptRunner
         try
         {
             // Build arguments for PowerShell
-            string args = $"-ExecutionPolicy Bypass -File \"{scriptPath}\" {string.Join(" ", arguments)}";
+            var args = $"-ExecutionPolicy Bypass -File \"{scriptPath}\" {string.Join(" ", arguments)}";
 
             // Configure the process start info
             var startInfo = new ProcessStartInfo

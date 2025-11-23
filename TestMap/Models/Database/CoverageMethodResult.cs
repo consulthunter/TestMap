@@ -34,4 +34,6 @@ public class CoverageMethodResult
     // Test method info
     public string TestMethodName { get; set; }
     public string TestMethodBody { get; set; }
+    
+    public string SolutionFilePath { get; set; } = string.Empty;
 }

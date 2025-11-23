@@ -7,6 +7,7 @@
  */
 
 using System.Reflection;
+using System.Threading.Tasks;
 using CommandLine;
 using Microsoft.Extensions.Configuration;
 using TestMap.CLIOptions;

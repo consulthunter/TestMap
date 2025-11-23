@@ -37,9 +37,9 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Provider": "openai",
+    "Provider": "ollama",
     "OrgId": "",
-    "Model": "gpt-4o",
+    "Model": "mistral",
     "ApiKey": "",
     "Endpoint": "http://localhost:11434",
     "MaxRetries": 5

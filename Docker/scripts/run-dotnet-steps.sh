@@ -1,35 +1,53 @@
 #!/bin/bash
 
-# Directory in the container where solution files are located
-CODE_DIR="/app/project/"
-COV_DIR="/app/project/coverage/"
+# Arguments:
+# $1 = run ID
+# $2 = comma-separated solution file names to test
+RUN_ID="$1"
+SOL_NAMES="$2"
 
-# Navigate to the mounted directory
-cd "$CODE_DIR" || { echo "Directory $CODE_DIR not found"; exit 1; }
-
-# Find all .sln files recursively
-echo "Searching for solution files (.sln)..."
-sln_files=$(find . -name "*.sln")
-
-# Check if any solution files were found
-if [[ -z "$sln_files" ]]; then
-    echo "No solution files found in $CODE_DIR. Exiting."
+if [[ -z "$RUN_ID" || -z "$SOL_NAMES" ]]; then
+    echo "Usage: $0 <run_id> <solution_name1.sln,solution_name2.sln,...>"
     exit 1
 fi
 
-# Loop through each solution file and run the commands
-for sln in $sln_files; do
-    # Extract just the filename
-    sln_filename=$(basename "$sln")
-    echo "Processing solution: $sln"
-    sln_dir=$(dirname "$sln")
+CODE_DIR="/app/project/"
+COV_DIR="/app/project/coverage/"
 
-    echo "Running dotnet test..."
-    if ! dotnet test $sln --collect:"Code Coverage;Format=Cobertura" --logger "trx;LogFileName=$(basename "$sln" .sln)_results.trx" --results-directory $COV_DIR; then
-      echo "Testing failed for solution: $sln. Skipping to the next one."
-      continue
+mkdir -p "$COV_DIR"
+cd "$CODE_DIR" || { echo "Directory $CODE_DIR not found"; exit 1; }
+
+IFS=',' read -ra names <<< "$SOL_NAMES"
+
+for name in "${names[@]}"; do
+    sln=$(find . -name "$name" | head -n 1)
+    if [[ -z "$sln" ]]; then
+        echo "Solution not found in container: $name"
+        continue
     fi
 
-    # Return to the initial directory
+    echo "Processing solution: $sln"
+    TRX_FILE="${COV_DIR}/$(basename "$sln" .sln)_${RUN_ID}.trx"
+    COVERAGE_FILE="${COV_DIR}/coverage_$(basename "$sln" .sln)_${RUN_ID}.cobertura.xml"
+    
+    dotnet add package Microsoft.CodeAnalysis.Metrics
+    
+    dotnet build -target:Metrics
+
+    if ! dotnet test "$sln" \
+        --collect:"Code Coverage;Format=Cobertura" \
+        --logger "trx;LogFileName=$TRX_FILE" \
+        --results-directory "$COV_DIR"; then
+        echo "Testing failed for solution: $sln"
+        continue
+    fi
+
+    if [[ -f "${COV_DIR}/coverage.cobertura.xml" ]]; then
+        mv "${COV_DIR}/coverage.cobertura.xml" "$COVERAGE_FILE"
+        echo "Coverage saved to: $COVERAGE_FILE"
+    else
+        echo "Coverage file not found for solution: $sln"
+    fi
 done
-echo "All solutions have been processed successfully!"
+
+echo "All specified solutions processed."

@@ -5,6 +5,7 @@ using LibGit2Sharp;
 using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Models.Database;
+using TestMap.Models.Results;
 using TestMap.Services.Database;
 using TestMap.Services.Testing.Providers;
 
@@ -85,7 +86,7 @@ public class GenerateTestService : IGenerateTestService
                 InsertTestIntoFile(methodResult.TestFilePath, test);
 
                 // run tests (in-memory results)
-                var runResult = await _buildTestService.RunForGenerationAsync(testMethodName);
+                var runResult = await _buildTestService.BuildTestAsync([methodResult.SolutionFilePath], false, testMethodName);
 
                 bool rollback = false;
 
@@ -98,9 +99,10 @@ public class GenerateTestService : IGenerateTestService
                     // check failures and coverage improvement
                     var failedTests = runResult.Results.Where(r => r.Outcome != "Passed").ToList();
                     double baseline = methodResult.LineRate;
-
-                    if (failedTests.Any() || runResult.MethodCoverage <= baseline)
-                        rollback = true;
+                    
+                    if (runResult is GeneratedTestRunResult gen)
+                        if (failedTests.Any() || gen.MethodCoverage <= baseline)
+                            rollback = true;
                 }
 
                 if (rollback)
