@@ -11,7 +11,7 @@ using System.Text.Json;
 
 namespace TestMap.Services.Configuration;
 
-public class GenerateConfigurationService(string configurationFilePath, string basePath)
+public class GenerateConfigurationService(string configurationFilePath, string basePath, string basePathParent)
 {
     public void GenerateConfiguration()
     {
@@ -19,11 +19,10 @@ public class GenerateConfigurationService(string configurationFilePath, string b
         {
             ["FilePaths"] = new Dictionary<string, string>()
             {
-                ["TargetFilePath"] = Path.Combine(basePath, "TestMap", "Data", "example_project.txt"),
-                ["LogsDirPath"] = Path.Combine(basePath, "TestMap" ,"Logs"),
-                ["TempDirPath"] = Path.Combine(basePath, "Temp"),
-                ["OutputDirPath"] = Path.Combine(basePath, "TestMap", "Output"),
-                ["MigrationsFilePath"] = Path.Combine(basePath, "TestMap", "Migrations", "testmap.sql")
+                ["TargetFilePath"] = Path.Combine(basePath, "Data", "example_project.txt"),
+                ["LogsDirPath"] = Path.Combine(basePath, "Logs"),
+                ["TempDirPath"] = Path.Combine(basePathParent, "Temp"),
+                ["OutputDirPath"] = Path.Combine(basePath, "Output"),
             },
             ["Settings"] = new Dictionary<string, object>()
             {

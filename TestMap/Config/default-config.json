@@ -3,8 +3,7 @@
     "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
     "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
     "TempDirPath": "D:\\Projects\\TestMap\\Temp",
-    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output",
-    "MigrationsFilePath": "D:\\Projects\\TestMap\\TestMap\\Migrations\\testmap.sql"
+    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
   },
   "Settings": {
     "MaxConcurrency": 5,
@@ -37,11 +36,11 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Provider": "ollama",
+    "Provider": "openai",
     "OrgId": "",
-    "Model": "mistral",
+    "Model": "gpt-3.5-turbo",
     "ApiKey": "",
-    "Endpoint": "http://localhost:11434",
-    "MaxRetries": 5
+    "Endpoint": "",
+    "MaxRetries": 1
   }
 }

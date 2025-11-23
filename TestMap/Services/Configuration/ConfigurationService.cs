@@ -25,16 +25,6 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
     public string RunDate { get; } = DateTime.UtcNow.ToString(config.Settings.RunDateFormat);
     public List<ProjectModel> ProjectModels { get; } = new();
 
-    public void SetRunMode(string mode) =>
-        RunMode = mode switch
-        {
-            "collect-tests" => RunMode.CollectTests,
-            "generate-tests" => RunMode.GenerateTests,
-            "full-analysis" => RunMode.FullAnalysis,
-            _ => RunMode
-        };
-    
-
     public async Task ConfigureRunAsync()
     {
         EnsureDirectory(Config.FilePaths.LogsDirPath, RunDate);

@@ -61,12 +61,9 @@ public class BuildTestService : IBuildTestService
                 
                 await RunDockerContainerAsync(runId, allSolutions);
                 await WaitForContainerExitAsync(_containerName);
-
-                await MergeCoverageReportsAsync(Path.Combine(_projectModel.DirectoryPath, "coverage"));
-                CopyMergedCoverageReport();
                 await CaptureContainerLogsAsync();
                 await ProcessTrxResults();
-                await LoadCoverageReport();
+                await LoadMergedCoverageReport();
                 
                 result.Success = true;
                 result.LogPath = LatestLogPath;
@@ -79,12 +76,9 @@ public class BuildTestService : IBuildTestService
 
                 await RunDockerContainerAsync(runId, solution);
                 await WaitForContainerExitAsync(_containerName);
-
-                await MergeCoverageReportsAsync(Path.Combine(_projectModel.DirectoryPath, "coverage"));
-                CopyMergedCoverageReport();
                 await ProcessTrxResults();
                 await CaptureContainerLogsAsync();
-                await LoadCoverageReport();
+                await LoadMergedCoverageReport();
 
                 result.Success = true;
 
@@ -132,7 +126,7 @@ public class BuildTestService : IBuildTestService
         string imageName = _projectModel.Docker!["all"];
 
         var args =
-            $"run -d --name {_containerName} -v \"{localDir}:/app/project\" {imageName} /bin/bash ./scripts/run-dotnet-steps.sh \"{runId}\" \"{solutions}\"";
+            $"run -d --name {_containerName} -v \"{localDir}:/app/project\" {imageName} /bin/bash ./scripts/run_main.sh \"{runId}\" \"{solutions}\"";
 
         await RunProcessAsync("docker", args);
     }
@@ -154,30 +148,23 @@ public class BuildTestService : IBuildTestService
         _projectModel.Logger?.Information($"Container '{containerName}' has exited.");
     }
 
-    private async Task MergeCoverageReportsAsync(string coverageDir)
+    private async Task LoadMergedCoverageReport()
     {
-        _projectModel.Logger?.Information($"Merging coverage reports in {coverageDir}");
-
-        if (!Directory.Exists(coverageDir))
-            throw new DirectoryNotFoundException($"Coverage directory not found: {coverageDir}");
-
-        string args = "merge **.cobertura.xml --output merged.cobertura.xml --output-format cobertura";
-        await RunProcessAsync("dotnet-coverage", args, coverageDir);
-    }
-
-    private void CopyMergedCoverageReport()
-    {
-        string source = Path.Combine(_projectModel.DirectoryPath!, "coverage", "merged.cobertura.xml");
-        string destination = Path.Combine(_projectModel.OutputPath!, "merged.cobertura.xml");
-
-        if (File.Exists(source))
+        string source = Path.Combine(_projectModel.DirectoryPath!, "coverage", $"merged_{runId}.cobertura.xml");
+        try
         {
-            File.Copy(source, destination, overwrite: true);
-            _projectModel.Logger?.Information($"Copied coverage report to: {destination}");
+
+            XmlSerializer serializer = new XmlSerializer(typeof(CoverageReport));
+            using FileStream fs = new FileStream(source, FileMode.Open);
+            _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
+            if (_projectModel.CoverageReport != null)
+                await SaveCoverageReport(_projectModel.CoverageReport);
+            _projectModel.Logger?.Information("Coverage report loaded successfully.");
         }
-        else
+        catch (Exception ex)
         {
-            _projectModel.Logger?.Warning($"Merged coverage file not found at: {source}");
+            _projectModel.Logger?.Error($"Error loading coverage report: {ex.Message}");
+            _projectModel.CoverageReport = new CoverageReport();
         }
     }
 
@@ -277,26 +264,6 @@ public class BuildTestService : IBuildTestService
 
         await RunProcessAsync("docker", $"rm {containerName}");
         _projectModel.Logger?.Information($"Container '{containerName}' removed.");
-    }
-
-    private async Task LoadCoverageReport()
-    {
-        try
-        {
-            var coverageFile = Path.Combine(_projectModel.OutputPath ?? "", "merged.cobertura.xml");
-
-            XmlSerializer serializer = new XmlSerializer(typeof(CoverageReport));
-            using FileStream fs = new FileStream(coverageFile, FileMode.Open);
-            _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
-            if (_projectModel.CoverageReport != null)
-                await SaveCoverageReport(_projectModel.CoverageReport);
-            _projectModel.Logger?.Information("Coverage report loaded successfully.");
-        }
-        catch (Exception ex)
-        {
-            _projectModel.Logger?.Error($"Error loading coverage report: {ex.Message}");
-            _projectModel.CoverageReport = new CoverageReport();
-        }
     }
 
     private async Task SaveCoverageReport(CoverageReport coverageReport)

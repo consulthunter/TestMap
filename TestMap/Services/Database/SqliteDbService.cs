@@ -24,16 +24,6 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         if (!Directory.Exists(dbFolder)) Directory.CreateDirectory(dbFolder);
 
         _dbPath = Path.Combine(dbFolder, "analysis.db");
-
-        // Load migration SQL file - put your migrations.sql path here or embed as resource
-        var migrationsFilePath = _projectModel.Config.FilePaths.MigrationsFilePath;
-        if (File.Exists(migrationsFilePath))
-            _migrationSql = File.ReadAllText(migrationsFilePath);
-        else
-        {
-            _projectModel.Logger?.Warning($"Migration SQL file not found at {migrationsFilePath}");
-            _migrationSql = string.Empty;
-        }
     }
 
     /// <summary>
@@ -42,29 +32,20 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     public async Task InitializeAsync()
     {
         _projectModel.Logger?.Information($"Initializing SQLite DB at {_dbPath}");
-
-        // Run migrations (if any)
-        if (!string.IsNullOrWhiteSpace(_migrationSql))
+        try
         {
-            try
-            {
-                await using var conn = new SqliteConnection($"Data Source={_dbPath}");
-                await conn.OpenAsync();
+            await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+            await conn.OpenAsync();
 
-                await using var cmd = new SqliteCommand(_migrationSql, conn);
-                await cmd.ExecuteNonQueryAsync();
+            await using var cmd = new SqliteCommand(Migrations.Schema, conn);
+            await cmd.ExecuteNonQueryAsync();
 
-                _projectModel.Logger?.Information("SQLite migrations executed successfully.");
-            }
-            catch (Exception ex)
-            {
-                _projectModel.Logger?.Error($"Error executing migrations: {ex.Message}");
-                throw;
-            }
+            _projectModel.Logger?.Information("SQLite migrations executed successfully.");
         }
-        else
+        catch (Exception ex)
         {
-            _projectModel.Logger?.Information("No migration SQL to execute.");
+            _projectModel.Logger?.Error($"Error executing migrations: {ex.Message}");
+            throw;
         }
     }
 

@@ -19,8 +19,17 @@ ENV PATH="${DOTNET_ROOT}:${PATH}"
 
 # Install Stryker globally
 RUN dotnet tool install -g dotnet-stryker
+RUN dotnet tool install -g dotnet-coverage
 ENV PATH="${PATH}:/root/.dotnet/tools"
 
+
+# Install Python + venv + Lizard
+RUN apt-get update && apt-get install -y python3 python3-venv python3-pip \
+    && python3 -m venv /opt/lizardenv \
+    && /opt/lizardenv/bin/pip install --upgrade pip \
+    && /opt/lizardenv/bin/pip install lizard \
+    && rm -rf /var/lib/apt/lists/* 
+    
 # Add scripts
 RUN mkdir -p /app/scripts
 COPY scripts/*.sh /app/scripts/

@@ -28,11 +28,6 @@ for name in "${names[@]}"; do
 
     echo "Processing solution: $sln"
     TRX_FILE="${COV_DIR}/$(basename "$sln" .sln)_${RUN_ID}.trx"
-    COVERAGE_FILE="${COV_DIR}/coverage_$(basename "$sln" .sln)_${RUN_ID}.cobertura.xml"
-    
-    dotnet add package Microsoft.CodeAnalysis.Metrics
-    
-    dotnet build -target:Metrics
 
     if ! dotnet test "$sln" \
         --collect:"Code Coverage;Format=Cobertura" \
@@ -41,13 +36,30 @@ for name in "${names[@]}"; do
         echo "Testing failed for solution: $sln"
         continue
     fi
-
-    if [[ -f "${COV_DIR}/coverage.cobertura.xml" ]]; then
-        mv "${COV_DIR}/coverage.cobertura.xml" "$COVERAGE_FILE"
-        echo "Coverage saved to: $COVERAGE_FILE"
-    else
-        echo "Coverage file not found for solution: $sln"
-    fi
 done
+
+# Find all cobertura files, keep only one per filename
+declare -A seen_files
+COVERAGE_TO_MERGE=()
+
+while IFS= read -r file; do
+    base=$(basename "$file")
+    if [[ -z "${seen_files[$base]}" ]]; then
+        COVERAGE_TO_MERGE+=("$file")
+        seen_files[$base]=1
+    else
+        echo "Skipping duplicate coverage file: $file"
+    fi
+done < <(find "$COV_DIR" -type f -name "*.cobertura.xml")
+
+# Merge only unique files
+if [[ ${#COVERAGE_TO_MERGE[@]} -gt 0 ]]; then
+    dotnet-coverage merge "${COVERAGE_TO_MERGE[@]}" \
+        --output "${COV_DIR}merged_${RUN_ID}.cobertura.xml" \
+        --output-format cobertura
+    echo "Merged coverage saved to: ${COV_DIR}merged_${RUN_ID}.cobertura.xml"
+else
+    echo "No coverage files found to merge."
+fi
 
 echo "All specified solutions processed."

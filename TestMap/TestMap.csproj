@@ -8,9 +8,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Folder Include="Config\" />
         <Folder Include="Logs\**" />
         <Folder Include="Output\**" />
-        <Folder Include="Tools\" />
+        <Content Include="Docker\**\*">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 
     <ItemGroup>
@@ -56,6 +59,18 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Remove="Temp\TestMap-Example\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Remove="Temp\TestMap-Example\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="Temp\TestMap-Example\**" />
     </ItemGroup>
 
 </Project>
