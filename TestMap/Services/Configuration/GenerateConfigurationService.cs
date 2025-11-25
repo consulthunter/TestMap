@@ -51,6 +51,9 @@ public class GenerateConfigurationService(string configurationFilePath, string b
                 ["Model"] = "gpt-3.5-turbo",
                 ["ApiKey"] = "",
                 ["Endpoint"] = "",
+                ["AwsAccessKey"] = "",
+                ["AwsSecretKey"] = "",
+                ["AwsRegion"] = "",
                 ["MaxRetries"] = 1,
             }
         };

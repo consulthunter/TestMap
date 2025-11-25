@@ -1,4 +1,7 @@
 
+using System.Configuration;
+using Amazon;
+using Amazon.BedrockRuntime;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using TestMap.Models.Configuration;
@@ -18,9 +21,18 @@ public class TestGenerator
         string apiKey = config.Generation.ApiKey;
         string endpoint = config.Generation.Endpoint;
         
+        string awsAccessKey = config.Generation.AwsAccessKey;
+        string awsSecretKey = config.Generation.AwsSecretKey;
+        string awsRegion = config.Generation.AwsRegion;
+        
         switch (provider)
         {
             case "openai":
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(orgid) || string.IsNullOrEmpty(apiKey))
+                {
+                    throw new ConfigurationErrorsException(
+                        "For openai provider: OrgID, Model, and ApiKey must be configured.");
+                }
                 builder.AddOpenAIChatCompletion(
                     modelId: model,
                     orgId: orgid,
@@ -28,22 +40,64 @@ public class TestGenerator
                 break;
 
             case "ollama":
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(endpoint))
+                {
+                    throw new ConfigurationErrorsException(
+                        "For ollama provider: Model, and Endpoint must be configured.");
+                }
                 builder.AddOllamaChatCompletion(
                     modelId: model,
                     endpoint: new Uri(endpoint));
                 break;
             
             case "google":
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(apiKey))
+                {
+                    throw new ConfigurationErrorsException(
+                        "For google provider: Model, and ApiKey must be configured.");
+                }
                 builder.AddGoogleAIGeminiChatCompletion(
                     modelId: model,  
                     apiKey: apiKey);
                 break;
-
+            case "anthropic":
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(awsAccessKey) || string.IsNullOrEmpty(awsSecretKey) || string.IsNullOrEmpty(awsRegion))
+                {
+                    throw new ConfigurationErrorsException(
+                        "For anthropic provider: Model, AwsAccessKey, AwsSecretKey, and AwsRegion must be configured.");
+                }
+                IAmazonBedrockRuntime runtime = new AmazonBedrockRuntimeClient(
+                    awsAccessKeyId: awsAccessKey,
+                    awsSecretAccessKey: awsSecretKey,
+                    region: GetAwsRegionEndpoint(awsRegion));
+                builder.AddBedrockChatCompletionService(modelId: model, bedrockRuntime:runtime, serviceId:"anthropic-bedrock");
+                break;
             default:
                 throw new InvalidOperationException($"Unsupported LLM provider: {provider}");
         }
 
         _kernel = builder.Build();
+    }
+
+    private static RegionEndpoint GetAwsRegionEndpoint(string region)
+    {
+        switch (region)
+        {
+            case "us-east-1":
+                return RegionEndpoint.USEast1;
+            case "us-east-2":
+                return RegionEndpoint.USEast2;
+            case "us-west-1":
+                return RegionEndpoint.USWest1;
+            case "us-west-2":
+                return RegionEndpoint.USWest2;
+            case "ca-central-1":
+                return RegionEndpoint.CACentral1;
+            case "mx-central-1":
+                return RegionEndpoint.MXCentral1;
+            default:
+                throw new ConfigurationErrorsException($"Unsupported AWS region: {region}");
+        }
     }
 
     public string CreateTestPrompt(string method, string test, string testFramework, string testDependencies)
