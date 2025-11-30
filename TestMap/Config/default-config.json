@@ -36,11 +36,17 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Provider": "openai",
-    "OrgId": "",
-    "Model": "gpt-3.5-turbo",
-    "ApiKey": "",
-    "Endpoint": "",
+    "Provider": "amazon",
+    "Model": "us.anthropic.claude-3-5-sonnet-20240620-v1:0",
     "MaxRetries": 1
+  },
+  "Amazon": {
+    "AwsRegion": "us-east-1"
+  },
+  "Ollama": {
+    "Endpoint": "http://localhost:10000/"
+  },
+  "Custom": {
+    "Endpoint": "http://localhost:11434/"
   }
 }

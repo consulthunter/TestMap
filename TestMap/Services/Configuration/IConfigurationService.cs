@@ -15,7 +15,7 @@ public interface IConfigurationService
 {
     Task ConfigureRunAsync();
     RunMode RunMode { get; set; }
-    
+
     TestMapConfig Config { get; }
     string RunDate { get; }
     List<ProjectModel> ProjectModels { get; }
