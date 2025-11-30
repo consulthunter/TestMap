@@ -1,5 +1,3 @@
-
-
 using System.Collections.Generic;
 using System.Text.Json;
 using JetBrains.Annotations;
@@ -38,14 +36,14 @@ public class FileModelTest
     {
         // Arrange
         var usingStatements = new List<string> { "using System;", "using System.Text;" };
-        int packageId = 1;
-        string guid = "abc-123";
-        string ns = "TestNamespace";
-        string name = "FileName.cs";
-        string language = "C#";
-        string solutionFilePath = @"C:\Projects\Solution.sln";
-        string projectPath = @"C:\Projects\TestMap.csproj";
-        string filePath = @"C:\Projects\FileName.cs";
+        var packageId = 1;
+        var guid = "abc-123";
+        var ns = "TestNamespace";
+        var name = "FileName.cs";
+        var language = "C#";
+        var solutionFilePath = @"C:\Projects\Solution.sln";
+        var projectPath = @"C:\Projects\TestMap.csproj";
+        var filePath = @"C:\Projects\FileName.cs";
 
         // Act
         var fileModel = new FileModel(usingStatements, packageId, guid, ns, name, language, solutionFilePath,

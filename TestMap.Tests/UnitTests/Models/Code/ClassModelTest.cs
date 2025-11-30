@@ -43,17 +43,17 @@ public class ClassModelTest
 
         // Act
         var model = new ClassModel(
-            fileId: 102,
-            guid: "1234-abcd",
-            name: "TestClass",
-            visibility: "public",
-            attributes: testAttributes,
-            modifiers: testModifiers,
-            fullString: "class TestClass {}",
-            docString: "Documentation for TestClass",
-            isTestClass: true,
-            testingFramework: "xUnit",
-            location: location
+            102,
+            "1234-abcd",
+            "TestClass",
+            "public",
+            testAttributes,
+            testModifiers,
+            "class TestClass {}",
+            "Documentation for TestClass",
+            true,
+            "xUnit",
+            location
         );
 
         // Assert

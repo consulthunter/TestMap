@@ -36,6 +36,5 @@ public class TestMapIntegrationTest
     public async Task TestMap()
     {
         await RunCollect();
-        
     }
 }

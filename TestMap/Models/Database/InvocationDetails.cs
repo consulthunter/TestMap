@@ -4,7 +4,7 @@ public class InvocationDetails
 {
     public int InvocationId { get; set; }
     public int TargetMethodId { get; set; }
-    public int SourceMethodId { get; set; }  // ← added
+    public int SourceMethodId { get; set; } // ← added
     public string InvocationGuid { get; set; }
     public string FullString { get; set; }
 
@@ -37,4 +37,3 @@ public class InvocationDetails
     public string SolutionPath { get; set; }
     public string SolutionGuid { get; set; }
 }
-

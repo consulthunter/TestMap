@@ -15,7 +15,7 @@ namespace TestMap.CLIOptions;
 public class CollectTestOptions
 {
     public RunMode Mode => RunMode.CollectTests;
-    
-    [Option('c', "config", SetName = "collect", Required = true, HelpText = "Config File path.")]
+
+    [Option('c', "config", SetName = "collect", Required = false, HelpText = "Config File path.")]
     public string CollectConfigFilePath { get; set; }
 }

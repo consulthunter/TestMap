@@ -12,6 +12,8 @@ public class PackageModel(
     public string Guid { get; set; } = guid;
     public string Name { get; set; } = name;
     public string? Path { get; set; } = path;
-    
+
     public List<FileModel> Files { get; set; } = files;
+    
+    public string ContentHash { get; set; } = Utilities.Utilities.ComputeSha256(path);
 }

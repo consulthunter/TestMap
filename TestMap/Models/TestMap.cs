@@ -34,7 +34,7 @@ public class TestMap(
     IBuildTestService buildTestService,
     ISqliteDatabaseService sqliteDatabaseService,
     IAnalyzeProjectService analyzeProjectService,
-    IMapUnresolvedService  mapUnresolvedService,
+    IMapUnresolvedService mapUnresolvedService,
     IGenerateTestService generateTestService,
     IDeleteProjectService deleteProjectService,
     RunMode runMode)
@@ -52,7 +52,7 @@ public class TestMap(
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
     private readonly HashSet<string> _analyzedProjectIds = new();
 
-    
+
     private RunMode RunMode { get; } = runMode;
 
     // methods
@@ -70,10 +70,7 @@ public class TestMap(
                 break;
         }
 
-        if (!Config.Persistence.KeepProjectFiles)
-        {
-            await DeleteProjectAsync();
-        }
+        if (!Config.Persistence.KeepProjectFiles) await DeleteProjectAsync();
     }
 
     private async Task CollectTestsModeAsync()
@@ -89,7 +86,7 @@ public class TestMap(
     {
         await GenerateTestAsync();
     }
-    
+
     /// <summary>
     ///     Uses LibGit2Sharp to clone the repo to
     ///     the Temp directory
@@ -122,10 +119,10 @@ public class TestMap(
     private async Task BuildTestAsync()
     {
         // run baseline for all solutions
-        List<string> sols = ProjectModel.Solutions
+        var sols = ProjectModel.Solutions
             .Select(x => x.SolutionFilePath)
             .ToList();
-        
+
         await BuildTestService.BuildTestAsync(sols, true);
     }
 

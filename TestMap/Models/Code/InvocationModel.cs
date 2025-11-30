@@ -14,5 +14,7 @@ public class InvocationModel(
     public string Guid { get; set; } = guid;
     public bool IsAssertion { get; set; } = isAssertion;
     public string FullString { get; set; } = fullString;
-    public Location Location { get; set; } = location ?? new Location(0,0,0, 0);
+    public Location Location { get; set; } = location ?? new Location(0, 0, 0, 0);
+    
+    public string ContentHash { get; set;} = Utilities.Utilities.ComputeSha256(fullString);
 }

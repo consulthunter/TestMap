@@ -15,7 +15,7 @@ namespace TestMap.CLIOptions;
 public class FullAnalysisOptions
 {
     public RunMode Mode => RunMode.FullAnalysis;
-    
-    [Option('c', "config", SetName = "collect", Required = true, HelpText = "Config File path.")]
+
+    [Option('c', "config", SetName = "collect", Required = false, HelpText = "Config File path.")]
     public string FullAnalysisConfigFilePath { get; set; }
 }

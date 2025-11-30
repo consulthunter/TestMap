@@ -33,9 +33,12 @@ public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
             if (Repository.IsValid(projectModel.DirectoryPath))
             {
                 // Ensure no file handles are left open
-                using (var repo = new Repository(projectModel.DirectoryPath)) { }
+                using (var repo = new Repository(projectModel.DirectoryPath))
+                {
+                }
 
-                projectModel.Logger?.Information($"Repository already exists at {projectModel.DirectoryPath}, skipping clone.");
+                projectModel.Logger?.Information(
+                    $"Repository already exists at {projectModel.DirectoryPath}, skipping clone.");
                 return Task.CompletedTask;
             }
 
@@ -47,7 +50,9 @@ public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
                 Repository.Clone(projectModel.GitHubUrl, projectModel.DirectoryPath);
 
                 // Immediately dispose to release file locks
-                using (var repo = new Repository(projectModel.DirectoryPath)) { }
+                using (var repo = new Repository(projectModel.DirectoryPath))
+                {
+                }
 
                 projectModel.Logger?.Information($"Finished cloning repository: {projectModel.GitHubUrl}");
             }
@@ -63,5 +68,4 @@ public class CloneRepoService(ProjectModel projectModel) : ICloneRepoService
 
         return Task.CompletedTask;
     }
-
 }

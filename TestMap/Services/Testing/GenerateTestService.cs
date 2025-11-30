@@ -33,35 +33,31 @@ public class GenerateTestService : IGenerateTestService
     public async Task GenerateTestAsync()
     {
         // get methods without full coverage
-        List<CoverageMethodResult> methodResults = await _sqliteDatabaseService.FindMethodsWithLowCoverage();
-        TestGenerator testGenerator = new TestGenerator(_testMapConfig);
+        var methodResults = await _sqliteDatabaseService.FindMethodsWithLowCoverage();
+        var testGenerator = new TestGenerator(_testMapConfig);
 
         foreach (var methodResult in methodResults)
         {
-            string candidateTest = "";
-            for (int attempt = 1; attempt <= _testMapConfig.Generation.MaxRetries; attempt++)
+            var candidateTest = "";
+            for (var attempt = 1; attempt <= _testMapConfig.Generation.MaxRetries; attempt++)
             {
                 _projectModel.Logger?.Information($"[Attempt {attempt}] Generating test for {methodResult.MethodName}");
-                string prompt = "";
+                var prompt = "";
 
                 if (attempt == 1)
-                {
                     prompt = testGenerator.CreateTestPrompt(
                         methodResult.MethodBody,
                         methodResult.TestMethodBody,
                         methodResult.TestFramework,
                         methodResult.TestDependencies
                     );
-                }
 
                 // if retrying, append last logs
                 if (attempt > 1)
                 {
-                    string logs = "";
+                    var logs = "";
                     if (_buildTestService.LatestLogPath != null)
-                    {
                         logs = await File.ReadAllTextAsync(_buildTestService.LatestLogPath);
-                    }
                     prompt = testGenerator.CreateRepairTestPrompt(
                         methodResult.MethodBody,
                         candidateTest,
@@ -72,23 +68,25 @@ public class GenerateTestService : IGenerateTestService
                 }
 
                 // generate & insert test
-                string rawTest = await testGenerator.CreateTest(prompt);
-                string test = rawTest.Split("```")[1].Replace("csharp", "");;
+                var rawTest = await testGenerator.CreateTest(prompt);
+                var test = rawTest.Split("```")[1].Replace("csharp", "");
+                ;
                 candidateTest = test;
-                string testMethodName = ExtractTestMethodName(test) ?? "";
-                
-                if (String.IsNullOrEmpty(test) || String.IsNullOrEmpty(testMethodName))
+                var testMethodName = ExtractTestMethodName(test) ?? "";
+
+                if (string.IsNullOrEmpty(test) || string.IsNullOrEmpty(testMethodName))
                 {
                     _projectModel.Logger?.Warning("Failed to generate test.");
                     continue;
                 }
-                
+
                 InsertTestIntoFile(methodResult.TestFilePath, test);
 
                 // run tests (in-memory results)
-                var runResult = await _buildTestService.BuildTestAsync([methodResult.SolutionFilePath], false, testMethodName);
+                var runResult =
+                    await _buildTestService.BuildTestAsync([methodResult.SolutionFilePath], false, testMethodName);
 
-                bool rollback = false;
+                var rollback = false;
 
                 if (!runResult.Success)
                 {
@@ -98,8 +96,8 @@ public class GenerateTestService : IGenerateTestService
                 {
                     // check failures and coverage improvement
                     var failedTests = runResult.Results.Where(r => r.Outcome != "Passed").ToList();
-                    double baseline = methodResult.LineRate;
-                    
+                    var baseline = methodResult.LineRate;
+
                     if (runResult is GeneratedTestRunResult gen)
                         if (failedTests.Any() || gen.MethodCoverage <= baseline)
                             rollback = true;
@@ -137,10 +135,10 @@ public class GenerateTestService : IGenerateTestService
         repo.Reset(ResetMode.Hard, headCommit);
 
         // Remove untracked files if needed
-        RepositoryStatus status = repo.RetrieveStatus(new StatusOptions());
+        var status = repo.RetrieveStatus(new StatusOptions());
         foreach (var untracked in status.Untracked)
         {
-            string path = Path.Combine(_projectModel.DirectoryPath, untracked.FilePath);
+            var path = Path.Combine(_projectModel.DirectoryPath, untracked.FilePath);
             if (File.Exists(path)) File.Delete(path);
         }
 
@@ -151,13 +149,13 @@ public class GenerateTestService : IGenerateTestService
     {
         using var repo = new Repository(_projectModel.DirectoryPath);
 
-        string branchName = $"testmap/{runId}";
-        Branch branch = repo.Branches[branchName] ?? repo.CreateBranch(branchName);
+        var branchName = $"testmap/{runId}";
+        var branch = repo.Branches[branchName] ?? repo.CreateBranch(branchName);
 
         Commands.Checkout(repo, branch);
         Commands.Stage(repo, "*");
 
-        Signature author = new Signature("TestMap Bot", "testmap@localhost", DateTimeOffset.Now);
+        var author = new Signature("TestMap Bot", "testmap@localhost", DateTimeOffset.Now);
         repo.Commit($"Add generated test for run {runId}", author, author);
 
         _projectModel.Logger?.Information($"Committed changes to branch {branchName}.");
@@ -166,14 +164,14 @@ public class GenerateTestService : IGenerateTestService
     private void InsertTestIntoFile(string filePath, string test)
     {
         var file = File.ReadAllLines(filePath).ToList();
-        int lastBraceIndex = file.FindLastIndex(line => line.Trim() == "}");
+        var lastBraceIndex = file.FindLastIndex(line => line.Trim() == "}");
         if (lastBraceIndex == -1)
             throw new InvalidOperationException($"No closing brace found in {filePath}");
 
         file.Insert(lastBraceIndex, test);
         File.WriteAllLines(filePath, file);
     }
-    
+
     public string? ExtractTestMethodName(string testCode)
     {
         try

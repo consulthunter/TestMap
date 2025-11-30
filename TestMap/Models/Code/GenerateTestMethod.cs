@@ -8,5 +8,4 @@ public class GenerateTestMethod
     public string FilePath { get; set; }
     public string GeneratedCode { get; set; }
     public DateTime CreatedAt { get; set; }
-    
 }

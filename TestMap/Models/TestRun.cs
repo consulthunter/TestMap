@@ -7,5 +7,5 @@ public class TestRun
     public DateTime Timestamp { get; set; }
     public string CommitHash { get; set; }
     public bool IsBaseline { get; set; }
-    public string Description { get; set; } 
+    public string Description { get; set; }
 }

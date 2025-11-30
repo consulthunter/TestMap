@@ -12,24 +12,25 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="JetBrains.Annotations" Version="2024.3.0"/>
-        <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
-        <PackageReference Include="Microsoft.CodeAnalysis.Metrics" Version="4.14.0" />
-        <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.3" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.3" />
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.3" />
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
-        <PackageReference Include="Microsoft.SemanticKernel" Version="1.64.0" />
-        <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.64.0" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Amazon" Version="1.64.0-alpha" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Google" Version="1.64.0-alpha" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.HuggingFace" Version="1.64.0-preview" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.MistralAI" Version="1.64.0-alpha" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama" Version="1.64.0-alpha" />
+        <PackageReference Include="LibGit2Sharp" Version="0.31.0"/>
+        <PackageReference Include="Microsoft.CodeAnalysis.Metrics" Version="4.14.0"/>
+        <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.3"/>
+        <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.3"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.3"/>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0"/>
+        <PackageReference Include="Microsoft.SemanticKernel" Version="1.64.0"/>
+        <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.64.0"/>
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Amazon" Version="1.64.0-alpha"/>
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Google" Version="1.64.0-alpha"/>
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.HuggingFace" Version="1.64.0-preview"/>
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.MistralAI" Version="1.64.0-alpha"/>
+        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama" Version="1.64.0-alpha"/>
         <PackageReference Include="Moq" Version="4.20.72"/>
-        <PackageReference Include="System.Data.SQLite" Version="1.0.119" />
-        <PackageReference Include="System.Formats.Asn1" Version="9.0.3" />
-        <PackageReference Include="System.Text.Json" Version="9.0.3" />
-        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="Octokit" Version="14.0.0"/>
+        <PackageReference Include="System.Data.SQLite" Version="1.0.119"/>
+        <PackageReference Include="System.Formats.Asn1" Version="9.0.3"/>
+        <PackageReference Include="System.Text.Json" Version="9.0.3"/>
+        <PackageReference Include="xunit" Version="2.9.3"/>
         <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -42,10 +43,10 @@
 
     <ItemGroup>
         <Folder Include="Logs\"/>
-        <Folder Include="Models\Code\" />
+        <Folder Include="Models\Code\"/>
         <Folder Include="Output\"/>
         <Folder Include="UnitTests\"/>
-        <Folder Include="UnitTests\Services\" />
+        <Folder Include="UnitTests\Services\"/>
     </ItemGroup>
 
 </Project>

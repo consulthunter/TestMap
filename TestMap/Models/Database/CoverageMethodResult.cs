@@ -30,10 +30,10 @@ public class CoverageMethodResult
     // Source file info
     public string TestFilePath { get; set; }
     public string TestDependencies { get; set; }
-    
+
     // Test method info
     public string TestMethodName { get; set; }
     public string TestMethodBody { get; set; }
-    
+
     public string SolutionFilePath { get; set; } = string.Empty;
 }

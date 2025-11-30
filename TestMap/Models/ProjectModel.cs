@@ -50,7 +50,9 @@ public class ProjectModel
         TestingFrameworks = testingFrameworks;
         Docker = docker;
         DatabasePath = databasePath;
-        Config = config ?? new();
+        Config = config ?? new TestMapConfig();
+
+        ContentHash = Utilities.Utilities.ComputeSha256($"{owner}-{repoName}");
 
         CreateUniqueId();
     }
@@ -63,7 +65,7 @@ public class ProjectModel
     public string Owner { get; private set; }
     public string RepoName { get; }
     public TestMapConfig Config { get; set; }
-    
+
     public string? Branch { get; set; }
     public string? Commit { get; set; }
     public string? LastAnalyzedCommit { get; set; }
@@ -83,6 +85,7 @@ public class ProjectModel
     public Dictionary<string, string>? Docker { get; set; }
     public Dictionary<string, string>? Scripts { get; set; }
     public bool IsBaselineEstablished { get; set; }
+    public string ContentHash { get; set; }
     public ILogger? Logger { get; private set; }
 
     // methods

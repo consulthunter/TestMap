@@ -2,7 +2,7 @@ namespace TestMap.Models.Database;
 
 public static class Migrations
 {
-            public static readonly string Schema = @"
+    public static readonly string Schema = @"
 -- Tables
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -13,16 +13,22 @@ CREATE TABLE IF NOT EXISTS projects (
     web_url TEXT,
     database_path TEXT,
     last_analyzed_commit TEXT,
+    content_hash TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_hash ON projects(content_hash);
 
 CREATE TABLE IF NOT EXISTS analysis_solutions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     guid TEXT NOT NULL,
     solution_path TEXT NOT NULL,
+    content_hash TEXT,
     FOREIGN KEY (project_id) REFERENCES projects(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_solutions_hash ON analysis_solutions(content_hash);
 
 CREATE TABLE IF NOT EXISTS analysis_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,8 +36,11 @@ CREATE TABLE IF NOT EXISTS analysis_projects (
     guid TEXT NOT NULL,
     project_path TEXT NOT NULL,
     target_framework TEXT,
+    content_hash TEXT,
     FOREIGN KEY (solution_id) REFERENCES analysis_solutions(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_projects_hash ON analysis_projects(content_hash);
 
 CREATE TABLE IF NOT EXISTS source_packages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,8 +48,11 @@ CREATE TABLE IF NOT EXISTS source_packages (
     guid TEXT NOT NULL,
     package_name TEXT NOT NULL,
     package_path TEXT NOT NULL,
+    content_hash TEXT,
     FOREIGN KEY (analysis_project_id) REFERENCES analysis_projects(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_packages_hash ON source_packages(content_hash);
 
 CREATE TABLE IF NOT EXISTS source_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,8 +64,11 @@ CREATE TABLE IF NOT EXISTS source_files (
     meta_data TEXT,
     usings TEXT,
     path TEXT,
+    content_hash TEXT,
     FOREIGN KEY (package_id) REFERENCES source_packages(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_files_hash ON source_files(content_hash);
 
 CREATE TABLE IF NOT EXISTS imports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,8 +97,11 @@ CREATE TABLE IF NOT EXISTS classes (
     location_body_start INTEGER,
     location_body_end INTEGER,
     location_end_lin_no INTEGER,
+    content_hash TEXT,
     FOREIGN KEY (file_id) REFERENCES source_files(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_hash ON classes(content_hash);
 
 CREATE TABLE IF NOT EXISTS methods (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,8 +120,11 @@ CREATE TABLE IF NOT EXISTS methods (
     location_body_start INTEGER,
     location_body_end INTEGER,
     location_end_lin_no INTEGER,
+    content_hash TEXT,
     FOREIGN KEY (class_id) REFERENCES classes(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_methods_hash ON methods(content_hash);
 
 CREATE TABLE IF NOT EXISTS invocations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,11 +133,14 @@ CREATE TABLE IF NOT EXISTS invocations (
     guid TEXT NOT NULL,
     is_assertion BOOLEAN,
     full_string TEXT,
+    content_hash TEXT,
     location_start_lin_no INTEGER,
     location_body_start INTEGER,
     location_body_end INTEGER,
     location_end_lin_no INTEGER
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invocations_hash ON invocations(content_hash);
 
 CREATE TABLE IF NOT EXISTS properties (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,12 +151,15 @@ CREATE TABLE IF NOT EXISTS properties (
     modifiers TEXT,
     attributes TEXT,
     full_string TEXT,
+    content_hash TEXT,
     location_start_lin_no INTEGER,
     location_body_start INTEGER,
     location_body_end INTEGER,
     location_end_lin_no INTEGER,
     FOREIGN KEY (class_id) REFERENCES classes(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_properties_hash ON properties(content_hash);
 
 CREATE TABLE IF NOT EXISTS test_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

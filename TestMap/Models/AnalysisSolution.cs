@@ -26,4 +26,6 @@ public class AnalysisSolution(int projectModelId, string guid, Solution solution
     public string SolutionFilePath { get; set; } = solution.FilePath ?? "";
     public readonly List<string> Projects = projects;
     public readonly Solution Solution = solution;
+    public string ContentHash { get; set; } = Utilities.Utilities.ComputeSha256(solution.FilePath ?? "");
+    
 }

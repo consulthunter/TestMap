@@ -11,7 +11,7 @@ public class MapUnresolvedService : IMapUnresolvedService
 {
     private ProjectModel _projectModel;
     private SqliteDatabaseService _sqliteDatabaseService;
-    
+
     public MapUnresolvedService(ProjectModel projectModel, SqliteDatabaseService sqliteDatabaseService)
     {
         _projectModel = projectModel;
@@ -25,9 +25,9 @@ public class MapUnresolvedService : IMapUnresolvedService
 
     private async Task MapUnresolvedInvocations()
     {
-        List<InvocationDetails> invocationDetails = await _sqliteDatabaseService.GetUnresolvedInvocations();
+        var invocationDetails = await _sqliteDatabaseService.InvocationRepository.GetUnresolvedInvocations();
 
-        foreach (InvocationDetails invocationDetail in invocationDetails)
+        foreach (var invocationDetail in invocationDetails)
         {
             var analysisProject = _projectModel.Projects.FirstOrDefault(x => x.Guid == invocationDetail.ProjectGuid);
             if (analysisProject != null)
@@ -41,12 +41,12 @@ public class MapUnresolvedService : IMapUnresolvedService
                     {
                         var root = await document.GetRootAsync();
                         var semanticModel = compilation.GetSemanticModel(document);
-                        var invocation = root.DescendantNodes().OfType<InvocationExpressionSyntax>().Where(x => x.ToFullString().Contains(invocationDetail.FullString));
+                        var invocation = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                            .Where(x => x.ToFullString().Contains(invocationDetail.FullString));
 
                         var invocationExpressionSyntaxes = invocation.ToList();
                         if (invocationExpressionSyntaxes.Any())
-                        {
-                            foreach (InvocationExpressionSyntax invocationExpression in invocationExpressionSyntaxes)
+                            foreach (var invocationExpression in invocationExpressionSyntaxes)
                             {
                                 // use the semantic model to do symbol resolving
                                 // to find the definition for the method being invoked
@@ -71,43 +71,46 @@ public class MapUnresolvedService : IMapUnresolvedService
 
                                             if (name != null && definitionFilePath != null)
                                             {
-                                                var sourceMethodId = await _sqliteDatabaseService.FindMethod(name, definitionFilePath);
+                                                var sourceMethodId =
+                                                    await _sqliteDatabaseService.MethodRepository.FindMethod(name,
+                                                        definitionFilePath);
 
                                                 if (sourceMethodId != 0)
-                                                {
-                                                    await _sqliteDatabaseService.UpdateInvocationSourceId(invocationDetail.InvocationId, sourceMethodId);
-                                                }
+                                                    await _sqliteDatabaseService.InvocationRepository
+                                                        .UpdateInvocationSourceId(invocationDetail.InvocationId,
+                                                            sourceMethodId);
                                                 else
-                                                {
-                                                    _projectModel.Logger?.Warning($"Matching Invocation Not Found {name} {definitionFilePath}");
-                                                }
+                                                    _projectModel.Logger?.Warning(
+                                                        $"Matching Invocation Not Found {name} {definitionFilePath}");
                                             }
+
                                             _projectModel.Logger?.Information($"Declaration found: {definition}");
                                         }
                                         else
                                         {
-                                            _projectModel.Logger?.Warning($"Definition not found. Declaration found: {declaration}");
+                                            _projectModel.Logger?.Warning(
+                                                $"Definition not found. Declaration found: {declaration}");
                                         }
                                     }
                                     else
                                     {
-                                        _projectModel.Logger?.Warning($"Declaration Not Found. Method symbol {methodSymbol}");
+                                        _projectModel.Logger?.Warning(
+                                            $"Declaration Not Found. Method symbol {methodSymbol}");
                                     }
                                 }
                                 else
                                 {
-                                    _projectModel.Logger?.Warning($"Method symbol not found: {invocationDetail.FullString}");
+                                    _projectModel.Logger?.Warning(
+                                        $"Method symbol not found: {invocationDetail.FullString}");
                                 }
                             }
-                        }
                         else
-                        {
                             _projectModel.Logger?.Warning($"Not found: {invocationDetail.FullString}");
-                        }
                     }
                     else
                     {
-                        _projectModel.Logger?.Warning($"Could not find syntax tree with name: {invocationDetail.FullString}");
+                        _projectModel.Logger?.Warning(
+                            $"Could not find syntax tree with name: {invocationDetail.FullString}");
                     }
                 }
                 else
@@ -124,6 +127,5 @@ public class MapUnresolvedService : IMapUnresolvedService
 
     private async Task MapLocalImports()
     {
-        
     }
 }

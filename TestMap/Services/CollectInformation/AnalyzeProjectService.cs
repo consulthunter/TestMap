@@ -6,7 +6,7 @@
  *
  * Data is written from the code model
  * using JSONL format
- * 
+ *
  * AnalyzeProjectService.cs
  */
 
@@ -23,7 +23,6 @@ namespace TestMap.Services.CollectInformation;
 
 public class AnalyzeProjectService : IAnalyzeProjectService
 {
-
     private readonly ProjectModel _projectModel;
     private Dictionary<string, List<InvocationModel>> _invocations = new();
     private Dictionary<string, MethodModel> _methods = new();
@@ -44,7 +43,6 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <param name="cSharpCompilation">Csharp compilation for the project</param>
     public virtual async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
     {
-        
         _projectModel.Logger?.Information($"Analyzing project {analysisProject.ProjectFilePath}");
         // for every .cs file in the current project
         if (cSharpCompilation != null)
@@ -52,9 +50,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             {
                 if (document.FilePath.EndsWith(".g.cs") || document.FilePath.EndsWith("AssemblyAttributes.cs") ||
                     document.FilePath.EndsWith("AssemblyInfo.cs"))
-                {
                     continue;
-                }
 
                 _projectModel.Logger?.Information($"Analyzing {document.FilePath}");
 
@@ -67,25 +63,27 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 var namespaceDec = FindNamespace(root);
 
                 var usings = GetUsingStatements(root);
-                
+
                 var stringUsings = usings.Select(u => u.FullString).ToList();
 
                 var testFramework = FindTestingFrameworkFromUsings(usings);
-                
-                
+
+
                 // check to insert package, get id
-                PackageModel package = new PackageModel(new List<FileModel>(), analysisProject.Id, Guid.NewGuid().ToString(), namespaceDec, Path.GetDirectoryName(document.FilePath) ?? "");
-                await _databaseService.InsertPackageGetId(package);
-                
+                var package = new PackageModel(new List<FileModel>(), analysisProject.Id, Guid.NewGuid().ToString(),
+                    namespaceDec, Path.GetDirectoryName(document.FilePath) ?? "");
+                await _databaseService.SourcePackageRepository.InsertPackageGetId(package);
+
                 // check to insert file, get id
-                FileModel file = new FileModel(stringUsings, package.Id, Guid.NewGuid().ToString(), namespaceDec, document.FilePath, cSharpCompilation.Language,
+                var file = new FileModel(stringUsings, package.Id, Guid.NewGuid().ToString(), namespaceDec,
+                    document.FilePath, cSharpCompilation.Language,
                     analysisProject.SolutionFilePath, analysisProject.ProjectFilePath, document.FilePath);
-                await _databaseService.InsertFileGetId(file);
-                
+                await _databaseService.SourceFileRepository.InsertFileGetId(file);
+
                 // update usings
                 usings.ForEach(u => u.FileId = file.Id);
-                
-                
+
+
                 var classDeclarationSyntaxes = root.DescendantNodes().OfType<ClassDeclarationSyntax>().ToList();
                 _projectModel.Logger?.Information($"Number of class declarations: {classDeclarationSyntaxes.Count}");
 
@@ -100,25 +98,24 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     var visibility = GetVisibility(modifiers);
                     var fullString = classDeclaration.ToFullString().Trim();
                     var docString = GetDocComment(classDeclaration);
-                    bool isTestClass = methods.Any(m => m.IsTestMethod);
+                    var isTestClass = methods.Any(m => m.IsTestMethod);
                     var spec = classDeclaration.GetLocation().GetLineSpan();
-                    Location location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character, spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-                    
+                    var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
+                        spec.EndLinePosition.Line, spec.EndLinePosition.Character);
+
                     // insert class get id
-                    ClassModel classModel = new ClassModel(file.Id, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString, docString, isTestClass, testFramework, location);
-                    await _databaseService.InsertClassesGetId(classModel);
-                    
+                    var classModel = new ClassModel(file.Id, Guid.NewGuid().ToString(), name, visibility, attr,
+                        modifiers, fullString, docString, isTestClass, testFramework, location);
+                    await _databaseService.ClassRepository.InsertClassesGetId(classModel);
+
                     methods.ForEach(method => method.ClassId = classModel.Id);
-                    foreach (var method in methods)
-                    {
-                        await _databaseService.InsertMethodsGetId(method);
-                    }
-                    
+                    foreach (var method in methods) await _databaseService.MethodRepository.InsertMethodsGetId(method);
+
                     // Iterate over the _methods dictionary
                     foreach (var methodKey in _methods.Keys)
                     {
                         // Access the MethodModel for the current key
-                        MethodModel methodModel = _methods[methodKey];
+                        var methodModel = _methods[methodKey];
 
                         // Check if there are invocations associated with the current methodKey
                         if (_invocations.ContainsKey(methodKey))
@@ -127,11 +124,9 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
                             // Modify each invocation model in the list
                             foreach (var invocationModel in invocationList)
-                            {
                                 // You now have access to both the MethodModel and InvocationModel
                                 // Modify the invocationModel based on some condition involving methodModel
                                 invocationModel.TargetMethodId = methodModel.Id;
-                            }
                         }
                     }
 
@@ -140,28 +135,22 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                         var invocationList = _invocations[guid];
 
                         foreach (var invocationModel in invocationList)
-                        {
-                            await _databaseService.InsertInvocationsGetId(invocationModel);
-                        }
+                            await _databaseService.InvocationRepository.InsertInvocationsGetId(invocationModel);
                     }
-                    
+
                     properties.ForEach(property => property.ClassId = classModel.Id);
 
                     foreach (var property in properties)
-                    {
-                        await _databaseService.InsertPropertyGetId(property);
-                    }
-                    
+                        await _databaseService.PropertyRepository.InsertPropertyGetId(property);
                 }
-                foreach (var import in usings)
-                {
-                    await _databaseService.InsertImports(import);
-                }
+
+                foreach (var import in usings) await _databaseService.ImportRepository.InsertImports(import);
             }
+
         _methods.Clear();
         _invocations.Clear();
     }
-    
+
     /// <summary>
     ///     Looks for the namespace defined in the document
     ///     using the root node
@@ -196,7 +185,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         _projectModel.Logger?.Information("Finished looking for namespace.");
         return namespaceDec;
     }
-    
+
     /// <summary>
     ///     Looks for usings statements from the root node of the document
     /// </summary>
@@ -212,7 +201,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         foreach (var usingDirective in usingDirectives)
             if (usingDirective.Name != null)
             {
-                ImportModel import = new ImportModel(0, Guid.NewGuid().ToString(), usingDirective.Name.ToString(), 
+                var import = new ImportModel(0, Guid.NewGuid().ToString(), usingDirective.Name.ToString(),
                     usingDirective.Name.ToString(), usingDirective.ToString());
                 usingStatements.Add(import);
             }
@@ -221,7 +210,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         _projectModel.Logger?.Information("Finished looking for using statements.");
         return usingStatements;
     }
-    
+
     /// <summary>
     ///     Searches the using statements for a testing framework
     ///     that is defined within the config
@@ -243,13 +232,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         _projectModel.Logger?.Information("Finished looking for testing framework.");
         return testingFramework;
     }
+
     public string GetVisibility(List<string> modifiers)
     {
         // If the list of modifiers is empty, assume it's internal (default visibility)
-        if (modifiers.Count == 0)
-        {
-            return "internal";
-        }
+        if (modifiers.Count == 0) return "internal";
 
         // Iterate through the modifiers and check for known access modifiers
         foreach (var modifier in modifiers)
@@ -257,34 +244,22 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             var modifierText = modifier.ToLower().Trim();
 
             if (modifierText == "public")
-            {
                 return "public";
-            }
             else if (modifierText == "private")
-            {
                 return "private";
-            }
             else if (modifierText == "protected")
-            {
                 return "protected";
-            }
             else if (modifierText == "internal")
-            {
                 return "internal";
-            }
             else if (modifierText == "protectedinternal")
-            {
                 return "protected internal";
-            }
-            else if (modifierText == "privateprotected")
-            {
-                return "private protected";
-            }
+            else if (modifierText == "privateprotected") return "private protected";
         }
 
         // If no access modifier found, return "internal" as a default
         return "internal";
     }
+
     public string GetDocComment(SyntaxNode node)
     {
         var trivia = node.GetLeadingTrivia();
@@ -294,11 +269,12 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         {
             // Extract the XML documentation comment
             var xmlDocComment = docComment.GetStructure()?.ToString();
-            return xmlDocComment ?? String.Empty;
+            return xmlDocComment ?? string.Empty;
         }
-        return String.Empty;
+
+        return string.Empty;
     }
-    
+
     /// <summary>
     ///     Collects attributes for a class declaration
     ///     i.e the [] before the declaration
@@ -309,13 +285,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     {
         _projectModel.Logger?.Information("Looking for class attributes.");
         List<string> attributes = new();
-        
-        foreach (var attribute in classDeclaration.AttributeLists)
-        {
-            attributes.Add(attribute.ToFullString());
-        }
+
+        foreach (var attribute in classDeclaration.AttributeLists) attributes.Add(attribute.ToFullString());
         return attributes;
     }
+
     /// <summary>
     ///     Collects modifiers for a class declaration
     ///     such as public, private, static, partial, etc.
@@ -326,14 +300,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     {
         _projectModel.Logger?.Information("Looking for class modifiers.");
         List<string> modifiers = new();
-        
-        foreach (var modifier in classDeclaration.Modifiers)
-        {
-            modifiers.Add(modifier.ToFullString());
-        }
+
+        foreach (var modifier in classDeclaration.Modifiers) modifiers.Add(modifier.ToFullString());
         return modifiers;
     }
-    
+
     /// <summary>
     ///     Looks for fields in the class
     /// </summary>
@@ -353,11 +324,13 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             var visibility = GetVisibility(modifiers);
             var fullString = property.ToFullString().Trim();
             var spec = property.GetLocation().GetLineSpan();
-            Location location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character, spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-            PropertyModel propertModel = new PropertyModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString, location);
+            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
+                spec.EndLinePosition.Line, spec.EndLinePosition.Character);
+            var propertModel = new PropertyModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers,
+                fullString, location);
             results.Add(propertModel);
         }
-        
+
         foreach (var field in fields)
         {
             var name = field.Declaration.Variables[0].Identifier.ToFullString().Trim();
@@ -366,15 +339,18 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             var visibility = GetVisibility(modifiers);
             var fullString = field.ToFullString().Trim();
             var spec = field.GetLocation().GetLineSpan();
-            Location location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character, spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-            PropertyModel propertModel = new PropertyModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString, location);
+            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
+                spec.EndLinePosition.Line, spec.EndLinePosition.Character);
+            var propertModel = new PropertyModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers,
+                fullString, location);
             results.Add(propertModel);
         }
+
         _projectModel.Logger?.Information($"Number of field declarations: {results.Count}.");
         _projectModel.Logger?.Information("Finished looking for fields.");
         return results;
     }
-    
+
     /// <summary>
     ///     Looks for method declaration syntax in the document
     /// </summary>
@@ -394,16 +370,17 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             var visibility = GetVisibility(modifiers);
             var fullString = methodDeclarationSyntax.ToFullString().Trim();
             var docstring = GetDocComment(methodDeclarationSyntax);
-            (bool isTest, string framework) = IsTestMethod(methodDeclarationSyntax);
+            var (isTest, framework) = IsTestMethod(methodDeclarationSyntax);
             var spec = methodDeclarationSyntax.GetLocation().GetLineSpan();
-            Location location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
+            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
                 spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-            MethodModel method = new MethodModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString, docstring, isTest, framework, location);
+            var method = new MethodModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString,
+                docstring, isTest, framework, location);
             FindInvocations(methodDeclarationSyntax, method.Guid);
             methods.Add(method);
-            
+
             // Use the methodGuid or another key to store the method in the dictionary
-            string key = method.Guid;
+            var key = method.Guid;
 
             _methods.TryAdd(key, method);
         }
@@ -411,6 +388,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         _projectModel.Logger?.Information("Finished looking for test method declarations.");
         return methods;
     }
+
     /// <summary>
     ///     Finds a list of method attributes such as [Test]
     /// </summary>
@@ -421,13 +399,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         List<string> attributes = new();
         _projectModel.Logger?.Information("Looking for method attributes.");
 
-        foreach (var attribute in method.AttributeLists)
-        {
-            attributes.Add(attribute.ToFullString());
-        }
+        foreach (var attribute in method.AttributeLists) attributes.Add(attribute.ToFullString());
         return attributes;
     }
-    
+
     /// <summary>
     ///     Determines if the method is a test method using the attributes defined in the config file.
     /// </summary>
@@ -447,10 +422,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     .SelectMany(al => al.Attributes)
                     .Any(attr => frameworkAttributes.Contains(attr.Name.ToString()));
 
-                if (hasAttribute)
-                {
-                    return (true, frameworkName); // Return true and the framework name
-                }
+                if (hasAttribute) return (true, frameworkName); // Return true and the framework name
             }
 
         return (false, string.Empty); // Return false if no matching attribute is found
@@ -466,12 +438,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         List<string> modifiers = new();
         _projectModel.Logger?.Information("Looking for method modifiers.");
 
-        foreach (var variableModifier in method.Modifiers)
-        {
-            modifiers.Add(variableModifier.ToFullString());
-        }
+        foreach (var variableModifier in method.Modifiers) modifiers.Add(variableModifier.ToFullString());
         return modifiers;
     }
+
     /// <summary>
     ///     Finds a list of method modifiers such as public, void, static, etc.
     /// </summary>
@@ -482,12 +452,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         List<string> modifiers = new();
         _projectModel.Logger?.Information("Looking for property modifiers.");
 
-        foreach (var variableModifier in property.Modifiers)
-        {
-            modifiers.Add(variableModifier.ToFullString());
-        }
+        foreach (var variableModifier in property.Modifiers) modifiers.Add(variableModifier.ToFullString());
         return modifiers;
     }
+
     /// <summary>
     ///     Finds a list of method modifiers such as public, void, static, etc.
     /// </summary>
@@ -498,13 +466,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         List<string> attributes = new();
         _projectModel.Logger?.Information("Looking for property attributes.");
 
-        foreach (var attribute in property.AttributeLists)
-        {
-            attributes.Add(attribute.ToFullString());
-        }
+        foreach (var attribute in property.AttributeLists) attributes.Add(attribute.ToFullString());
         return attributes;
     }
-    
+
     /// <summary>
     ///     Finds a list of method modifiers such as public, void, static, etc.
     /// </summary>
@@ -515,12 +480,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         List<string> modifiers = new();
         _projectModel.Logger?.Information("Looking for field modifiers.");
 
-        foreach (var variableModifier in field.Modifiers)
-        {
-            modifiers.Add(variableModifier.ToFullString());
-        }
+        foreach (var variableModifier in field.Modifiers) modifiers.Add(variableModifier.ToFullString());
         return modifiers;
     }
+
     /// <summary>
     ///     Finds a list of method modifiers such as public, void, static, etc.
     /// </summary>
@@ -531,13 +494,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         List<string> attributes = new();
         _projectModel.Logger?.Information("Looking for field attributes.");
 
-        foreach (var attribute in field.AttributeLists)
-        {
-            attributes.Add(attribute.ToFullString());
-        }
+        foreach (var attribute in field.AttributeLists) attributes.Add(attribute.ToFullString());
         return attributes;
     }
-    
+
     /// <summary>
     ///     Looks for method invocations within the test method
     /// </summary>
@@ -553,23 +513,22 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         foreach (var invocation in invocations)
         {
             var spec = invocation.GetLocation().GetLineSpan();
-            Location location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character, spec.EndLinePosition.Line, spec.EndLinePosition.Character);
+            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
+                spec.EndLinePosition.Line, spec.EndLinePosition.Character);
 
             // Create the invocation model
-            InvocationModel invocationModel = new InvocationModel(0, 0, Guid.NewGuid().ToString(), invocation.ToFullString().Contains("Assert"), invocation.ToFullString().Trim(), location);
+            var invocationModel = new InvocationModel(0, 0, Guid.NewGuid().ToString(),
+                invocation.ToFullString().Contains("Assert"), invocation.ToFullString().Trim(), location);
 
             // Use the methodGuid or another key to store the invocation in the dictionary
-            string key = methodGuid;
+            var key = methodGuid;
 
             // Check if the key already exists in the dictionary
             if (!_invocations.ContainsKey(key))
-            {
-                _invocations[key] = new List<InvocationModel>();  // Create a new list if the key doesn't exist
-            }
+                _invocations[key] = new List<InvocationModel>(); // Create a new list if the key doesn't exist
 
             // Add the invocation model to the list under the given key
             _invocations[key].Add(invocationModel);
         }
     }
-    
 }

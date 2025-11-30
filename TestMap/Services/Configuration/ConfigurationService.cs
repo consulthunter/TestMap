@@ -10,6 +10,7 @@
 
 using TestMap.Models;
 using TestMap.Models.Configuration;
+using TestMap.Utilities;
 
 namespace TestMap.Services.Configuration;
 
@@ -21,7 +22,7 @@ namespace TestMap.Services.Configuration;
 public class ConfigurationService(TestMapConfig config) : IConfigurationService
 {
     public TestMapConfig Config { get; } = config;
-    public RunMode RunMode { get; set;  }
+    public RunMode RunMode { get; set; }
     public string RunDate { get; } = DateTime.UtcNow.ToString(config.Settings.RunDateFormat);
     public List<ProjectModel> ProjectModels { get; } = new();
 
@@ -46,6 +47,20 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
         }
     }
 
+    public void SetSecrets()
+    {
+        // OpenAI
+        Config.OpenAi.OrgId = Environment.GetEnvironmentVariable("OPENAI_ORD_ID") ?? "";
+        Config.OpenAi.ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
+        // Amazon
+        Config.Amazon.AwsAccessKey = Environment.GetEnvironmentVariable("AMZ_ACCESS_KEY") ?? "";
+        Config.Amazon.AwsSecretKey = Environment.GetEnvironmentVariable("AMZ_SECRET_KEY") ?? "";
+        // Google
+        Config.Google.ApiKey = Environment.GetEnvironmentVariable("GOOGLE_API_KEY") ?? "";
+        // Custom
+        Config.Custom.ApiKey = Environment.GetEnvironmentVariable("CUSTOM_API_KEY") ?? "";
+    }
+
     private async Task ReadTargetAsync()
     {
         var target = Config.FilePaths.TargetFilePath;
@@ -53,40 +68,30 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
 
         using var sr = new StreamReader(target);
         string? line;
-        while ((line = await sr.ReadLineAsync()) != null)
-        {
-            InitializeProjectModel(line);
-        }
+        while ((line = await sr.ReadLineAsync()) != null) InitializeProjectModel(line);
     }
 
     private void InitializeProjectModel(string repoUrl)
     {
-        var (owner, repoName) = ExtractOwnerAndRepo(repoUrl);
-        
+        var (owner, repoName) = Utilities.Utilities.ExtractOwnerAndRepo(repoUrl);
+
         var dirPath = Path.Combine(Config.FilePaths.TempDirPath ?? "", repoName);
-        
+
         var repoOutputPath = Path.Combine(Config.FilePaths.OutputDirPath ?? "", repoName);
 
         var dbFilePath = Path.Combine(repoOutputPath, "analysis.db");
 
         var model = new ProjectModel(
             repoUrl, owner, repoName, RunDate,
-            directoryPath: dirPath,
-            logsDirPath: config.FilePaths.LogsDirPath,
-            outputDirPath: config.FilePaths.OutputDirPath,
-            tempDirPath: Config.FilePaths.TempDirPath,
-            testingFrameworks: Config.Frameworks,
-            docker: Config.Docker,
-            databasePath: dbFilePath,
-            config: Config);
+            dirPath,
+            config.FilePaths.LogsDirPath,
+            config.FilePaths.OutputDirPath,
+            Config.FilePaths.TempDirPath,
+            Config.Frameworks,
+            Config.Docker,
+            dbFilePath,
+            Config);
 
         ProjectModels.Add(model);
-    }
-
-
-    private (string, string) ExtractOwnerAndRepo(string url)
-    {
-        var uri = new Uri(url);
-        return (uri.Segments[1].Trim('/'), uri.Segments[2].Trim('/'));
     }
 }

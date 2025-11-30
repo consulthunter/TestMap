@@ -31,7 +31,7 @@ public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectSer
             RemoveReadOnlyAttributes(projectModel.DirectoryPath);
 
             // Recursively delete the directory
-            Directory.Delete(projectModel.DirectoryPath, recursive: true);
+            Directory.Delete(projectModel.DirectoryPath, true);
 
             projectModel.Logger?.Information($"Successfully deleted repository: {projectModel.GitHubUrl}");
         }
@@ -51,13 +51,10 @@ public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectSer
         var directoryInfo = new DirectoryInfo(directoryPath);
 
         foreach (var file in directoryInfo.GetFiles("*", SearchOption.AllDirectories))
-        {
             if (file.IsReadOnly)
             {
                 file.IsReadOnly = false;
                 projectModel.Logger?.Information($"Removed ReadOnly attribute from file: {file.FullName}");
             }
-        }
     }
-
 }

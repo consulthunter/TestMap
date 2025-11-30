@@ -3,7 +3,8 @@ namespace TestMap.Models.Configuration;
 public enum RunMode
 {
     Setup,
-    CollectTests,       // Collect tests and run them
-    GenerateTests,      // Generate new tests
-    FullAnalysis,       // Analyze test results or projects
+    ValidateProjects,
+    CollectTests, // Collect tests and run them
+    GenerateTests, // Generate new tests
+    FullAnalysis // Analyze test results or projects
 }

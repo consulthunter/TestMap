@@ -24,5 +24,5 @@ public class LineCoverage
 
     [XmlArray("conditions")]
     [XmlArrayItem("condition")]
-    public List<ConditionCoverage> Conditions { get; set; }  = new List<ConditionCoverage>();
+    public List<ConditionCoverage> Conditions { get; set; } = new();
 }

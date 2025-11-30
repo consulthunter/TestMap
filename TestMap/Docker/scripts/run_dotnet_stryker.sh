@@ -25,7 +25,7 @@ for sol in "${SOL_ARRAY[@]}"; do
     sln=$(find . -name "$sol" | head -n 1)
 
     if [[ -z "$sln" ]]; then
-        echo "❌ Solution not found: $sol"
+        echo "Solution not found: $sol"
         continue
     fi
 

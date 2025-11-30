@@ -9,5 +9,4 @@ public class TrxTestResult
     public string Outcome { get; set; } = "";
     public TimeSpan Duration { get; set; }
     public string? ErrorMessage { get; set; }
-    
 }

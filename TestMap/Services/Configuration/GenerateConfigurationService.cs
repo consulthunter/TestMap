@@ -15,49 +15,55 @@ public class GenerateConfigurationService(string configurationFilePath, string b
 {
     public void GenerateConfiguration()
     {
-        var config = new Dictionary<string, object>()
+        var config = new Dictionary<string, object>
         {
-            ["FilePaths"] = new Dictionary<string, string>()
+            ["FilePaths"] = new Dictionary<string, string>
             {
                 ["TargetFilePath"] = Path.Combine(basePath, "Data", "example_project.txt"),
                 ["LogsDirPath"] = Path.Combine(basePath, "Logs"),
                 ["TempDirPath"] = Path.Combine(basePathParent, "Temp"),
-                ["OutputDirPath"] = Path.Combine(basePath, "Output"),
+                ["OutputDirPath"] = Path.Combine(basePath, "Output")
             },
-            ["Settings"] = new Dictionary<string, object>()
+            ["Settings"] = new Dictionary<string, object>
             {
                 ["MaxConcurrency"] = 5,
                 ["RunDateFormat"] = "yyyy-MM-dd"
             },
-            ["Docker"] =  new Dictionary<string, string>()
+            ["Docker"] = new Dictionary<string, string>
             {
                 ["all"] = "net-sdk-all"
             },
-            ["Frameworks"] = new Dictionary<string, List<string>>()
+            ["Frameworks"] = new Dictionary<string, List<string>>
             {
-                ["NUnit"] = new List<string> { "Test", "TestCase", "TestCaseSource", "Theory" },
-                ["xUnit"] = new List<string> { "Fact", "Theory" },
-                ["MSTest"] = new List<string> { "TestMethod", "DataSource" },
-                ["Microsoft.VisualStudio.TestTools.UnitTesting"] = new List<string> { "TestMethod", "DataSource" }
+                ["NUnit"] = new() { "Test", "TestCase", "TestCaseSource", "Theory" },
+                ["xUnit"] = new() { "Fact", "Theory" },
+                ["MSTest"] = new() { "TestMethod", "DataSource" },
+                ["Microsoft.VisualStudio.TestTools.UnitTesting"] = new() { "TestMethod", "DataSource" }
             },
-            ["Persistence"] = new Dictionary<string, object>()
+            ["Persistence"] = new Dictionary<string, object>
             {
-                ["KeepProjectFiles"] = true,
+                ["KeepProjectFiles"] = true
             },
-            ["Generation"] = new Dictionary<string, object>()
+            ["Generation"] = new Dictionary<string, object>
             {
                 ["Provider"] = "openai",
-                ["OrgId"] = "",
                 ["Model"] = "gpt-3.5-turbo",
-                ["ApiKey"] = "",
-                ["Endpoint"] = "",
-                ["AwsAccessKey"] = "",
-                ["AwsSecretKey"] = "",
-                ["AwsRegion"] = "",
-                ["MaxRetries"] = 1,
+                ["MaxRetries"] = 1
+            },
+            ["Amazon"] = new Dictionary<string, string>
+            {
+                ["AwsRegion"] = "us-east-1"
+            },
+            ["Ollama"] = new Dictionary<string, string>
+            {
+                ["Endpoint"] = "http://localhost:10000/"
+            },
+            ["Custom"] = new Dictionary<string, string>
+            {
+                ["Endpoint"] = "http://localhost:11434/"
             }
         };
-        
+
         // Use System.Text.Json for serialization
         var options = new JsonSerializerOptions
         {

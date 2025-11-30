@@ -7,14 +7,13 @@
  */
 
 using System.Reflection;
-using System.Threading.Tasks;
 using CommandLine;
 using Microsoft.Extensions.Configuration;
 using TestMap.CLIOptions;
 using TestMap.Models.Configuration;
 using TestMap.Services;
 using TestMap.Services.Configuration;
-
+using TestMap.Services.ProjectOperations;
 namespace TestMap;
 
 public class Program
@@ -58,6 +57,9 @@ public class Program
             case SetupOptions s:
                 RunSetup(s);
                 break;
+            case ValidateProjectsOptions vo:
+                await RunValidateProjects(vo);
+                break;
         }
     }
 
@@ -67,57 +69,91 @@ public class Program
     /// <param name="testOptions">CLI options parsed by CommandLine</param>
     private static async Task RunCollect(CollectTestOptions testOptions)
     {
+        Utilities.Utilities.Load();
         var config = new ConfigurationBuilder()
-            .AddJsonFile(testOptions.CollectConfigFilePath, false, true)
+            .AddJsonFile(ConfigurationLocation(testOptions.CollectConfigFilePath), false, true)
             .Build();
         var configObj = new TestMapConfig();
         config.Bind(configObj);
         var configurationService = new ConfigurationService(configObj);
         configurationService.RunMode = testOptions.Mode;
+        configurationService.SetSecrets();
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }
+
     /// <summary>
     ///     Builds the configuration using options, starts the TestMapRunner
     /// </summary>
     /// <param name="options">CLI options parsed by CommandLine</param>
     private static async Task RunGenTests(GenerateTestsOptions options)
     {
+        Utilities.Utilities.Load();
         var config = new ConfigurationBuilder()
-            .AddJsonFile(options.GenTestsConfigFilePath, false, true)
+            .AddJsonFile(ConfigurationLocation(options.GenTestsConfigFilePath), false, true)
             .Build();
         var configObj = new TestMapConfig();
         config.Bind(configObj);
         var configurationService = new ConfigurationService(configObj);
         configurationService.RunMode = options.Mode;
+        configurationService.SetSecrets();
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }
-    
+
     /// <summary>
     ///     Builds the configuration using options, starts the TestMapRunner
     /// </summary>
     /// <param name="options">CLI options parsed by CommandLine</param>
     private static async Task RunFullAnalysis(FullAnalysisOptions options)
     {
+        Utilities.Utilities.Load();
         var config = new ConfigurationBuilder()
-            .AddJsonFile(options.FullAnalysisConfigFilePath, false, true)
+            .AddJsonFile(ConfigurationLocation(options.FullAnalysisConfigFilePath), false, true)
             .Build();
         var configObj = new TestMapConfig();
         config.Bind(configObj);
         var configurationService = new ConfigurationService(configObj);
         configurationService.RunMode = options.Mode;
+        configurationService.SetSecrets();
         var testMapRunner = new TestMapRunner(configurationService);
         await testMapRunner.RunAsync();
     }
-    
+
     /// <summary>
     ///     Generates the correct configuration for TestMap
     /// </summary>
     /// <param name="options">CLI options parsed by CommandLine</param>
     private static void RunSetup(SetupOptions options)
     {
-        SetupService setupService = new SetupService();
-        setupService.Setup();
+        var setupService = new SetupService(options.BasePath);
+        setupService.Setup(options.OverwriteFile);
+    }
+
+    /// <summary>
+    ///     Generates the correct configuration for TestMap
+    /// </summary>
+    /// <param name="options">CLI options parsed by CommandLine</param>
+    private static async Task RunValidateProjects(ValidateProjectsOptions options)
+    {
+        Utilities.Utilities.Load();
+        var config = new ConfigurationBuilder()
+            .AddJsonFile(ConfigurationLocation(options.ValidateProjectsConfigFilePath), false, true)
+            .Build();
+        var configObj = new TestMapConfig();
+        config.Bind(configObj);
+        var configurationService = new ConfigurationService(configObj);
+        configurationService.RunMode = options.Mode;
+        configurationService.SetSecrets();
+        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
+        var validate = new ValidateProjectsService(configurationService.Config, token);
+        await validate.ProcessRepositoryListAsync();
+    }
+
+    private static string ConfigurationLocation(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return Path.Join(Directory.GetCurrentDirectory(), "Config", "default-config.json");
+        return path;
     }
 }

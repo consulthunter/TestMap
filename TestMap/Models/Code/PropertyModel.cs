@@ -17,8 +17,15 @@ public class PropertyModel(
     public string Guid { get; set; } = guid;
     public string Name { get; set; } = name;
     public string Visibility { get; set; } = visibility;
-    public string Modifiers { get; set; } = JsonSerializer.Serialize(modifiers) ?? JsonSerializer.Serialize(new List<string>());
-    public string Attributes { get; set; } = JsonSerializer.Serialize(attributes) ?? JsonSerializer.Serialize(new List<string>());
+
+    public string Modifiers { get; set; } =
+        JsonSerializer.Serialize(modifiers) ?? JsonSerializer.Serialize(new List<string>());
+
+    public string Attributes { get; set; } =
+        JsonSerializer.Serialize(attributes) ?? JsonSerializer.Serialize(new List<string>());
+
     public string FullString { get; set; } = fullString;
-    public Location Location { get; set; } = location ?? new Location(0,0,0, 0);
+    public Location Location { get; set; } = location ?? new Location(0, 0, 0, 0);
+    
+    public string ContentHash { get; set;} = Utilities.Utilities.ComputeSha256(fullString);
 }

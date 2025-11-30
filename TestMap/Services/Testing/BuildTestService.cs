@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Xml.Linq;
 using System.Xml.Serialization;
-using Serilog;
 using TestMap.Models;
 using TestMap.Models.Coverage;
 using TestMap.Models.Results;
@@ -16,7 +15,7 @@ public class BuildTestService : IBuildTestService
     private readonly SqliteDatabaseService _sqliteDatabaseService;
     private string runId;
     private string runDate;
-    
+
     public string? LatestLogPath { get; private set; }
     public List<TrxTestResult> LatestTestResults { get; private set; } = new();
     public CoverageReport? LatestCoverageReport { get; private set; }
@@ -40,14 +39,14 @@ public class BuildTestService : IBuildTestService
         LatestCoverageReport = null;
         LatestSuccess = false;
         LatestCoverage = 0;
-        
+
         runId = (isBaseline ? "baseline_" : "") + Guid.NewGuid();
         runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-        await _sqliteDatabaseService.InsertTestRun(runId, runDate, "started", 0, null, null);
+        await _sqliteDatabaseService.TestRunRepository.InsertTestRun(runId, runDate, "started", 0, null, null);
 
         // generated test runs include target method
-        TestRunResult result = isBaseline ? new TestRunResult() : new GeneratedTestRunResult();
+        var result = isBaseline ? new TestRunResult() : new GeneratedTestRunResult();
 
         try
         {
@@ -57,24 +56,24 @@ public class BuildTestService : IBuildTestService
                 var solutionFilenames = solutions.Select(Path.GetFileName).ToList();
 
                 // join into comma-separated string
-                string allSolutions = string.Join(",", solutionFilenames);
-                
-                await RunDockerContainerAsync(runId, allSolutions);
+                var allSolutions = string.Join(",", solutionFilenames);
+
+                await RunDockerContainerAsync(allSolutions);
                 await WaitForContainerExitAsync(_containerName);
                 await CaptureContainerLogsAsync();
                 await ProcessTrxResults();
                 await LoadMergedCoverageReport();
-                
+
                 result.Success = true;
                 result.LogPath = LatestLogPath;
             }
             else
             {
                 var solutionFilenames = solutions.Select(Path.GetFileName).ToList();
-                
-                string solution = solutionFilenames.First() ?? "";
 
-                await RunDockerContainerAsync(runId, solution);
+                var solution = solutionFilenames.First() ?? "";
+
+                await RunDockerContainerAsync(solution);
                 await WaitForContainerExitAsync(_containerName);
                 await ProcessTrxResults();
                 await CaptureContainerLogsAsync();
@@ -101,13 +100,15 @@ public class BuildTestService : IBuildTestService
                 result.LogPath = LatestLogPath;
                 result.Results = LatestTestResults;
             }
-            await _sqliteDatabaseService.UpdateTestRunStatus( runId, "success", result.Coverage, result.LogPath, null);
+
+            await _sqliteDatabaseService.TestRunRepository.UpdateTestRunStatus(runId, "success", result.Coverage,
+                result.LogPath, null);
         }
         catch (Exception ex)
         {
             result.Success = false;
 
-            await _sqliteDatabaseService.UpdateTestRunStatus(
+            await _sqliteDatabaseService.TestRunRepository.UpdateTestRunStatus(
                 runId, "failed", 0, LatestLogPath, ex.Message);
         }
         finally
@@ -119,11 +120,10 @@ public class BuildTestService : IBuildTestService
     }
 
 
-
-    public async Task RunDockerContainerAsync(string runId, string solutions)
+    public async Task RunDockerContainerAsync(string solutions)
     {
-        string localDir = _projectModel.DirectoryPath!;
-        string imageName = _projectModel.Docker!["all"];
+        var localDir = _projectModel.DirectoryPath!;
+        var imageName = _projectModel.Docker!["all"];
 
         var args =
             $"run -d --name {_containerName} -v \"{localDir}:/app/project\" {imageName} /bin/bash ./scripts/run_main.sh \"{runId}\" \"{solutions}\"";
@@ -150,12 +150,11 @@ public class BuildTestService : IBuildTestService
 
     private async Task LoadMergedCoverageReport()
     {
-        string source = Path.Combine(_projectModel.DirectoryPath!, "coverage", $"merged_{runId}.cobertura.xml");
+        var source = Path.Combine(_projectModel.DirectoryPath!, "coverage", $"merged_{runId}.cobertura.xml");
         try
         {
-
-            XmlSerializer serializer = new XmlSerializer(typeof(CoverageReport));
-            using FileStream fs = new FileStream(source, FileMode.Open);
+            var serializer = new XmlSerializer(typeof(CoverageReport));
+            using var fs = new FileStream(source, FileMode.Open);
             _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
             if (_projectModel.CoverageReport != null)
                 await SaveCoverageReport(_projectModel.CoverageReport);
@@ -172,17 +171,15 @@ public class BuildTestService : IBuildTestService
     {
         var coverageDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
         if (Directory.Exists(coverageDir))
-        {
             try
             {
-                Directory.Delete(coverageDir, recursive: true);
+                Directory.Delete(coverageDir, true);
                 _projectModel.Logger?.Information($"Coverage directory '{coverageDir}' deleted successfully.");
             }
             catch (Exception ex)
             {
                 _projectModel.Logger?.Warning($"Failed to delete coverage directory '{coverageDir}': {ex.Message}");
             }
-        }
     }
 
     private async Task ProcessTrxResults()
@@ -199,16 +196,17 @@ public class BuildTestService : IBuildTestService
         {
             _projectModel.Logger?.Information($"Parsing TRX file: {trxFile}");
             var results = ParseTrxFile(trxFile);
-            
+
             LatestTestResults = results;
 
             _projectModel.TestResults.AddRange(results);
             foreach (var result in results)
             {
-                var methodId = await _sqliteDatabaseService.FindMethodFromContains(result.TestName);
+                var methodId = await _sqliteDatabaseService.MethodRepository.FindMethodFromContains(result.TestName);
                 result.MethodId = methodId;
             }
-            await _sqliteDatabaseService.InsertTestResults(results);
+
+            await _sqliteDatabaseService.TestResultRepository.InsertTestResults(results);
         }
     }
 
@@ -216,18 +214,18 @@ public class BuildTestService : IBuildTestService
     {
         var results = new List<TrxTestResult>();
         var doc = XDocument.Load(trxFilePath);
-        XNamespace ns = doc.Root?.Name.Namespace ?? "";
+        var ns = doc.Root?.Name.Namespace ?? "";
 
         var unitTestResults = doc.Descendants(ns + "UnitTestResult");
 
         foreach (var result in unitTestResults)
         {
-            string testName = (string?)result.Attribute("testName") ?? "";
-            string outcome = (string?)result.Attribute("outcome") ?? "";
-            string durationStr = (string?)result.Attribute("duration") ?? "00:00:00";
-            TimeSpan.TryParse(durationStr, out TimeSpan duration);
+            var testName = (string?)result.Attribute("testName") ?? "";
+            var outcome = (string?)result.Attribute("outcome") ?? "";
+            var durationStr = (string?)result.Attribute("duration") ?? "00:00:00";
+            TimeSpan.TryParse(durationStr, out var duration);
 
-            string? errorMessage = result
+            var errorMessage = result
                 .Element(ns + "Output")
                 ?.Element(ns + "ErrorInfo")
                 ?.Element(ns + "Message")
@@ -249,15 +247,17 @@ public class BuildTestService : IBuildTestService
 
     private async Task CaptureContainerLogsAsync()
     {
-        string containerName = _containerName ?? throw new InvalidOperationException("Container name is null.");
-        string logsFilePath = (_projectModel.LogsFilePath ?? throw new InvalidOperationException("LogsFilePath is null!")).Replace(".log", "") + $"-docker-{runId}.log";
+        var containerName = _containerName ?? throw new InvalidOperationException("Container name is null.");
+        var logsFilePath =
+            (_projectModel.LogsFilePath ?? throw new InvalidOperationException("LogsFilePath is null!")).Replace(".log",
+                "") + $"-docker-{runId}.log";
 
         _projectModel.Logger?.Information($"Capturing logs for container: {containerName}");
 
-        string logs = await RunProcessAsync("docker", $"logs {containerName}");
+        var logs = await RunProcessAsync("docker", $"logs {containerName}");
 
         await File.WriteAllTextAsync(logsFilePath, logs);
-        
+
         LatestLogPath = logsFilePath;
 
         _projectModel.Logger?.Information($"Docker container logs written to: {logsFilePath}");
@@ -268,37 +268,40 @@ public class BuildTestService : IBuildTestService
 
     private async Task SaveCoverageReport(CoverageReport coverageReport)
     {
-        var reportId = await _sqliteDatabaseService.InsertCoverageReportGetId(coverageReport, runId);
+        var reportId =
+            await _sqliteDatabaseService.CoverageReportRepository.InsertCoverageReportGetId(coverageReport, runId);
         foreach (var package in coverageReport.Packages)
         {
-            var packageId = await _sqliteDatabaseService.FindPackage(package.Name);
-            var packCoverId = await _sqliteDatabaseService.InsertPackageCoverageGetId(package, reportId, packageId);
+            var packageId = await _sqliteDatabaseService.SourcePackageRepository.FindPackage(package.Name);
+            var packCoverId =
+                await _sqliteDatabaseService.PackageCoverageRepository.InsertPackageCoverageGetId(package, reportId,
+                    packageId);
 
             foreach (var claCov in package.Classes)
             {
-                var claId = await _sqliteDatabaseService.FindClass(claCov.Name);
-                var claCoverId = await _sqliteDatabaseService.InsertClassCoverageGetId(claCov, packCoverId, claId);
+                var claId = await _sqliteDatabaseService.ClassRepository.FindClass(claCov.Name);
+                var claCoverId =
+                    await _sqliteDatabaseService.ClassCoverageRepository.InsertClassCoverageGetId(claCov, packCoverId,
+                        claId);
 
                 foreach (var methodCov in claCov.Methods)
-                {
                     // coverage includes generated methods like getters and setters
-                    if (!methodCov.Name.Contains("get") && !methodCov.Name.Contains("set") && !methodCov.Name.Contains(".ctor"))
+                    if (!methodCov.Name.Contains("get") && !methodCov.Name.Contains("set") &&
+                        !methodCov.Name.Contains(".ctor"))
                     {
-                        var methodId = await _sqliteDatabaseService.FindMethodFromExact(methodCov.Name);
-                        var methodCoverId = await _sqliteDatabaseService.InsertMethodCoverageGetId(methodCov, claCoverId, methodId);
+                        var methodId =
+                            await _sqliteDatabaseService.MethodRepository.FindMethodFromExact(methodCov.Name);
+                        var methodCoverId =
+                            await _sqliteDatabaseService.MethodCoverageRepository.InsertMethodCoverageGetId(methodCov,
+                                claCoverId, methodId);
                     }
-                }
             }
         }
     }
 
     private async Task<string> RunProcessAsync(string fileName, string arguments, string? workingDir = null)
     {
-        if (fileName == "dotnet-coverage")
-        {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            fileName = Path.Combine(home, ".dotnet", "tools", "dotnet-coverage");
-        }
+
         var startInfo = new ProcessStartInfo
         {
             FileName = fileName,
@@ -313,14 +316,11 @@ public class BuildTestService : IBuildTestService
         using var process = new Process { StartInfo = startInfo };
         process.Start();
 
-        string output = await process.StandardOutput.ReadToEndAsync();
-        string error = await process.StandardError.ReadToEndAsync();
+        var output = await process.StandardOutput.ReadToEndAsync();
+        var error = await process.StandardError.ReadToEndAsync();
         process.WaitForExit();
 
-        if (process.ExitCode != 0)
-        {
-            throw new Exception($"Command failed: {fileName} {arguments}\n{error}");
-        }
+        if (process.ExitCode != 0) throw new Exception($"Command failed: {fileName} {arguments}\n{error}");
 
         return output;
     }

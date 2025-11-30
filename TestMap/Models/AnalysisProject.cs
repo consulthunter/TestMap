@@ -45,6 +45,7 @@ public class AnalysisProject(
     public readonly List<string>? ProjectReferences = projectReferences;
     public readonly string? SolutionFilePath = solutionFilePath;
     public readonly Dictionary<string, SyntaxTree>? SyntaxTrees = syntaxTrees;
-    
-    public List<PackageModel> Packages = new List<PackageModel>();
+
+    public List<PackageModel> Packages = new();
+    public string ContentHash { get; set; } = Utilities.Utilities.ComputeSha256(projectFilePath);
 }

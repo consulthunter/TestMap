@@ -8,7 +8,6 @@ public class GenerateTestsOptions
 {
     public RunMode Mode => RunMode.GenerateTests;
 
-    [Option('c', "config", SetName = "generate-tests", Required = true, HelpText = "Config File path.")]
+    [Option('c', "config", SetName = "generate-tests", Required = false, HelpText = "Config File path.")]
     public string GenTestsConfigFilePath { get; set; }
-    
 }

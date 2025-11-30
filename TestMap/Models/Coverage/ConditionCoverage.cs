@@ -2,7 +2,7 @@
  * consulthunter
  * 2025-04-09
  *
- * Coverage for a condition 
+ * Coverage for a condition
  * As represented in cobertura XML
  *
  * ConditionCoverage.cs

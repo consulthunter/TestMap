@@ -6,7 +6,9 @@
  *
  * CodeModel.cs
  */
+
 using System.Text.Json;
+
 namespace TestMap.Models.Code;
 
 /// <summary>
@@ -37,13 +39,14 @@ public class FileModel(
     public string Namespace { get; set; } = ns;
     public string Name { get; set; } = name;
     public string Language { get; set; } = language;
+
     public string MetaData { get; set; } = JsonSerializer.Serialize(new Dictionary<string, string>
     {
-        {"SolutionFilePath", solutionFilePath},
-        {"ProjectFilePath", projectPath },
-        
+        { "SolutionFilePath", solutionFilePath },
+        { "ProjectFilePath", projectPath }
     });
+
     public string UsingStatements { get; set; } = JsonSerializer.Serialize(usingStatements ?? new List<string>());
     public string FilePath { get; set; } = filePath;
-    
+    public string ContentHash { get; set; } = Utilities.Utilities.ComputeSha256(filePath);
 }

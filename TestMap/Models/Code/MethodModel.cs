@@ -31,20 +31,26 @@ public class MethodModel(
     string docString = "",
     bool isTestMethod = false,
     string testingFramework = "",
-    Location? location =  null)
+    Location? location = null)
 {
     public int Id { get; set; } = 0;
     public int ClassId { get; set; } = classId;
     public string Guid { get; set; } = guid;
     public string Name { get; set; } = name;
     public string Visibility { get; set; } = visibility;
-    public string Modifiers { get; set; } = JsonSerializer.Serialize(modifiers) ?? JsonSerializer.Serialize(new List<string>());
-    public string Attributes { get; set; } = JsonSerializer.Serialize(attributes) ?? JsonSerializer.Serialize(new List<string>());
+
+    public string Modifiers { get; set; } =
+        JsonSerializer.Serialize(modifiers) ?? JsonSerializer.Serialize(new List<string>());
+
+    public string Attributes { get; set; } =
+        JsonSerializer.Serialize(attributes) ?? JsonSerializer.Serialize(new List<string>());
+
     public string FullString { get; set; } = fullString;
     public string DocString { get; set; } = docString;
     public bool IsTestMethod { get; set; } = isTestMethod;
     public string TestingFramework { get; set; } = testingFramework;
     public string TestType { get; set; } = "";
-    public Location Location = location ?? new Location(0,0, 0, 0);
+    public Location Location = location ?? new Location(0, 0, 0, 0);
     
+    public string ContentHash { get; set;} = Utilities.Utilities.ComputeSha256(fullString);
 }

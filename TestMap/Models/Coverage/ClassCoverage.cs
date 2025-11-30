@@ -13,13 +13,11 @@ using System.Xml.Serialization;
 
 namespace TestMap.Models.Coverage;
 
-
 public class ClassCoverage
 {
     [XmlAttribute("line-rate")] public double LineRate { get; set; } = 0.0;
 
-    [XmlAttribute("branch-rate")]
-    public double BranchRate { get; set; }  = 0.0;
+    [XmlAttribute("branch-rate")] public double BranchRate { get; set; } = 0.0;
 
     [XmlAttribute("complexity")] public int Complexity { get; set; } = 1;
 
@@ -29,9 +27,9 @@ public class ClassCoverage
 
     [XmlArray("methods")]
     [XmlArrayItem("method")]
-    public List<MethodCoverage> Methods { get; set; } =  new List<MethodCoverage>();
+    public List<MethodCoverage> Methods { get; set; } = new();
 
     [XmlArray("lines")]
     [XmlArrayItem("line")]
-    public List<LineCoverage> Lines { get; set; } =   new List<LineCoverage>();
+    public List<LineCoverage> Lines { get; set; } = new();
 }

@@ -5,6 +5,7 @@
  * and their projects
  * BuildSolutionService.cs
  */
+
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
@@ -74,14 +75,14 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                     var compilation = await project.GetCompilationAsync() as CSharpCompilation;
 
                     var targetFramework = _globalTargetFramework;
-                    
-                    
+
+
                     if (targetFramework == "")
                         targetFramework = FindProjectTargetFramework(project);
-                    
 
-                    List<string> documents = GetDocuments(project);
-                    Dictionary<string, SyntaxTree>? syntaxTrees = await GetSyntaxTrees(project, documents);
+
+                    var documents = GetDocuments(project);
+                    var syntaxTrees = await GetSyntaxTrees(project, documents);
 
                     if (project.FilePath != null)
                     {
@@ -102,7 +103,8 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                             }
                             else
                             {
-                                projectModel.Logger?.Warning($"Project {project.Id} filepath already exists in the list.");
+                                projectModel.Logger?.Warning(
+                                    $"Project {project.Id} filepath already exists in the list.");
                             }
                         }
                         else
@@ -115,7 +117,8 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
 
                 if (!projectModel.Solutions.Exists(sol => sol.Solution.FilePath == solution.FilePath))
                 {
-                    var analysisSolution = new AnalysisSolution(0, Guid.NewGuid().ToString(), solution, solutionProjects);
+                    var analysisSolution =
+                        new AnalysisSolution(0, Guid.NewGuid().ToString(), solution, solutionProjects);
                     projectModel.Solutions.Add(analysisSolution);
                 }
                 else
@@ -184,7 +187,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                             // Get the captured group
                             var filepath = match.Groups[1].Value;
 
-                            string[] parts = filepath.Split('\\', '/');
+                            var parts = filepath.Split('\\', '/');
 
                             // Check if the filepath has enough parts to trim
                             if (parts.Length > 2)
@@ -215,7 +218,8 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                     }
                     catch (Exception ex)
                     {
-                        projectModel.Logger?.Error($"Couldn't extract project reference {projectReference.ProjectId}: {ex.Message}");
+                        projectModel.Logger?.Error(
+                            $"Couldn't extract project reference {projectReference.ProjectId}: {ex.Message}");
                     }
 
                     projectModel.Logger?.Information($"Project {referencedProject} filepath is null.");
@@ -276,23 +280,20 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     private string FindGlobalTargetFramework()
     {
         // Step 1: Recursively search for all global.json files
-        var globalJsonFiles = Directory.GetFiles(projectModel.DirectoryPath, "global.json", SearchOption.AllDirectories);
+        var globalJsonFiles =
+            Directory.GetFiles(projectModel.DirectoryPath, "global.json", SearchOption.AllDirectories);
 
         // Step 2: Iterate through each global.json file
         foreach (var globalJsonPath in globalJsonFiles)
-        {
             if (File.Exists(globalJsonPath))
             {
-                    // Step 3: Read the global.json file and extract the SDK version
-                    var globalJson = JObject.Parse(File.ReadAllText(globalJsonPath));
-                    var sdkVersion = globalJson["sdk"]?["version"]?.ToString();
-                    if (!string.IsNullOrEmpty(sdkVersion))
-                    {
-                        // Return the first found SDK version
-                        return sdkVersion;
-                    }
+                // Step 3: Read the global.json file and extract the SDK version
+                var globalJson = JObject.Parse(File.ReadAllText(globalJsonPath));
+                var sdkVersion = globalJson["sdk"]?["version"]?.ToString();
+                if (!string.IsNullOrEmpty(sdkVersion))
+                    // Return the first found SDK version
+                    return sdkVersion;
             }
-        }
 
         // Return empty if no SDK version is found in any global.json
         return "";
@@ -303,16 +304,14 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
         try
         {
             if (!File.Exists(project.FilePath))
-            {
                 throw new FileNotFoundException($"The project file '{project.FilePath}' was not found.");
-            }
 
             // Load the .csproj file
             var doc = XDocument.Load(project.FilePath);
 
             // Handle potential namespaces in the XML
             var namespaceManager = doc.Root?.GetDefaultNamespace();
-            XNamespace ns = namespaceManager ?? string.Empty;
+            var ns = namespaceManager ?? string.Empty;
 
             // Try to retrieve <TargetFramework>
             var targetFramework = doc.Descendants(ns + "TargetFramework").FirstOrDefault()?.Value;
@@ -324,9 +323,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
 
                 // Handle multiple frameworks if present
                 if (!string.IsNullOrEmpty(targetFramework) && targetFramework.Contains(";"))
-                {
                     return targetFramework.Split(';')[0]; // Return the first framework as default
-                }
             }
 
             return targetFramework ?? string.Empty; // Return empty string if nothing is found
@@ -335,7 +332,6 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
         {
             Console.WriteLine($"An error occurred: {ex.Message}");
             return string.Empty;
-
         }
     }
 }

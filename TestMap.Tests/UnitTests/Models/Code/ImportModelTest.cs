@@ -27,12 +27,12 @@ public class ImportModelTest
     public void Constructor_ShouldInitializeAllProperties_WithProvidedValues()
     {
         // Arrange
-        int fileId = 123;
-        string guid = "test-guid";
-        string importName = "Test Import";
-        string importPath = "/test/path";
-        string fullString = "Test Full String";
-        bool isLocal = true;
+        var fileId = 123;
+        var guid = "test-guid";
+        var importName = "Test Import";
+        var importPath = "/test/path";
+        var fullString = "Test Full String";
+        var isLocal = true;
 
         // Act
         var model = new ImportModel(fileId, guid, importName, importPath, fullString, isLocal);
@@ -52,13 +52,13 @@ public class ImportModelTest
         // Arrange
         var model = new ImportModel();
 
-        int fileId = 100;
-        int id = 1;
-        string guid = "new-guid";
-        string importName = "New Import Name";
-        string importPath = "/new/import/path";
-        string fullString = "New Full String";
-        bool isLocal = true;
+        var fileId = 100;
+        var id = 1;
+        var guid = "new-guid";
+        var importName = "New Import Name";
+        var importPath = "/new/import/path";
+        var fullString = "New Full String";
+        var isLocal = true;
 
         // Act
         model.FileId = fileId;

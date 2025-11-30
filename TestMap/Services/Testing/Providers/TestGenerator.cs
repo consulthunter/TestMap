@@ -1,10 +1,9 @@
-
 using System.Configuration;
 using Amazon;
 using Amazon.BedrockRuntime;
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Providers;
 
 namespace TestMap.Services.Testing.Providers;
 
@@ -15,62 +14,70 @@ public class TestGenerator
     public TestGenerator(TestMapConfig config)
     {
         var builder = Kernel.CreateBuilder();
-        string provider = config.Generation.Provider;
-        string model = config.Generation.Model;
-        string orgid = config.Generation.OrgId;
-        string apiKey = config.Generation.ApiKey;
-        string endpoint = config.Generation.Endpoint;
-        
-        string awsAccessKey = config.Generation.AwsAccessKey;
-        string awsSecretKey = config.Generation.AwsSecretKey;
-        string awsRegion = config.Generation.AwsRegion;
-        
+        var provider = config.Generation.Provider;
+        var model = config.Generation.Model;
+
+        var openAiConfig = config.OpenAi;
+        var ollamaConfig = config.Ollama;
+        var googleConfig = config.Google;
+        var amazonConfig = config.Amazon;
+        var customConfig = config.Custom;
+
         switch (provider)
         {
             case "openai":
-                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(orgid) || string.IsNullOrEmpty(apiKey))
-                {
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(openAiConfig?.OrgId) ||
+                    string.IsNullOrEmpty(openAiConfig?.ApiKey))
                     throw new ConfigurationErrorsException(
                         "For openai provider: OrgID, Model, and ApiKey must be configured.");
-                }
                 builder.AddOpenAIChatCompletion(
-                    modelId: model,
-                    orgId: orgid,
-                    apiKey: apiKey);
+                    model,
+                    orgId: openAiConfig.OrgId,
+                    apiKey: openAiConfig.ApiKey);
                 break;
 
             case "ollama":
-                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(endpoint))
-                {
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(ollamaConfig?.Endpoint))
                     throw new ConfigurationErrorsException(
                         "For ollama provider: Model, and Endpoint must be configured.");
-                }
                 builder.AddOllamaChatCompletion(
-                    modelId: model,
-                    endpoint: new Uri(endpoint));
+                    model,
+                    new Uri(ollamaConfig.Endpoint));
                 break;
-            
+
             case "google":
-                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(apiKey))
-                {
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(googleConfig?.ApiKey))
                     throw new ConfigurationErrorsException(
                         "For google provider: Model, and ApiKey must be configured.");
-                }
                 builder.AddGoogleAIGeminiChatCompletion(
-                    modelId: model,  
-                    apiKey: apiKey);
+                    model,
+                    googleConfig.ApiKey);
                 break;
-            case "anthropic":
-                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(awsAccessKey) || string.IsNullOrEmpty(awsSecretKey) || string.IsNullOrEmpty(awsRegion))
-                {
+
+            case "amazon":
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(amazonConfig?.AwsAccessKey)
+                                                || string.IsNullOrEmpty(amazonConfig?.AwsSecretKey)
+                                                || string.IsNullOrEmpty(amazonConfig?.AwsRegion))
                     throw new ConfigurationErrorsException(
                         "For anthropic provider: Model, AwsAccessKey, AwsSecretKey, and AwsRegion must be configured.");
-                }
                 IAmazonBedrockRuntime runtime = new AmazonBedrockRuntimeClient(
-                    awsAccessKeyId: awsAccessKey,
-                    awsSecretAccessKey: awsSecretKey,
-                    region: GetAwsRegionEndpoint(awsRegion));
-                builder.AddBedrockChatCompletionService(modelId: model, bedrockRuntime:runtime, serviceId:"anthropic-bedrock");
+                    amazonConfig.AwsAccessKey,
+                    amazonConfig.AwsSecretKey,
+                    GetAwsRegionEndpoint(amazonConfig.AwsRegion));
+                builder.AddBedrockChatCompletionService(model, runtime);
+                break;
+
+            case "custom":
+                var uri = new Uri(customConfig?.Endpoint ?? string.Empty);
+                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(customConfig?.OrgId) ||
+                    string.IsNullOrEmpty(customConfig?.ApiKey))
+                    throw new ConfigurationErrorsException(
+                        "For openai provider: OrgID, Model, and ApiKey must be configured.");
+                builder.AddOpenAIChatCompletion(
+                    model,
+                    uri,
+                    orgId: customConfig.OrgId,
+                    apiKey: customConfig.ApiKey);
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported LLM provider: {provider}");
@@ -109,10 +116,11 @@ public class TestGenerator
                $"Please add a doc-string to the test. \n" +
                $"Also comment the test with: // arrange, act, assert.\n" +
                $"I need just the test method not the test class." +
-               $"Finally, delimit the code with ``` for the beginning and end of the block." ;
+               $"Finally, delimit the code with ``` for the beginning and end of the block.";
     }
 
-    public string CreateRepairTestPrompt(string method, string test, string testFramework, string testDependencies, string previousLogs)
+    public string CreateRepairTestPrompt(string method, string test, string testFramework, string testDependencies,
+        string previousLogs)
     {
         return
             $"I previously attempted to generate a test for the following method:\n{method}\n\n" +
@@ -132,5 +140,4 @@ public class TestGenerator
     {
         return await _kernel.InvokePromptAsync<string>(prompt) ?? string.Empty;
     }
-    
 }
