@@ -1,119 +1,64 @@
-using Octokit;
-using TestMap.Models.Configuration;
+using TestMap.Models;
+using TestMap.Models.Results;
+using TestMap.Services.Database;
 
 namespace TestMap.Services.ProjectOperations;
 
-public class ValidateProjectsService
+public class ValidateProjectsService : IValidateProjectsService
 {
-    private readonly GitHubClient _client;
-    private readonly TestMapConfig _config;
+    private ProjectModel _projectModel;
+    private SqliteDatabaseService _sqliteDatabaseService;
 
-    public ValidateProjectsService(TestMapConfig config, string token)
+    public ValidateProjectsService(ProjectModel projectModel, SqliteDatabaseService sqliteDatabaseService)
     {
-        _config = config;
-        _client = new GitHubClient(new ProductHeaderValue("TestMap"));
-        _client.Credentials = new Credentials(token);
+        _projectModel = projectModel;
+        _sqliteDatabaseService = sqliteDatabaseService;
     }
-
-    public async Task ProcessRepositoryListAsync()
+    
+    public async Task ValidateProjectAsync()
     {
-        if (!File.Exists(_config.FilePaths.TargetFilePath))
-            throw new FileNotFoundException("Repo list file not found", _config.FilePaths.TargetFilePath);
+        // check the db for coverage report, mutation report, etc.
+        var hasTests = await _sqliteDatabaseService.CoverageReportRepository.HasCoverageReports();
+        var hasMutationReports = await _sqliteDatabaseService.MutationReportRepository.HasMutationReports();
+        var hasFileCodeMetrics =
+            await _sqliteDatabaseService.LizardFileCodeMetricsRepository.HasLizardFileCodeMetrics();
+        var hasFunctionCodeMetrics =
+            await _sqliteDatabaseService.LizardFunctionCodeMetricsRepository.HasLizardFunctionCodeMetrics();
+        
+        var result = new ProjectValidationResult(
+            _projectModel.RepoName,
+            hasTests,
+            hasMutationReports,
+            hasFileCodeMetrics,
+            hasFunctionCodeMetrics
+        );
 
-        var baseDir = Path.GetDirectoryName(_config.FilePaths.TargetFilePath)!;
-
-        var fileRepos = await File.ReadAllLinesAsync(_config.FilePaths.TargetFilePath);
-
-        var repos = fileRepos.Select(l => l.Trim())
-            .Where(l => !string.IsNullOrWhiteSpace(l))
-            .ToList();
-
-        var withTests = new List<string>();
-        var withoutTests = new List<string>();
-
-        foreach (var repoUrl in repos)
-            try
-            {
-                var (owner, name) = Utilities.Utilities.ExtractOwnerAndRepo(repoUrl);
-
-                Console.WriteLine($"Checking {owner}/{name} ...");
-
-                var hasTests = await RepoLikelyHasTests(owner, name);
-
-                if (hasTests)
-                    withTests.Add(repoUrl);
-                else
-                    withoutTests.Add(repoUrl);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error processing {repoUrl}: {ex.Message}");
-                withoutTests.Add($"{repoUrl}    # ERROR");
-            }
-
-        // Output files
-        var withFile = Path.Combine(baseDir, "repos_with_tests.txt");
-        var withoutFile = Path.Combine(baseDir, "repos_without_tests.txt");
-
-        await File.WriteAllLinesAsync(withFile, withTests);
-        await File.WriteAllLinesAsync(withoutFile, withoutTests);
-
-        Console.WriteLine("Done.");
-        Console.WriteLine($"Repos with tests: {withTests.Count}");
-        Console.WriteLine($"Repos without tests: {withoutTests.Count}");
+        WriteCsvRow(result);
+        
     }
-
-    private async Task<bool> RepoLikelyHasTests(string owner, string repo)
+    
+    private void WriteCsvRow(ProjectValidationResult result)
     {
-        // 1. First try to check top-level structure
-        IReadOnlyList<RepositoryContent> topLevel;
-        try
-        {
-            topLevel = await _client.Repository.Content.GetAllContents(owner, repo);
-        }
-        catch
-        {
-            return false;
-        }
+        // Parent of the project output directory
+        var outputRoot = Directory.GetParent(_projectModel.OutputPath)!.FullName;
+        var csvPath = Path.Combine(outputRoot, "project-validation.csv");
 
-        if (ContainsTestIndicators(topLevel.Select(c => c.Name)))
-            return true;
+        var fileExists = File.Exists(csvPath);
 
-        // 2. Check repo tree recursively (lightweight)
-        try
-        {
-            var repoInfo = await _client.Repository.Get(owner, repo);
-            var defaultBranch = repoInfo.DefaultBranch;
+        using var writer = new StreamWriter(csvPath, append: true);
 
-            var reference = await _client.Git.Reference.Get(owner, repo, $"heads/{defaultBranch}");
-            var tree = await _client.Git.Tree.GetRecursive(owner, repo, reference.Object.Sha);
-
-            return tree.Tree.Any(t => t.Path.Contains("test", StringComparison.OrdinalIgnoreCase));
-        }
-        catch (NotFoundException nf)
+        // Write header once
+        if (!fileExists)
         {
-            // branch or repo not found
-            return false;
-        }
-        catch (ApiException apiEx)
-        {
-            // GitHub API error
-            Console.WriteLine(apiEx.Message);
-            return false;
+            writer.WriteLine(
+                "ProjectName,HasCoverage,HasMutationReports,HasFileCodeMetrics,HasFunctionCodeMetrics");
         }
 
-        return false;
-    }
-
-    private bool ContainsTestIndicators(IEnumerable<string> names)
-    {
-        var lower = names.Select(n => n.ToLower()).ToList();
-
-        string[] indicators =
-        {
-            "test"
-        };
-
-        return lower.Any(n => indicators.Any(i => n.Contains(i)));
+        writer.WriteLine(
+            $"{result.ProjectName}," +
+            $"{result.HasCoverage}," +
+            $"{result.HasMutationReports}," +
+            $"{result.HasFileCodeMetrics}," +
+            $"{result.HasFunctionCodeMetrics}");
     }
 }

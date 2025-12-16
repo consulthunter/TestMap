@@ -57,6 +57,9 @@ public class Program
             case SetupOptions s:
                 RunSetup(s);
                 break;
+            case CheckProjectsOptions cp:
+                await RunCheckProjects(cp);
+                break;
             case ValidateProjectsOptions vo:
                 await RunValidateProjects(vo);
                 break;
@@ -129,6 +132,25 @@ public class Program
         var setupService = new SetupService(options.BasePath);
         setupService.Setup(options.OverwriteFile);
     }
+    /// <summary>
+    ///     Generates the correct configuration for TestMap
+    /// </summary>
+    /// <param name="options">CLI options parsed by CommandLine</param>
+    private static async Task RunCheckProjects(CheckProjectsOptions options)
+    {
+        Utilities.Utilities.Load();
+        var config = new ConfigurationBuilder()
+            .AddJsonFile(ConfigurationLocation(options.CheckProjectsConfigFilePath), false, true)
+            .Build();
+        var configObj = new TestMapConfig();
+        config.Bind(configObj);
+        var configurationService = new ConfigurationService(configObj);
+        configurationService.RunMode = options.Mode;
+        configurationService.SetSecrets();
+        var testMapRunner = new TestMapRunner(configurationService);
+        await testMapRunner.RunAsync();
+    }
+    
 
     /// <summary>
     ///     Generates the correct configuration for TestMap
@@ -145,9 +167,8 @@ public class Program
         var configurationService = new ConfigurationService(configObj);
         configurationService.RunMode = options.Mode;
         configurationService.SetSecrets();
-        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
-        var validate = new ValidateProjectsService(configurationService.Config, token);
-        await validate.ProcessRepositoryListAsync();
+        var testMapRunner = new TestMapRunner(configurationService);
+        await testMapRunner.RunAsync();
     }
 
     private static string ConfigurationLocation(string path)

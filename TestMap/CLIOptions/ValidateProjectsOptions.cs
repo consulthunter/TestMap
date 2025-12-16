@@ -11,7 +11,7 @@ using TestMap.Models.Configuration;
 
 namespace TestMap.CLIOptions;
 
-[Verb("validate-projects", HelpText = "Validates projects in the target file to likely contain tests.")]
+[Verb("validate-projects", HelpText = "Validate projects in the target file and output to ensure that the projects actually ran tests.")]
 public class ValidateProjectsOptions
 {
     public RunMode Mode => RunMode.ValidateProjects;
