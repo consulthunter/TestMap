@@ -62,8 +62,6 @@ public class TestMap(
     // methods
     public async Task RunAsync()
     {
-        await CloneRepoAsync();
-        await LoadDatabaseAsync();
         switch (RunMode)
         {
             case RunMode.CollectTests:
@@ -85,6 +83,8 @@ public class TestMap(
 
     private async Task CollectTestsModeAsync()
     {
+        await CloneRepoAsync();
+        await LoadDatabaseAsync();
         await ExtractInformationAsync();
         await InsertProjectionInformation();
         await AnalyzeProjectsAsync();
@@ -104,6 +104,7 @@ public class TestMap(
 
     private async Task ValidateProjectsAsync()
     {
+        await LoadDatabaseAsync();
         await ValidateProjectsService.ValidateProjectAsync();
     }
 
