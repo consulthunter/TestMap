@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Text.Json;
 using System.Xml.Linq;
 using System.Xml.Serialization;
 using TestMap.Models;
@@ -18,6 +19,10 @@ public class BuildTestService : IBuildTestService
 
     public string? LatestLogPath { get; private set; }
     public List<TrxTestResult> LatestTestResults { get; private set; } = new();
+    public string LatestTestResultRaw { get; private set; } = "";
+    public string LatestCoverageReportRaw { get; private set; } = "";
+    public string LatestMutationReportRaw { get; private set; } = "";
+    public string LatestLizardReportRaw { get; private set; } = "";
     public CoverageReport? LatestCoverageReport { get; private set; }
     public bool LatestSuccess { get; private set; }
     public int LatestCoverage { get; private set; }
@@ -43,7 +48,7 @@ public class BuildTestService : IBuildTestService
         runId = (isBaseline ? "baseline_" : "") + Guid.NewGuid();
         runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-        await _sqliteDatabaseService.TestRunRepository.InsertTestRun(runId, runDate, "started", 0, null, null);
+        await _sqliteDatabaseService.TestRunRepository.InsertTestRun(runId, runDate, "started", 0, null, null, null);
 
         // generated test runs include target method
         var result = isBaseline ? new TestRunResult() : new GeneratedTestRunResult();
@@ -63,6 +68,8 @@ public class BuildTestService : IBuildTestService
                 await CaptureContainerLogsAsync();
                 await ProcessTrxResults();
                 await LoadMergedCoverageReport();
+                await LoadMutationReport(solutionFilenames);
+                await LoadLizardReport();
 
                 result.Success = true;
                 result.LogPath = LatestLogPath;
@@ -78,6 +85,8 @@ public class BuildTestService : IBuildTestService
                 await ProcessTrxResults();
                 await CaptureContainerLogsAsync();
                 await LoadMergedCoverageReport();
+                await LoadMutationReport(solutionFilenames);
+                await LoadLizardReport();
 
                 result.Success = true;
 
@@ -102,18 +111,18 @@ public class BuildTestService : IBuildTestService
             }
 
             await _sqliteDatabaseService.TestRunRepository.UpdateTestRunStatus(runId, "success", result.Coverage,
-                result.LogPath, null);
+                result.LogPath, null, LatestTestResultRaw);
         }
         catch (Exception ex)
         {
             result.Success = false;
 
             await _sqliteDatabaseService.TestRunRepository.UpdateTestRunStatus(
-                runId, "failed", 0, LatestLogPath, ex.Message);
+                runId, "failed", 0, LatestLogPath, ex.Message, null);
         }
         finally
         {
-            CleanupCoverageDirectory();
+            CleanupProjectDirectory();
         }
 
         return result;
@@ -154,6 +163,7 @@ public class BuildTestService : IBuildTestService
         try
         {
             var serializer = new XmlSerializer(typeof(CoverageReport));
+            LatestCoverageReportRaw = await File.ReadAllTextAsync(source);
             using var fs = new FileStream(source, FileMode.Open);
             _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
             if (_projectModel.CoverageReport != null)
@@ -166,10 +176,64 @@ public class BuildTestService : IBuildTestService
             _projectModel.CoverageReport = new CoverageReport();
         }
     }
+    
+    private async Task LoadMutationReport(List<string> solutions)
+    {
+        foreach (var solution in solutions)
+        {
+            string reportDir = $"{solution.Split(".sln")[0]}_{runId}";
+            var report = Path.Combine(_projectModel.DirectoryPath!, "mutation", $"{reportDir}", "reports",
+                $"mutation-report.json");
 
-    private void CleanupCoverageDirectory()
+            try
+            {
+                // Read JSON text from file
+                string json = File.ReadAllText(report);
+
+                // Deserialize
+                var result = JsonSerializer.Deserialize<StrykerMutationResults>(json);
+                LatestMutationReportRaw = json;
+                //
+                await SaveMutationReport(result ?? new StrykerMutationResults());
+                // need to calculate score, map 
+                _projectModel.Logger?.Information("Mutation report loaded successfully.");
+            }
+            catch (Exception ex)
+            {
+                _projectModel.Logger?.Error($"Error loading Mutation report: {ex.Message}");
+            }
+        }
+    }
+    
+    private async Task LoadLizardReport()
+    {
+        var report = Path.Combine(_projectModel.DirectoryPath!, "lizard",
+            $"lizard_{runId}.xml");
+
+        try
+        {
+            // Read JSON text from file
+            var doc = XDocument.Load(report);
+            LatestLizardReportRaw = doc.ToString();
+
+            var functionMetrics = ParseFunctions(doc);
+            var fileMetrics     = ParseFiles(doc);
+            
+            await SaveLizardReport(functionMetrics, fileMetrics);
+
+            _projectModel.Logger?.Information("Lizard report loaded successfully.");
+        }
+        catch (Exception ex)
+        {
+            _projectModel.Logger?.Error($"Error loading Lizard report: {ex.Message}");
+        }
+    }
+
+    private void CleanupProjectDirectory()
     {
         var coverageDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
+        var mutationDir = Path.Combine(_projectModel.DirectoryPath!, "mutation");
+        var lizardDir = Path.Combine(_projectModel.DirectoryPath!, "lizard");
         if (Directory.Exists(coverageDir))
             try
             {
@@ -179,6 +243,28 @@ public class BuildTestService : IBuildTestService
             catch (Exception ex)
             {
                 _projectModel.Logger?.Warning($"Failed to delete coverage directory '{coverageDir}': {ex.Message}");
+            }
+        
+        if (Directory.Exists(mutationDir))
+            try
+            {
+                Directory.Delete(mutationDir, true);
+                _projectModel.Logger?.Information($"Mutation directory '{mutationDir}' deleted successfully.");
+            }
+            catch (Exception ex)
+            {
+                _projectModel.Logger?.Warning($"Failed to delete mutation directory '{mutationDir}': {ex.Message}");
+            }
+        
+        if (Directory.Exists(lizardDir))
+            try
+            {
+                Directory.Delete(lizardDir, true);
+                _projectModel.Logger?.Information($"Lizard directory '{lizardDir}' deleted successfully.");
+            }
+            catch (Exception ex)
+            {
+                _projectModel.Logger?.Warning($"Failed to delete lizard directory '{lizardDir}': {ex.Message}");
             }
     }
 
@@ -214,6 +300,7 @@ public class BuildTestService : IBuildTestService
     {
         var results = new List<TrxTestResult>();
         var doc = XDocument.Load(trxFilePath);
+        LatestTestResultRaw = doc.ToString();
         var ns = doc.Root?.Name.Namespace ?? "";
 
         var unitTestResults = doc.Descendants(ns + "UnitTestResult");
@@ -244,6 +331,90 @@ public class BuildTestService : IBuildTestService
 
         return results;
     }
+    
+    public IReadOnlyList<LizardFunctionMetrics> ParseFunctions(XDocument doc)
+    {
+        var measure =
+            doc.Root?
+               .Elements("measure")
+               .FirstOrDefault(m => (string?)m.Attribute("type") == "Function");
+
+        if (measure == null)
+            return Array.Empty<LizardFunctionMetrics>();
+
+        var results = new List<LizardFunctionMetrics>();
+
+        foreach (var item in measure.Elements("item"))
+        {
+            var nameAttr = (string?)item.Attribute("name");
+            if (string.IsNullOrWhiteSpace(nameAttr))
+                continue;
+
+            // Split "Func(...) at /path/file.cs:14"
+            var atIndex = nameAttr.LastIndexOf(" at ", StringComparison.Ordinal);
+            if (atIndex < 0)
+                continue;
+
+            var functionName = nameAttr[..atIndex];
+            var location = nameAttr[(atIndex + 4)..];
+
+            var colonIndex = location.LastIndexOf(':');
+            if (colonIndex < 0)
+                continue;
+
+            var filePath = location[..colonIndex];
+            var lineNumber = int.Parse(location[(colonIndex + 1)..]);
+
+            var values = item.Elements("value").Select(v => int.Parse(v.Value)).ToArray();
+            if (values.Length < 3)
+                continue;
+
+            results.Add(new LizardFunctionMetrics
+            {
+                FunctionName = functionName,
+                FilePath = filePath,
+                LineNumber = lineNumber,
+                Ncss = values[1],
+                Ccn = values[2]
+            });
+        }
+
+        return results;
+    }
+
+    public IReadOnlyList<LizardFileMetrics> ParseFiles(XDocument doc)
+    {
+        var measure =
+            doc.Root?
+               .Elements("measure")
+               .FirstOrDefault(m => (string?)m.Attribute("type") == "File");
+
+        if (measure == null)
+            return Array.Empty<LizardFileMetrics>();
+
+        var results = new List<LizardFileMetrics>();
+
+        foreach (var item in measure.Elements("item"))
+        {
+            var filePath = (string?)item.Attribute("name");
+            if (string.IsNullOrWhiteSpace(filePath))
+                continue;
+
+            var values = item.Elements("value").Select(v => int.Parse(v.Value)).ToArray();
+            if (values.Length < 4)
+                continue;
+
+            results.Add(new LizardFileMetrics
+            {
+                FilePath = filePath,
+                Ncss = values[1],
+                Ccn = values[2],
+                Functions = values[3]
+            });
+        }
+
+        return results;
+    }
 
     private async Task CaptureContainerLogsAsync()
     {
@@ -269,7 +440,7 @@ public class BuildTestService : IBuildTestService
     private async Task SaveCoverageReport(CoverageReport coverageReport)
     {
         var reportId =
-            await _sqliteDatabaseService.CoverageReportRepository.InsertCoverageReportGetId(coverageReport, runId);
+            await _sqliteDatabaseService.CoverageReportRepository.InsertCoverageReportGetId(coverageReport, runId, LatestCoverageReportRaw);
         foreach (var package in coverageReport.Packages)
         {
             var packageId = await _sqliteDatabaseService.SourcePackageRepository.FindPackage(package.Name);
@@ -299,6 +470,176 @@ public class BuildTestService : IBuildTestService
         }
     }
 
+    private async Task SaveMutationReport(StrykerMutationResults mutationReport)
+    {
+        var reportId = await _sqliteDatabaseService.MutationReportRepository.InsertMutationReport(runId,
+            runDate, mutationReport.projectRoot, mutationReport.schemaVersion, LatestMutationReportRaw);
+        
+        var testMap = new Dictionary<string, string>();
+
+        foreach (var testFile in mutationReport.testFiles)
+        {
+            foreach (var test in testFile.Value.tests)
+            {
+                testMap.Add(test.id, test.name);
+            }
+        }
+
+        foreach (var fileResult in mutationReport.files)
+        {
+            var score = CalculateMutationScore(fileResult.Value).Score * 100;
+            var name = fileResult.Key.Split("/").Last();
+            var relativePath = fileResult.Key.Split("/app/project/").Last();
+            var normalizedPath = relativePath
+                .Replace('/', Path.DirectorySeparatorChar);
+            var sourceFileId = await _sqliteDatabaseService.SourceFileRepository.FindSourceFile(name, normalizedPath);
+
+            if (sourceFileId != 0)
+            {
+                var fileResultId = await _sqliteDatabaseService.FileMutationResultRepository.InsertFileMutationResult(reportId,
+                    sourceFileId, fileResult.Value.language, score);
+                if (fileResultId != 0)
+                {
+                    foreach (var mutant in fileResult.Value.mutants)
+                    {
+                        var methodId =
+                            await _sqliteDatabaseService.MethodRepository.FindMethodFromLocation(sourceFileId,
+                                mutant.location);
+                        if (methodId != 0)
+                        {
+                            var mutantId =
+                                await _sqliteDatabaseService.MutantRepository.InsertMutant(fileResultId, methodId,
+                                    mutant);
+                            if (mutantId != 0)
+                            {
+                                foreach (var covered in mutant.coveredBy)
+                                {
+                                    var testMethodId =
+                                        await _sqliteDatabaseService.MethodRepository.FindMethodFromContains(
+                                            testMap[covered].Split(".").Last());
+                                    var mapId =
+                                        await _sqliteDatabaseService.MutantTestMapRepository.InsertMutantTestMap(
+                                            mutantId, testMethodId, "CoveredBy");
+                                }
+
+                                foreach (var killed in mutant.killedBy)
+                                {
+                                    var testMethodId =
+                                        await _sqliteDatabaseService.MethodRepository.FindMethodFromContains(
+                                            testMap[killed].Split(".").Last());
+                                    var mapId =
+                                        await _sqliteDatabaseService.MutantTestMapRepository.InsertMutantTestMap(
+                                            mutantId, testMethodId, "KilledBy");
+                                }
+                            }
+                            else
+                            {
+                                _projectModel.Logger?.Warning($"Mutant '{mutant.location}' not found in database.");
+                            }
+                        }
+                        else
+                        {
+                            _projectModel.Logger?.Warning($"Method mutation result '{mutant.location}' not found in database.");
+                        }
+                    }
+                }
+                else
+                {
+                    _projectModel.Logger?.Warning($"File mutation result '{name}' not found in database.");
+                }
+            }
+            else
+            {
+                _projectModel.Logger?.Warning($"Source file '{name}' not found in database.");
+            }
+        }
+    }
+
+    public async Task SaveLizardReport(IReadOnlyList<LizardFunctionMetrics> functionMetrics,
+        IReadOnlyList<LizardFileMetrics> fileMetrics)
+    {
+        foreach (var metric in functionMetrics)
+        {
+            var functionName = metric.FunctionName.Split("::").Last().Split("(").First();
+            var methodId = await _sqliteDatabaseService.MethodRepository.FindMethodFromExact(functionName);
+
+            if (methodId != 0)
+            {
+                var metricId = await _sqliteDatabaseService.LizardFunctionCodeMetricsRepository
+                    .InsertLizardFunctionCodeMetric(
+                        runId, methodId, metric);
+            }
+            else
+            {
+                _projectModel.Logger?.Warning($"Function '{functionName}' not found in database.");
+            }
+            
+        }
+        
+        foreach (var metric in fileMetrics)
+        {
+            var filePath = metric.FilePath.Split("/").Last();
+            
+            var sourceFileId = await _sqliteDatabaseService.SourceFileRepository.FindSourceFile(filePath, filePath);
+            if (sourceFileId != 0)
+            {
+                var metricId = await _sqliteDatabaseService.LizardFileCodeMetricsRepository
+                    .InsertLizardFileCodeMetric(
+                        runId, sourceFileId, metric);
+            }
+            else
+            {
+                _projectModel.Logger?.Warning($"File '{filePath}' not found in database.");
+            }
+        }
+    }
+
+    private StrykerMutationScoreResult CalculateMutationScore(StrykerFileResult fileResult)
+    {
+        var result = new StrykerMutationScoreResult();
+
+        foreach (var mutant in fileResult.mutants)
+        {
+            var status = mutant.status?.ToLowerInvariant();
+
+            // Always count ignored + total, but exclude from score
+            if (status == "ignored")
+            {
+                result = result with { Ignored = result.Ignored + 1 };
+                continue;
+            }
+
+            // Exclude static mutants from score math
+            if (mutant.@static)
+                continue;
+
+            switch (status)
+            {
+                case "killed":
+                    result = result with { Killed = result.Killed + 1 };
+                    break;
+
+                case "survived":
+                    result = result with { Survived = result.Survived + 1 };
+                    break;
+
+                case "timeout":
+                    result = result with { Timeout = result.Timeout + 1 };
+                    break;
+
+                case "nocoverage":
+                    result = result with { NoCoverage = result.NoCoverage + 1 };
+                    break;
+
+                case "compileerrors":
+                    result = result with { CompileErrors = result.CompileErrors + 1 };
+                    break;
+            }
+        }
+
+        return result;
+    }
+
     private async Task<string> RunProcessAsync(string fileName, string arguments, string? workingDir = null)
     {
 
@@ -313,12 +654,13 @@ public class BuildTestService : IBuildTestService
             CreateNoWindow = true
         };
 
-        using var process = new Process { StartInfo = startInfo };
+        using var process = new Process();
+        process.StartInfo = startInfo;
         process.Start();
 
         var output = await process.StandardOutput.ReadToEndAsync();
         var error = await process.StandardError.ReadToEndAsync();
-        process.WaitForExit();
+        await process.WaitForExitAsync();
 
         if (process.ExitCode != 0) throw new Exception($"Command failed: {fileName} {arguments}\n{error}");
 

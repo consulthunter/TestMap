@@ -16,7 +16,7 @@ public class CoverageReportRepository
         _projectModel = projectModel;
     }
 
-    public async Task<int> InsertCoverageReportGetId(CoverageReport report, string runId)
+    public async Task<int> InsertCoverageReportGetId(CoverageReport report, string runId, string rawReport)
     {
         await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
@@ -42,9 +42,9 @@ public class CoverageReportRepository
             var insertCmd = conn.CreateCommand();
             insertCmd.CommandText = @"
             INSERT INTO coverage_reports (
-              test_run_id, timestamp, line_rate, branch_rate, lines_covered, lines_valid, branches_valid, branches_covered, complexity
+              test_run_id, timestamp, line_rate, branch_rate, lines_covered, lines_valid, branches_valid, branches_covered, complexity, full_report_xml
             ) VALUES (
-                      @runId, @timestamp, @lineRate, @branchRate, @linesCovered, @linesValid, @branchesValid, @branchesCovered, @complexity
+                      @runId, @timestamp, @lineRate, @branchRate, @linesCovered, @linesValid, @branchesValid, @branchesCovered, @complexity, @rawReport
             );
         ";
 
@@ -57,6 +57,7 @@ public class CoverageReportRepository
             insertCmd.Parameters.AddWithValue("@branchesValid", report.BranchesValid);
             insertCmd.Parameters.AddWithValue("@branchesCovered", report.BranchesCovered);
             insertCmd.Parameters.AddWithValue("@complexity", report.Complexity);
+            insertCmd.Parameters.AddWithValue("@rawReport", rawReport);           
 
             await insertCmd.ExecuteNonQueryAsync();
 
@@ -65,5 +66,30 @@ public class CoverageReportRepository
             var newId = (long)await lastIdCmd.ExecuteScalarAsync();
             return (int)newId;
         }
+    }
+
+    public async Task<bool> HasCoverageReports()
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        // First, check if the invocation already exists
+        var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = @"
+            SELECT id FROM coverage_reports;
+        ";
+        
+
+        using var reader = await checkCmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync())
+        {
+            int id = reader.GetInt16(0);
+
+            if (id > 0)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

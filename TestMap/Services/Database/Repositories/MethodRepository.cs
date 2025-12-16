@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using TestMap.Models;
 using TestMap.Models.Code;
+using TestMap.Models.Results;
 
 namespace TestMap.Services.Database.Repositories;
 
@@ -139,6 +140,32 @@ public class MethodRepository
     ";
 
         cmd.Parameters.AddWithValue("@name", name);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync()) return reader.GetInt32(0); // m.guid
+
+        return 0; // not found
+    }
+    
+    public async Task<int> FindMethodFromLocation(
+        int sourceFileId,
+        StrykerLocation location)
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT m.id
+        FROM methods AS m
+        JOIN classes AS c ON c.id = m.class_id
+        WHERE c.file_id = @fileId
+          AND @line BETWEEN m.location_start_lin_no AND m.location_end_lin_no
+        LIMIT 1;
+    ";
+
+        cmd.Parameters.AddWithValue("@fileId", sourceFileId);
+        cmd.Parameters.AddWithValue("@line", location.start.line); // Roslyn is 0-based
 
         using var reader = await cmd.ExecuteReaderAsync();
         if (await reader.ReadAsync()) return reader.GetInt32(0); // m.guid

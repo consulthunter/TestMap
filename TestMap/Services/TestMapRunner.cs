@@ -92,6 +92,8 @@ public class TestMapRunner
             Logger.Information($"Creating TestMap {project.ProjectId}.");
             var db = new SqliteDatabaseService(project);
             var buildTest = new BuildTestService(project, db);
+            var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
+            
             var testMap = new Models.TestMap
             (
                 project,
@@ -103,6 +105,8 @@ public class TestMapRunner
                 new AnalyzeProjectService(project, db),
                 new MapUnresolvedService(project, db),
                 new GenerateTestService(project, _testMapConfig, db, buildTest),
+                new CheckProjectsService(_testMapConfig, token),
+                new ValidateProjectsService(project, db),
                 new DeleteProjectService(project),
                 ConfigurationService.RunMode
             );

@@ -168,7 +168,8 @@ CREATE TABLE IF NOT EXISTS test_runs (
     result TEXT NOT NULL,
     coverage INTEGER,
     log_path TEXT,
-    error TEXT
+    error TEXT,
+    report TEXT
 );
 
 CREATE TABLE IF NOT EXISTS test_results (
@@ -202,8 +203,75 @@ CREATE TABLE IF NOT EXISTS coverage_reports (
     lines_covered INTEGER,
     lines_valid INTEGER,
     branches_covered INTEGER,
-    branches_valid INTEGER
+    branches_valid INTEGER,
+    full_report_xml TEXT
 );
+
+CREATE TABLE IF NOT EXISTS mutation_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    test_run_id TEXT,
+    timestamp INTEGER,
+    project_root TEXT,
+    schema_version TEXT,
+    full_report_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS file_mutation_result (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mutation_report_id INTEGER,
+    source_file_id INTEGER,
+    language TEXT,
+    mutation_score REAL,
+    FOREIGN KEY (mutation_report_id) REFERENCES mutation_reports(id),
+    FOREIGN KEY (source_file_id) REFERENCES source_files(id)
+);
+
+CREATE TABLE IF NOT EXISTS mutants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_mutation_result_id INTEGER,
+    method_id INTEGER,
+    mutant_id TEXT,
+    mutator_name TEXT,
+    replacement TEXT,
+    start_line INTEGER,
+    start_column INTEGER,
+    end_line INTEGER,
+    end_column INTEGER,
+    status TEXT,
+    status_reason TEXT,
+    static_status TEXT,
+    FOREIGN KEY (file_mutation_result_id) REFERENCES file_mutation_result(id),
+    FOREIGN KEY (method_id) REFERENCES methods(id)
+);
+
+CREATE TABLE IF NOT EXISTS mutant_test_map (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mutant_id INTEGER NOT NULL,
+    test_method_id INTEGER NOT NULL,
+    interaction_type TEXT NOT NULL,
+    FOREIGN KEY (mutant_id) REFERENCES mutants(id),
+    FOREIGN KEY (test_method_id) REFERENCES methods(id)
+);
+
+CREATE TABLE IF NOT EXISTS lizard_file_code_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    test_run_id TEXT,
+    file_id INTEGER,
+    ncss INTEGER,
+    ccn INTEGER,
+    function_count INTEGER,
+    FOREIGN KEY (file_id) REFERENCES source_files(id)
+);
+
+CREATE TABLE IF NOT EXISTS lizard_function_code_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    test_run_id TEXT,
+    method_id INTEGER,
+    ncss INTEGER,
+    ccn INTEGER,
+    FOREIGN KEY (method_id) REFERENCES methods(id)
+);
+
 
 CREATE TABLE IF NOT EXISTS package_coverage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

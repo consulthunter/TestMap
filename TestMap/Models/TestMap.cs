@@ -36,6 +36,8 @@ public class TestMap(
     IAnalyzeProjectService analyzeProjectService,
     IMapUnresolvedService mapUnresolvedService,
     IGenerateTestService generateTestService,
+    ICheckProjectsService checkProjectsService,
+    IValidateProjectsService validateProjectsService,
     IDeleteProjectService deleteProjectService,
     RunMode runMode)
 {
@@ -49,6 +51,8 @@ public class TestMap(
     private IAnalyzeProjectService AnalyzeProjectService { get; } = analyzeProjectService;
     private IMapUnresolvedService MapUnresolvedService { get; } = mapUnresolvedService;
     private IGenerateTestService GenerateTestService { get; } = generateTestService;
+    private ICheckProjectsService CheckProjectsService { get; } = checkProjectsService;
+    private IValidateProjectsService ValidateProjectsService { get; } = validateProjectsService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
     private readonly HashSet<string> _analyzedProjectIds = new();
 
@@ -64,6 +68,12 @@ public class TestMap(
         {
             case RunMode.CollectTests:
                 await CollectTestsModeAsync();
+                break;
+            case RunMode.CheckProjects:
+                await CheckProjectsAsync();
+                break;
+            case RunMode.ValidateProjects:
+                await ValidateProjectsAsync();
                 break;
             case RunMode.GenerateTests:
                 await GenerateTestsModeAsync();
@@ -85,6 +95,16 @@ public class TestMap(
     private async Task GenerateTestsModeAsync()
     {
         await GenerateTestAsync();
+    }
+
+    private async Task CheckProjectsAsync()
+    {
+        await CheckProjectsService.ProcessRepositoryListAsync();
+    }
+
+    private async Task ValidateProjectsAsync()
+    {
+        await ValidateProjectsService.ValidateProjectAsync();
     }
 
     /// <summary>

@@ -43,6 +43,15 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     public TestRunRepository TestRunRepository { get; set; }
 
     public GeneratedTestRepository GeneratedTestRepository { get; set; }
+    
+    public FileMutationResultRepository FileMutationResultRepository { get; set; }
+    public MutationReportRepository MutationReportRepository { get; set; }
+    
+    public MutantTestMapRepository MutantTestMapRepository { get; set; }
+    public MutantRepository MutantRepository { get; set; }
+    
+    public LizardFileCodeMetricsRepository LizardFileCodeMetricsRepository { get; set; }
+    public LizardFunctionCodeMetricsRepository LizardFunctionCodeMetricsRepository { get; set; }
 
     public SqliteDatabaseService(ProjectModel projectModel)
     {
@@ -64,13 +73,29 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         MethodRepository = new MethodRepository(projectModel, _dbPath);
         InvocationRepository = new InvocationRepository(projectModel, _dbPath);
         PropertyRepository = new PropertyRepository(projectModel, _dbPath);
+        // Coverage
         CoverageReportRepository = new CoverageReportRepository(projectModel, _dbPath);
         PackageCoverageRepository = new PackageCoverageRepository(projectModel, _dbPath);
         ClassCoverageRepository = new ClassCoverageRepository(projectModel, _dbPath);
         MethodCoverageRepository = new MethodCoverageRepository(projectModel, _dbPath);
+        
+        // test results
         TestResultRepository = new TestResultRepository(projectModel, _dbPath);
         TestRunRepository = new TestRunRepository(projectModel, _dbPath);
+        
+        // generated tests
         GeneratedTestRepository = new GeneratedTestRepository(projectModel, _dbPath);
+        
+        // Mutation
+        FileMutationResultRepository = new FileMutationResultRepository(projectModel, _dbPath);
+        MutationReportRepository = new MutationReportRepository(projectModel, _dbPath);
+        MutantTestMapRepository = new MutantTestMapRepository(projectModel, _dbPath);
+        MutantRepository = new MutantRepository(projectModel, _dbPath);
+        
+        // Metrics
+        LizardFileCodeMetricsRepository = new LizardFileCodeMetricsRepository(projectModel, _dbPath);
+        LizardFunctionCodeMetricsRepository = new LizardFunctionCodeMetricsRepository(projectModel, _dbPath);
+
     }
 
     /// <summary>

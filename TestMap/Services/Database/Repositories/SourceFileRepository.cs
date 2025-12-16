@@ -70,4 +70,27 @@ public class SourceFileRepository
             file.Id = (int)newId;
         }
     }
+    
+    public async Task<int> FindSourceFile(string name, string filepath)
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT sc.id
+        FROM source_files AS sc
+        WHERE sc.name LIKE '%' || @name || '%' COLLATE NOCASE
+        AND sc.path LIKE '%' || @filepath || '%' COLLATE NOCASE
+        LIMIT 1;
+    ";
+
+        cmd.Parameters.AddWithValue("@name", name);
+        cmd.Parameters.AddWithValue("@filepath", filepath);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync()) return reader.GetInt32(0); // m.guid
+
+        return 0; // not found
+    }
 }

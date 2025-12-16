@@ -16,7 +16,7 @@ public class TestRunRepository
     }
 
     public async Task<int> InsertTestRun(string runId, string runDate, string result, int coverage, string? logPath,
-        string? error)
+        string? error, string? report)
     {
         await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
@@ -29,14 +29,16 @@ public class TestRunRepository
             result,
             coverage,
             log_path,
-            error
+            error,
+            report
         ) VALUES (
             @runId,
             @runDate,
             @result,
             @coverage,
             @logPath,
-            @error
+            @error,
+            @report
         );
     ";
 
@@ -46,6 +48,7 @@ public class TestRunRepository
         insertCmd.Parameters.AddWithValue("@coverage", coverage);
         insertCmd.Parameters.AddWithValue("@logPath", logPath ?? (object)DBNull.Value);
         insertCmd.Parameters.AddWithValue("@error", error ?? (object)DBNull.Value);
+        insertCmd.Parameters.AddWithValue("@report", report ?? (object)DBNull.Value);
 
         await insertCmd.ExecuteNonQueryAsync();
 
@@ -61,7 +64,8 @@ public class TestRunRepository
         string result,
         int coverage,
         string? logPath,
-        string? error)
+        string? error,
+        string? report)
     {
         await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
@@ -80,6 +84,7 @@ public class TestRunRepository
         cmd.Parameters.AddWithValue("@coverage", coverage);
         cmd.Parameters.AddWithValue("@logPath", logPath ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("@error", error ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@report", report);
         cmd.Parameters.AddWithValue("@runId", runId);
 
         await cmd.ExecuteNonQueryAsync();
