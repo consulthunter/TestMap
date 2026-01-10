@@ -44,6 +44,7 @@ public class BuildTestService : IBuildTestService
         LatestCoverageReport = null;
         LatestSuccess = false;
         LatestCoverage = 0;
+        string desc = "";
 
         runId = (isBaseline ? "baseline_" : "") + Guid.NewGuid();
         runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
@@ -70,9 +71,16 @@ public class BuildTestService : IBuildTestService
                 await LoadMergedCoverageReport();
                 await LoadMutationReport(solutionFilenames);
                 await LoadLizardReport();
-
+                
+                if (LatestCoverageReport != null)
+                    LatestCoverage = (int)(LatestCoverageReport.LineRate * 100);
+                
                 result.Success = true;
+                result.RunId = runId;
+                result.RunDate = runDate;
+                result.Coverage = LatestCoverage;
                 result.LogPath = LatestLogPath;
+                result.Results = LatestTestResults;
             }
             else
             {
@@ -100,17 +108,34 @@ public class BuildTestService : IBuildTestService
                     var coverageLookup = LatestCoverageReport?.Packages?
                         .SelectMany(p => p.Classes)
                         .SelectMany(c => c.Methods)
-                        .ToDictionary(m => m.Name);
+                        .Where(m =>
+                            m.Name != ".ctor" &&
+                            !m.Name.StartsWith("get_") &&
+                            !m.Name.StartsWith("set_"))
+                        .GroupBy(m => m.Name)
+                        .ToDictionary(g => g.Key, g => g.First());
 
-                    gen.MethodCoverage = coverageLookup?.GetValueOrDefault(methodName)?.LineRate ?? 0;
+                    gen.MethodCoverage =
+                        coverageLookup?.GetValueOrDefault(methodName)?.LineRate ?? 0;
                 }
-
+                
+                result.RunId = runId;
+                result.RunDate = runDate;
                 result.Coverage = LatestCoverage;
                 result.LogPath = LatestLogPath;
                 result.Results = LatestTestResults;
             }
 
-            await _sqliteDatabaseService.TestRunRepository.UpdateTestRunStatus(runId, "success", result.Coverage,
+            if (LatestCoverage > 0)
+            {
+                desc = "Success: Coverage Found";
+            }
+            else
+            {
+                desc = "Failed: Zero Coverage Found";
+            }
+
+            await _sqliteDatabaseService.TestRunRepository.UpdateTestRunStatus(runId, desc, result.Coverage,
                 result.LogPath, null, LatestTestResultRaw);
         }
         catch (Exception ex)
@@ -166,6 +191,7 @@ public class BuildTestService : IBuildTestService
             LatestCoverageReportRaw = await File.ReadAllTextAsync(source);
             using var fs = new FileStream(source, FileMode.Open);
             _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
+            LatestCoverageReport = _projectModel.CoverageReport;
             if (_projectModel.CoverageReport != null)
                 await SaveCoverageReport(_projectModel.CoverageReport);
             _projectModel.Logger?.Information("Coverage report loaded successfully.");
@@ -188,7 +214,7 @@ public class BuildTestService : IBuildTestService
             try
             {
                 // Read JSON text from file
-                string json = File.ReadAllText(report);
+                string json = await File.ReadAllTextAsync(report);
 
                 // Deserialize
                 var result = JsonSerializer.Deserialize<StrykerMutationResults>(json);
@@ -292,7 +318,21 @@ public class BuildTestService : IBuildTestService
                 result.MethodId = methodId;
             }
 
-            await _sqliteDatabaseService.TestResultRepository.InsertTestResults(results);
+            // Filter out results with missing method
+            var validResults = results.Where(r => r.MethodId != 0).ToList();
+            var invalidResults = results.Where(r => r.MethodId == 0).ToList();
+
+            // Add only valid results to project model
+            _projectModel.TestResults.AddRange(validResults);
+
+            // Optionally log missing methods
+            foreach (var result in invalidResults)
+            {
+                _projectModel.Logger?.Warning($"Test method not found in DB, skipping TestResult: {result.TestName}");
+            }
+
+            // Insert only valid results
+            await _sqliteDatabaseService.TestResultRepository.InsertTestResults(validResults);
         }
     }
 
@@ -425,7 +465,7 @@ public class BuildTestService : IBuildTestService
 
         _projectModel.Logger?.Information($"Capturing logs for container: {containerName}");
 
-        var logs = await RunProcessAsync("docker", $"logs {containerName}");
+        var logs = await RunProcessAsync("docker", $"logs --since 24h {containerName}");
 
         await File.WriteAllTextAsync(logsFilePath, logs);
 
@@ -440,32 +480,68 @@ public class BuildTestService : IBuildTestService
     private async Task SaveCoverageReport(CoverageReport coverageReport)
     {
         var reportId =
-            await _sqliteDatabaseService.CoverageReportRepository.InsertCoverageReportGetId(coverageReport, runId, LatestCoverageReportRaw);
+            await _sqliteDatabaseService.CoverageReportRepository
+                .InsertCoverageReportGetId(
+                    coverageReport, runId, LatestCoverageReportRaw);
+
         foreach (var package in coverageReport.Packages)
         {
-            var packageId = await _sqliteDatabaseService.SourcePackageRepository.FindPackage(package.Name);
+            var packageId =
+                await _sqliteDatabaseService.SourcePackageRepository
+                    .FindPackage(package.Name);
+
+            if (packageId == 0)
+            {
+                _projectModel.Logger?.Warning(
+                    $"Coverage package '{package.Name}' not found in DB.");
+                continue;
+            }
+
             var packCoverId =
-                await _sqliteDatabaseService.PackageCoverageRepository.InsertPackageCoverageGetId(package, reportId,
-                    packageId);
+                await _sqliteDatabaseService.PackageCoverageRepository
+                    .InsertPackageCoverageGetId(
+                        package, reportId, packageId);
 
             foreach (var claCov in package.Classes)
             {
-                var claId = await _sqliteDatabaseService.ClassRepository.FindClass(claCov.Name);
+                var claId =
+                    await _sqliteDatabaseService.ClassRepository
+                        .FindClass(claCov.Name);
+
+                if (claId == 0)
+                {
+                    _projectModel.Logger?.Warning(
+                        $"Coverage class '{claCov.Name}' not found in DB.");
+                    continue;
+                }
+
                 var claCoverId =
-                    await _sqliteDatabaseService.ClassCoverageRepository.InsertClassCoverageGetId(claCov, packCoverId,
-                        claId);
+                    await _sqliteDatabaseService.ClassCoverageRepository
+                        .InsertClassCoverageGetId(
+                            claCov, packCoverId, claId);
 
                 foreach (var methodCov in claCov.Methods)
-                    // coverage includes generated methods like getters and setters
-                    if (!methodCov.Name.Contains("get") && !methodCov.Name.Contains("set") &&
-                        !methodCov.Name.Contains(".ctor"))
+                {
+                    if (methodCov.Name.Contains("get") ||
+                        methodCov.Name.Contains("set") ||
+                        methodCov.Name.Contains(".ctor"))
+                        continue;
+
+                    var methodId =
+                        await _sqliteDatabaseService.MethodRepository
+                            .FindMethodFromExact(methodCov.Name);
+
+                    if (methodId == 0)
                     {
-                        var methodId =
-                            await _sqliteDatabaseService.MethodRepository.FindMethodFromExact(methodCov.Name);
-                        var methodCoverId =
-                            await _sqliteDatabaseService.MethodCoverageRepository.InsertMethodCoverageGetId(methodCov,
-                                claCoverId, methodId);
+                        _projectModel.Logger?.Warning(
+                            $"Coverage method '{methodCov.Name}' not found in DB.");
+                        continue;
                     }
+
+                    await _sqliteDatabaseService.MethodCoverageRepository
+                        .InsertMethodCoverageGetId(
+                            methodCov, claCoverId, methodId);
+                }
             }
         }
     }
@@ -517,9 +593,16 @@ public class BuildTestService : IBuildTestService
                                     var testMethodId =
                                         await _sqliteDatabaseService.MethodRepository.FindMethodFromContains(
                                             testMap[covered].Split(".").Last());
-                                    var mapId =
-                                        await _sqliteDatabaseService.MutantTestMapRepository.InsertMutantTestMap(
-                                            mutantId, testMethodId, "CoveredBy");
+                                    if (testMethodId != 0)
+                                    {
+                                        var mapId =
+                                            await _sqliteDatabaseService.MutantTestMapRepository.InsertMutantTestMap(
+                                                mutantId, testMethodId, "CoveredBy");
+                                    }
+                                    else
+                                    {
+                                        _projectModel.Logger?.Warning($"Test method '{testMap[covered]}' not found in database.");
+                                    }
                                 }
 
                                 foreach (var killed in mutant.killedBy)
@@ -527,9 +610,16 @@ public class BuildTestService : IBuildTestService
                                     var testMethodId =
                                         await _sqliteDatabaseService.MethodRepository.FindMethodFromContains(
                                             testMap[killed].Split(".").Last());
-                                    var mapId =
-                                        await _sqliteDatabaseService.MutantTestMapRepository.InsertMutantTestMap(
-                                            mutantId, testMethodId, "KilledBy");
+                                    if (testMethodId != 0)
+                                    {
+                                        var mapId =
+                                            await _sqliteDatabaseService.MutantTestMapRepository.InsertMutantTestMap(
+                                                mutantId, testMethodId, "KilledBy");
+                                    }
+                                    else
+                                    {
+                                        _projectModel.Logger?.Warning($"Test method '{testMap[killed]}' not found in database.");
+                                    }
                                 }
                             }
                             else
@@ -658,12 +748,14 @@ public class BuildTestService : IBuildTestService
         process.StartInfo = startInfo;
         process.Start();
 
-        var output = await process.StandardOutput.ReadToEndAsync();
-        var error = await process.StandardError.ReadToEndAsync();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        
         await process.WaitForExitAsync();
+        await Task.WhenAll(stdoutTask, stderrTask);
 
-        if (process.ExitCode != 0) throw new Exception($"Command failed: {fileName} {arguments}\n{error}");
+        if (process.ExitCode != 0) throw new Exception($"Command failed: {fileName} {arguments}\n{stderrTask.Result}");
 
-        return output;
+        return stdoutTask.Result;
     }
 }

@@ -16,6 +16,6 @@ public class FullAnalysisOptions
 {
     public RunMode Mode => RunMode.FullAnalysis;
 
-    [Option('c', "config", SetName = "collect", Required = false, HelpText = "Config File path.")]
+    [Option('c', "config", SetName = "full-analysis", Required = false, HelpText = "Config File path.")]
     public string FullAnalysisConfigFilePath { get; set; }
 }

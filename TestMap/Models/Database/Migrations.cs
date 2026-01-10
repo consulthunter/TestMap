@@ -188,9 +188,17 @@ CREATE TABLE IF NOT EXISTS generated_tests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     test_run_id INTEGER NOT NULL,
     original_method_id INTEGER NOT NULL,
+    test_method_id INTEGER NOT NULL,
+    filepath TEXT,
+    provider TEXT,
+    model TEXT,
+    strategy TEXT,
+    prompt_token_count INTEGER,
+    generation_duration INTEGER,
     generated_body TEXT,
     FOREIGN KEY (test_run_id) REFERENCES test_runs(id),
     FOREIGN KEY (original_method_id) REFERENCES methods(id)
+    FOREIGN KEY (test_method_id) REFERENCES methods(id)
 );
 
 CREATE TABLE IF NOT EXISTS coverage_reports (
@@ -308,5 +316,77 @@ CREATE TABLE IF NOT EXISTS method_coverage (
     FOREIGN KEY (class_coverage_id) REFERENCES class_coverage(id),
     FOREIGN KEY (method_id) REFERENCES methods(id)
 );
+
+CREATE VIEW IF NOT EXISTS v_baseline_uncovered_tested_methods AS
+WITH UncoveredMethods AS (
+    SELECT 
+        mc.method_id, 
+        mc.line_rate, 
+        mc.branch_rate,
+        m.class_id, 
+        m.name AS method_name,
+        m.full_string AS method_body,
+        c.name AS class_name,
+        sf.id AS source_file_id
+    FROM method_coverage mc
+    JOIN methods m ON mc.method_id = m.id
+    JOIN classes c ON m.class_id = c.id
+    JOIN source_files sf ON c.file_id = sf.id
+    WHERE mc.line_rate != 1
+),
+MethodTestMapping AS (
+    SELECT
+        sm.id AS source_method_id,
+        tm.id AS test_method_id,
+        tm.name AS test_method_name,
+        tm.full_string AS test_method_body,
+        tc.id AS test_class_id,
+        tc.name AS test_class_name,
+        tc.testing_framework,
+        tc.location_start_lin_no AS test_class_lin_start,
+        tc.location_body_start AS test_class_body_start,
+        tc.location_end_lin_no AS test_class_lin_end,
+        tc.location_body_end AS test_class_body_end,
+        tf.path AS test_file_path,
+        tf.usings AS test_dependencies
+    FROM invocations i
+    JOIN methods sm ON i.source_method_id = sm.id
+    JOIN methods tm ON i.target_method_id = tm.id AND tm.is_test_method = 1
+    JOIN classes tc ON tm.class_id = tc.id
+    JOIN source_files tf ON tc.file_id = tf.id
+)
+SELECT 
+    um.method_id,
+    um.method_name,
+    um.method_body,
+    um.line_rate,
+    um.branch_rate,
+    um.class_id,
+    um.class_name,
+    CASE WHEN mt.test_method_id IS NOT NULL THEN 'Has tests covering method' ELSE 'No tests covering method' END AS coverage_status,
+    mt.test_method_id,
+    mt.test_method_name,
+    mt.test_method_body,
+    mt.test_class_id,
+    mt.test_class_name,
+    mt.testing_framework,
+    mt.test_class_lin_start,
+    mt.test_class_body_start,
+    mt.test_class_lin_end,
+    mt.test_class_body_end,
+    mt.test_file_path,
+    mt.test_dependencies,
+    asol.solution_path AS solution_file_path
+FROM UncoveredMethods um
+LEFT JOIN MethodTestMapping mt 
+    ON um.method_id = mt.source_method_id
+LEFT JOIN source_packages sp 
+    ON sp.id = (SELECT package_id FROM source_files WHERE id = um.source_file_id)
+LEFT JOIN analysis_projects ap 
+    ON ap.id = sp.analysis_project_id
+LEFT JOIN analysis_solutions asol 
+    ON asol.id = ap.solution_id
+WHERE test_method_id IS NOT NULL
+ORDER BY um.method_name, mt.test_method_name;
 ";
 }

@@ -12,6 +12,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using TestMap.Models.Configuration;
 using TestMap.Services.CollectInformation;
 using TestMap.Services.Database;
+using TestMap.Services.Evaluation;
 using TestMap.Services.ProjectOperations;
 using TestMap.Services.Testing;
 
@@ -38,6 +39,8 @@ public class TestMap(
     IGenerateTestService generateTestService,
     ICheckProjectsService checkProjectsService,
     IValidateProjectsService validateProjectsService,
+    IFullAnalysisService fullAnalysisService,
+    IResultsService resultsService,
     IDeleteProjectService deleteProjectService,
     RunMode runMode)
 {
@@ -53,6 +56,8 @@ public class TestMap(
     private IGenerateTestService GenerateTestService { get; } = generateTestService;
     private ICheckProjectsService CheckProjectsService { get; } = checkProjectsService;
     private IValidateProjectsService ValidateProjectsService { get; } = validateProjectsService;
+    private IFullAnalysisService FullAnalysisService { get; } = fullAnalysisService;
+    private IResultsService ResultsService { get; } = resultsService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
     private readonly HashSet<string> _analyzedProjectIds = new();
 
@@ -76,6 +81,14 @@ public class TestMap(
             case RunMode.GenerateTests:
                 await GenerateTestsModeAsync();
                 break;
+            case RunMode.FullAnalysis:
+                await FullAnalysisModeAsync();
+                break;
+            case RunMode.Results:
+                await ResultsModeAsync();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
         }
 
         if (!Config.Persistence.KeepProjectFiles) await DeleteProjectAsync();
@@ -95,6 +108,16 @@ public class TestMap(
     private async Task GenerateTestsModeAsync()
     {
         await GenerateTestAsync();
+    }
+    
+    private async Task FullAnalysisModeAsync()
+    {
+        await FullAnalysisAsync();
+    }
+    
+    private async Task ResultsModeAsync()
+    {
+        await ResultsService.ResultsAsync();
     }
 
     private async Task CheckProjectsAsync()
@@ -195,6 +218,11 @@ public class TestMap(
     private async Task GenerateTestAsync()
     {
         await GenerateTestService.GenerateTestAsync();
+    }
+    
+    private async Task FullAnalysisAsync()
+    {
+        await FullAnalysisService.FullAnalysisAsync();
     }
 
     /// <summary>

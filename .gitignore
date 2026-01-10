@@ -13,3 +13,4 @@ TestMap.Tests/Logs/
 .idea/
 *.env
 Release/
+Replication/

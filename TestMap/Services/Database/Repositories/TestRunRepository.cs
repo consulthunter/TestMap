@@ -89,4 +89,23 @@ public class TestRunRepository
 
         await cmd.ExecuteNonQueryAsync();
     }
+
+    public async Task<int> GetTestRunId(string runId)
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        var selectCmd = conn.CreateCommand();
+        selectCmd.CommandText = @"
+            SELECT id from test_runs WHERE run_id = @runId;
+        ";
+
+        selectCmd.Parameters.AddWithValue("@runId", runId);
+
+        using var reader = await selectCmd.ExecuteReaderAsync();
+
+        if (await reader.ReadAsync()) return reader.GetInt32(0); // m.guid
+        
+        return 0;
+    }
 }

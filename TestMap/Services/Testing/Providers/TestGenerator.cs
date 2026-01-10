@@ -2,6 +2,11 @@ using System.Configuration;
 using Amazon;
 using Amazon.BedrockRuntime;
 using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.Amazon;
+using Microsoft.SemanticKernel.Connectors.Google;
+using Microsoft.SemanticKernel.Connectors.Ollama;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.Providers;
 
@@ -10,9 +15,11 @@ namespace TestMap.Services.Testing.Providers;
 public class TestGenerator
 {
     private readonly Kernel _kernel;
+    private readonly TestMapConfig config;
 
     public TestGenerator(TestMapConfig config)
     {
+        this.config = config;
         var builder = Kernel.CreateBuilder();
         var provider = config.Generation.Provider;
         var model = config.Generation.Model;
@@ -136,8 +143,69 @@ public class TestGenerator
     }
 
 
-    public async Task<string> CreateTest(string prompt)
+    public async Task<string> CreateTest(string prompt, double temperature = 0.7)
     {
-        return await _kernel.InvokePromptAsync<string>(prompt) ?? string.Empty;
+        string test = "";
+        try
+        {
+            var provider = config.Generation.Provider;
+            var chatHistory = new ChatHistory("You are an expert software tester with experience in csharp.");
+            var chat = _kernel.GetRequiredService<IChatCompletionService>();
+            chatHistory.AddUserMessage(prompt);
+
+            switch (provider)
+            {
+                case "openai":
+                    var openai = await chat.GetChatMessageContentAsync(chatHistory, new OpenAIPromptExecutionSettings
+                    {
+                        Temperature = temperature
+                    });
+                    chatHistory.Add(openai);
+                    break;
+                case "ollama":
+                    var ollama = await chat.GetChatMessageContentAsync(chatHistory, new OllamaPromptExecutionSettings
+                    {
+                        Temperature = (float)temperature
+                    });
+                    chatHistory.Add(ollama);
+                    break;
+                case "google":
+                    var google = await chat.GetChatMessageContentAsync(chatHistory, new GeminiPromptExecutionSettings
+                    {
+                        Temperature = temperature
+                    });
+                    chatHistory.Add(google);
+                    break;
+                case "amazon":
+                    var model = config.Generation.Model;
+                    if (model.Contains("anthropic"))
+                    {
+                        var amazon = await chat.GetChatMessageContentAsync(chatHistory, new AmazonClaudeExecutionSettings
+                        {
+                            Temperature = (float)temperature
+                        });
+                        chatHistory.Add(amazon);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Unsupported model for Amazon provider.");
+                    }
+                    break;
+                case "custom":
+                    var custom = await chat.GetChatMessageContentAsync(chatHistory, new OpenAIPromptExecutionSettings
+                    {
+                        Temperature = temperature
+                    });
+                    chatHistory.Add(custom);
+                    break;
+            }
+
+            test = chatHistory.Last().Content ?? string.Empty;
+            return test;
+        } catch (Exception ex)
+        {
+            Console.WriteLine($"Error generating test: {ex.Message}");
+            return string.Empty;
+        }
     }
 }

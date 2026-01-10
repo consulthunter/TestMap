@@ -14,6 +14,7 @@ using TestMap.Models.Configuration;
 using TestMap.Services.CollectInformation;
 using TestMap.Services.Configuration;
 using TestMap.Services.Database;
+using TestMap.Services.Evaluation;
 using TestMap.Services.ProjectOperations;
 using TestMap.Services.Testing;
 
@@ -107,6 +108,8 @@ public class TestMapRunner
                 new GenerateTestService(project, _testMapConfig, db, buildTest),
                 new CheckProjectsService(_testMapConfig, token),
                 new ValidateProjectsService(project, db),
+                new FullAnalysisService(project, _testMapConfig, db, buildTest),
+                new ResultsService(project, _testMapConfig, db),
                 new DeleteProjectService(project),
                 ConfigurationService.RunMode
             );

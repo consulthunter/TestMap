@@ -376,7 +376,12 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 spec.EndLinePosition.Line, spec.EndLinePosition.Character);
             var method = new MethodModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString,
                 docstring, isTest, framework, location);
-            FindInvocations(methodDeclarationSyntax, method.Guid);
+            // only capture invocations if the method is a test method
+            // otherwise, we get a major slowdown on capturing every invocation
+            if (isTest)
+            {
+                FindInvocations(methodDeclarationSyntax, method.Guid);
+            }
             methods.Add(method);
 
             // Use the methodGuid or another key to store the method in the dictionary

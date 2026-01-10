@@ -36,15 +36,15 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Provider": "amazon",
-    "Model": "us.anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "Provider": "ollama",
+    "Model": "gpt-oss:20b",
     "MaxRetries": 1
   },
   "Amazon": {
     "AwsRegion": "us-east-1"
   },
   "Ollama": {
-    "Endpoint": "http://localhost:10000/"
+    "Endpoint": "http://localhost:11434/"
   },
   "Custom": {
     "Endpoint": "http://localhost:11434/"

@@ -8,6 +8,7 @@ public class CoverageMethodResult
     public string MethodBody { get; set; } = string.Empty;
 
     public double LineRate { get; set; } = 0.0;
+    public double BranchRate { get; set; } = 0.0;
 
     // Production class info
     public int ClassId { get; set; }
@@ -32,6 +33,7 @@ public class CoverageMethodResult
     public string TestDependencies { get; set; }
 
     // Test method info
+    public int TestMethodId { get; set; }
     public string TestMethodName { get; set; }
     public string TestMethodBody { get; set; }
 
