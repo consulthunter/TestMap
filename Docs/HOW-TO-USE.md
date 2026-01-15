@@ -10,20 +10,7 @@ Within the ```/TestMap/TestMap/``` directory run
 ```
 This will generate the file ```./Config/default-config.json``` with default values. This will hold the configuration for running the rest of the project.
 
-## Collect Repositories
-
-Under ```/TestMap/Scripts/``` there is a python script that can be used to gather a list of repositories.
-
-The list of repositories should be a text file including the full URL to each repository, for example, ```https://github.com/consulthunter/TestMap```. Put each distinct repository on a new line.
-
-Place the file with the list under the ```/TestMap/TestMap/Data/``` directory.
-
-Now modify the ```/TestMap/TestMap/Config/default-config.json```
-
-- Edit ```FilePaths```
-  - Change the ```TargetFilePath``` to the fullpath of the file containing your list of repositories.
-
-### Specify Frameworks
+## Specify Frameworks
 
 By default, we have defined some attributes across three popular testing frameworks in the ```default-config.json```
 
@@ -65,7 +52,7 @@ You can modify this list to add or remove frameworks.
 
 Likewise, you can modify the attributes from the framework. 
 
-### Run Collect
+### Run Collect-Tests
 
 Assuming that you have completed the installation from the [README.md](../README.md) and you have defined the list of repositories and testing frameworks in the ```default-config.json```, you can now run the program:
 

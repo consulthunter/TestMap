@@ -130,12 +130,6 @@ public class FullAnalysisService : IFullAnalysisService
                  // check failures and coverage improvement
                  var failedTests = runResult.Results.Where(r => r.Outcome != "Passed").ToList();
                  var baseline = methodResult.LineRate;
-                 
-                 if (runResult is GeneratedTestRunResult gen)
-                     if (!failedTests.Any() && gen.MethodCoverage >= baseline)
-                         // if no failures and coverage improved, insert into DB
-                         // move to next method
-                         break;
 
                 var runId = await _sqliteDatabaseService.TestRunRepository.GetTestRunId(runResult.RunId);
                 
@@ -164,6 +158,13 @@ public class FullAnalysisService : IFullAnalysisService
                 }
 
                 RollbackRepo();
+                
+                // assuming everything goes right
+                if (runResult is GeneratedTestRunResult gen)
+                    if (!failedTests.Any() && gen.MethodCoverage >= baseline)
+                        // if no failures and coverage improved, insert into DB
+                        // move to next method
+                        break;
             }
         }
     }
