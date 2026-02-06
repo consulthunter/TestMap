@@ -17,7 +17,6 @@ using TestMap.Services.Database;
 using TestMap.Services.Evaluation;
 using TestMap.Services.ProjectOperations;
 using TestMap.Services.Testing;
-using TestMap.Services.xNose;
 
 namespace TestMap.Services;
 
