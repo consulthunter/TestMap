@@ -17,6 +17,7 @@ using TestMap.Services.Database;
 using TestMap.Services.Evaluation;
 using TestMap.Services.ProjectOperations;
 using TestMap.Services.Testing;
+using TestMap.Services.xNose;
 
 namespace TestMap.Services;
 
@@ -94,7 +95,7 @@ public class TestMapRunner
             var db = new SqliteDatabaseService(project);
             var buildTest = new BuildTestService(project, db);
             var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
-            
+
             var testMap = new Models.TestMap
             (
                 project,
