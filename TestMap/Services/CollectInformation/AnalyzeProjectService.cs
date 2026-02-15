@@ -31,12 +31,14 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private Dictionary<string, List<InvocationModel>> _invocations = new();
     private Dictionary<string, MethodModel> _methods = new();
     private SqliteDatabaseService _databaseService;
+    private ClassVirtualizationVisitor _classVirtualizationVisitor;
 
 
     public AnalyzeProjectService(ProjectModel projectModel, SqliteDatabaseService databaseService)
     {
         _projectModel = projectModel;
         _databaseService = databaseService;
+        _classVirtualizationVisitor = new ClassVirtualizationVisitor();
     }
 
     /// <summary>
@@ -51,7 +53,6 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         // for every .cs file in the current project
         if (cSharpCompilation != null)
         {
-            var classVisitor = new ClassVirtualizationVisitor();
 
             foreach (var document in cSharpCompilation.SyntaxTrees)
             {
@@ -61,7 +62,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
                 _projectModel.Logger?.Information($"Analyzing {document.FilePath}");
 
-                classVisitor.Visit(document.GetRoot());
+                _classVirtualizationVisitor.Visit(document.GetRoot());
                 // Necessary to analyze types and retrieve declarations
                 // for invocations
                 // var semanticModel = compilation.GetSemanticModel(document);
@@ -154,7 +155,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
                 foreach (var import in usings) await _databaseService.ImportRepository.InsertImports(import);
             }
-            XNoseAnalyze(classVisitor, analysisProject.ProjectFilePath);
+            XNoseAnalyze(_classVirtualizationVisitor, analysisProject.SolutionFilePath ?? analysisProject.ProjectFilePath);
         }
 
         _methods.Clear();
