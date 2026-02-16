@@ -76,14 +76,13 @@ public class TestGenerator
 
             case "custom":
                 var uri = new Uri(customConfig?.Endpoint ?? string.Empty);
-                if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(customConfig?.OrgId) ||
+                if (string.IsNullOrEmpty(model) ||
                     string.IsNullOrEmpty(customConfig?.ApiKey))
                     throw new ConfigurationErrorsException(
                         "For openai provider: OrgID, Model, and ApiKey must be configured.");
                 builder.AddOpenAIChatCompletion(
                     model,
                     uri,
-                    orgId: customConfig.OrgId,
                     apiKey: customConfig.ApiKey);
                 break;
             default:

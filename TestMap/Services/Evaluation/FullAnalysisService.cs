@@ -121,7 +121,7 @@ public class FullAnalysisService : IFullAnalysisService
                     continue;
                 }
 
-                Utilities.Utilities.InsertTestIntoFile(methodResult.TestFilePath, test);
+                Utilities.Utilities.InsertTestIntoFile(methodResult.TestClassName, methodResult.TestFilePath, test);
 
                 // run tests (in-memory results)
                  var runResult =

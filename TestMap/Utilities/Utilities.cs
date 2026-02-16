@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -73,14 +74,27 @@ public static class Utilities
         }
     }
 
-    public static void InsertTestIntoFile(string filePath, string test)
+    public static void InsertTestIntoFile(string className, string filePath, string testMethodCode)
     {
-        var file = File.ReadAllLines(filePath).ToList();
-        var lastBraceIndex = file.FindLastIndex(line => line.Trim() == "}");
-        if (lastBraceIndex == -1)
-            throw new InvalidOperationException($"No closing brace found in {filePath}");
+        var sourceText = File.ReadAllText(filePath);
+        var tree = CSharpSyntaxTree.ParseText(sourceText);
+        var root = tree.GetCompilationUnitRoot();
 
-        file.Insert(lastBraceIndex, test);
-        File.WriteAllLines(filePath, file);
+        var classNode = root.DescendantNodes()
+            .OfType<ClassDeclarationSyntax>()
+            .FirstOrDefault(c => c.Identifier.Text == className);
+
+        if (classNode == null)
+            throw new InvalidOperationException($"Class '{className}' not found in {filePath}");
+
+        // Parse the method text into syntax
+        var method = SyntaxFactory.ParseMemberDeclaration(testMethodCode)
+                     ?? throw new InvalidOperationException("Invalid test method syntax.");
+
+        var newClassNode = classNode.AddMembers(method);
+
+        var newRoot = root.ReplaceNode(classNode, newClassNode);
+
+        File.WriteAllText(filePath, newRoot.NormalizeWhitespace().ToFullString());
     }
 }
