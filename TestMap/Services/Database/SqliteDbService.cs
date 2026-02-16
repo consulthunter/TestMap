@@ -50,6 +50,9 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     
     public LizardFileCodeMetricsRepository LizardFileCodeMetricsRepository { get; set; }
     public LizardFunctionCodeMetricsRepository LizardFunctionCodeMetricsRepository { get; set; }
+    
+    public MethodTestSmellRepository MethodTestSmellRepository { get; set; }
+    public TestSmellRepository TestSmellRepository { get; set; }
 
     public SqliteDatabaseService(ProjectModel projectModel)
     {
@@ -92,6 +95,10 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         // Metrics
         LizardFileCodeMetricsRepository = new LizardFileCodeMetricsRepository(projectModel, _dbPath);
         LizardFunctionCodeMetricsRepository = new LizardFunctionCodeMetricsRepository(projectModel, _dbPath);
+        
+        // Test Smells
+        MethodTestSmellRepository = new MethodTestSmellRepository(projectModel, _dbPath);
+        TestSmellRepository = new TestSmellRepository(projectModel, _dbPath);
 
     }
 

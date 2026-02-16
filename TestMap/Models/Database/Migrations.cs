@@ -269,6 +269,38 @@ CREATE TABLE IF NOT EXISTS lizard_function_code_metrics (
     FOREIGN KEY (method_id) REFERENCES methods(id)
 );
 
+CREATE TABLE IF NOT EXISTS test_smells (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NULL
+);
+
+INSERT OR IGNORE INTO test_smells (name, description) VALUES
+('EmptyTestSmell', NULL),
+('ConditionalTestSmell', NULL),
+('CyclomaticComplexityTestSmell', NULL),
+('ExpectedExceptionTestSmell', NULL),
+('AssertionRouletteTestSmell', NULL),
+('UnknownTestSmell', NULL),
+('RedundantPrintTestSmell', NULL),
+('SleepyTestSmell', NULL),
+('IgnoreTestSmell', NULL),
+('RedundantAssertionTestSmell', NULL),
+('DuplicateAssertionTestSmell', NULL),
+('MagicNumberTestSmell', NULL),
+('EagerTestSmell', NULL),
+('BoolInAssertEqualSmell', NULL),
+('EqualInAssertSmell', NULL),
+('SensitiveEqualitySmell', NULL),
+('ConstructorInitializationTestSmell', NULL),
+('ObscureInLineSetUpSmell', NULL);
+
+CREATE TABLE IF NOT EXISTS method_test_smells (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    method_id INTEGER NOT NULL REFERENCES methods(id),
+    test_smell_id INTEGER NOT NULL REFERENCES test_smells(id),
+    status TEXT NOT NULL  -- e.g. 'Found', 'Not Found'
+);
 
 CREATE TABLE IF NOT EXISTS package_coverage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

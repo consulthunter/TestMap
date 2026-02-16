@@ -103,6 +103,28 @@ public class MethodRepository
 
         return 0; // not found
     }
+    
+    public async Task<int> FindMethod(string name, int classId)
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT m.id
+        FROM methods AS m
+        JOIN classes AS c ON m.class_id = c.id
+        WHERE m.name = @name AND c.id = @classId;
+    ";
+
+        cmd.Parameters.AddWithValue("@name", name);
+        cmd.Parameters.AddWithValue("@classId", classId);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (await reader.ReadAsync()) return reader.GetInt32(0); // m.guid
+
+        return 0; // not found
+    }
 
     public async Task<int> FindMethodFromContains(string name)
     {

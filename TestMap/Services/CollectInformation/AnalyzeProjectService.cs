@@ -10,12 +10,14 @@
  * AnalyzeProjectService.cs
  */
 
+using System.Text.Json;
 using F23.StringSimilarity;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models;
 using TestMap.Models.Code;
+using TestMap.Models.Results;
 using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
 using TestMap.Services.xNose.Reporters;
@@ -659,12 +661,80 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 $"Total Test projects: {counter.Count()}, testClassCount: {testClassCount}, testMethodCount: {testMethodCount}"
             );
             await reporter.SaveReportAsync();
+            
+            // load into DB
+            await SaveTestSmellsToDb(solutionPath);
         }
         catch (Exception e)
         {
             _projectModel.Logger?.Error("Error in xNose " + e.ToString());
             throw e;
         }
+    }
+
+    private async Task SaveTestSmellsToDb(string solutionPath)
+    {
+        try
+        {
+            var fileName =
+                $"{Path.GetFileName(solutionPath).Replace(".sln", "").ToLowerInvariant()}_test_smell_reports.json";
+            var dirName = Path.Join(Path.GetDirectoryName(solutionPath), fileName);
+
+            string json = File.ReadAllText(dirName);
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            List<TestSmellResult> results =
+                JsonSerializer.Deserialize<List<TestSmellResult>>(json, options);
+
+            // 3. Loop and insert
+            foreach (var testClass in results ?? new())
+            {
+                var classId = await _databaseService.ClassRepository.FindClass(testClass.Name);
+                if (classId != 0)
+                {
+                    foreach (var method in testClass.Methods ?? new())
+                    {
+                        var methodId = await _databaseService.MethodRepository.FindMethod(method.Name, classId);
+                        if (methodId != 0)
+                        {
+                            foreach (var smell in method.Smells ?? new())
+                            {
+                                var smellId = await _databaseService.TestSmellRepository.FindTestSmell(smell.Name);
+                                if (smellId != 0)
+                                {
+                                    await _databaseService.MethodTestSmellRepository.InsertMethodTestSmellGetId(
+                                        methodId, smellId, smell.Status);
+                                }
+                                else
+                                {
+                                    _projectModel.Logger?.Information($"Test Smell {smell.Name} not found in DB");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            _projectModel.Logger?.Information($"Method {method.Name} not found in DB");
+                        }
+                    }
+                }
+                else
+                {
+                    _projectModel.Logger?.Information($"Class {testClass.Name} not found in DB");
+                }
+            }
+
+            // 4. Delete the file
+            File.Delete(dirName);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
     }
 
 
