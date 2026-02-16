@@ -16,7 +16,7 @@ public class PackageCoverageRepository
         _projectModel = projectModel;
     }
 
-    public async Task<int> InsertPackageCoverageGetId(PackageCoverage packageCoverage, int reportId, int packageId)
+    public async Task<int> InsertPackageCoverageGetId(PackageCoverage packageCoverage, int reportId)
     {
         await using var conn = new SqliteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync();
@@ -44,14 +44,13 @@ public class PackageCoverageRepository
             var insertCmd = conn.CreateCommand();
             insertCmd.CommandText = @"
             INSERT INTO package_coverage (
-              coverage_report_id, package_id, name, line_rate, branch_rate, complexity
+              coverage_report_id, name, line_rate, branch_rate, complexity
             ) VALUES (
-                     @reportId, @packageId, @name, @lineRate, @branchRate, @complexity
+                     @reportId, @name, @lineRate, @branchRate, @complexity
             );
         ";
 
             insertCmd.Parameters.AddWithValue("@reportId", reportId);
-            insertCmd.Parameters.AddWithValue("@packageId", packageId);
             insertCmd.Parameters.AddWithValue("@name", packageCoverage.Name);
             insertCmd.Parameters.AddWithValue("@lineRate", packageCoverage.LineRate);
             insertCmd.Parameters.AddWithValue("@branchRate", packageCoverage.BranchRate);

@@ -67,15 +67,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 var stringUsings = usings.Select(u => u.FullString).ToList();
 
                 var testFramework = FindTestingFrameworkFromUsings(usings);
-
-
-                // check to insert package, get id
-                var package = new PackageModel(new List<FileModel>(), analysisProject.Id, Guid.NewGuid().ToString(),
-                    namespaceDec, Path.GetDirectoryName(document.FilePath) ?? "");
-                await _databaseService.SourcePackageRepository.InsertPackageGetId(package);
+                
 
                 // check to insert file, get id
-                var file = new FileModel(stringUsings, package.Id, Guid.NewGuid().ToString(), namespaceDec,
+                var file = new FileModel(stringUsings, analysisProject.Id, Guid.NewGuid().ToString(), namespaceDec,
                     document.FilePath, cSharpCompilation.Language,
                     analysisProject.SolutionFilePath, analysisProject.ProjectFilePath, document.FilePath);
                 await _databaseService.SourceFileRepository.InsertFileGetId(file);

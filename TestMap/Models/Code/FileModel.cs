@@ -24,7 +24,7 @@ namespace TestMap.Models.Code;
 /// <param name="languageFramework">Targeted language framework for the project/repo</param>
 public class FileModel(
     List<string> usingStatements,
-    int packageId = 0,
+    int analysisProjectId = 0,
     string guid = "",
     string ns = "",
     string name = "",
@@ -34,7 +34,7 @@ public class FileModel(
     string filePath = "")
 {
     public int Id { get; set; } = 0;
-    public int PackageId { get; set; } = packageId;
+    public int AnalysisProjectId { get; set; } = analysisProjectId;
     public string Guid { get; set; } = guid;
     public string Namespace { get; set; } = ns;
     public string Name { get; set; } = name;

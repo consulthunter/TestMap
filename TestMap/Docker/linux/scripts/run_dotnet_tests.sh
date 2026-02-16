@@ -30,7 +30,7 @@ for name in "${names[@]}"; do
     TRX_FILE="${COV_DIR}/$(basename "$sln" .sln)_${RUN_ID}.trx"
 
     if ! dotnet test "$sln" \
-        --collect:"Code Coverage;Format=Cobertura" \
+        --collect:"XPlat Code Coverage;Format=Cobertura" \
         --logger "trx;LogFileName=$TRX_FILE" \
         --results-directory "$COV_DIR"; then
         echo "Testing failed for solution: $sln"

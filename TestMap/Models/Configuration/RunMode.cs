@@ -5,6 +5,7 @@ public enum RunMode
     Setup,
     CheckProjects,
     ValidateProjects,
+    WindowsCheck,
     Results,
     CollectTests, // Collect tests and run them
     GenerateTests, // Generate new tests

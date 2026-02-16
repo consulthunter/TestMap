@@ -16,8 +16,6 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public AnalysisProjectRepository AnalysisProjectRepository { get; set; }
 
-    public SourcePackageRepository SourcePackageRepository { get; set; }
-
     public SourceFileRepository SourceFileRepository { get; set; }
 
     public ImportRepository ImportRepository { get; set; }
@@ -66,7 +64,6 @@ public class SqliteDatabaseService : ISqliteDatabaseService
         ProjectRepository = new ProjectRepository(projectModel, _dbPath);
         AnalysisSolutionRepository = new AnalysisSolutionRepository(projectModel, _dbPath);
         AnalysisProjectRepository = new AnalysisProjectRepository(projectModel, _dbPath);
-        SourcePackageRepository = new SourcePackageRepository(projectModel, _dbPath);
         SourceFileRepository = new SourceFileRepository(projectModel, _dbPath);
         ImportRepository = new ImportRepository(projectModel, _dbPath);
         ClassRepository = new ClassRepository(projectModel, _dbPath);

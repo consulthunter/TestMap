@@ -108,6 +108,7 @@ public class TestMapRunner
                 new GenerateTestService(project, _testMapConfig, db, buildTest),
                 new CheckProjectsService(_testMapConfig, token),
                 new ValidateProjectsService(project, db),
+                new WindowsCheckService(project, _testMapConfig),
                 new FullAnalysisService(project, _testMapConfig, db, buildTest),
                 new ResultsService(project, _testMapConfig, db),
                 new DeleteProjectService(project),

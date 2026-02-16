@@ -31,7 +31,8 @@ public class GenerateConfigurationService(string configurationFilePath, string b
             },
             ["Docker"] = new Dictionary<string, string>
             {
-                ["all"] = "net-sdk-all"
+                ["Context"] = "desktop-linux",
+                ["Image"] = "net-sdk-all"
             },
             ["Frameworks"] = new Dictionary<string, List<string>>
             {

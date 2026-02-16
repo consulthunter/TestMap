@@ -39,6 +39,7 @@ public class TestMap(
     IGenerateTestService generateTestService,
     ICheckProjectsService checkProjectsService,
     IValidateProjectsService validateProjectsService,
+    IWindowsCheckService windowsCheckService,
     IFullAnalysisService fullAnalysisService,
     IResultsService resultsService,
     IDeleteProjectService deleteProjectService,
@@ -56,6 +57,7 @@ public class TestMap(
     private IGenerateTestService GenerateTestService { get; } = generateTestService;
     private ICheckProjectsService CheckProjectsService { get; } = checkProjectsService;
     private IValidateProjectsService ValidateProjectsService { get; } = validateProjectsService;
+    private IWindowsCheckService WindowsCheckService { get; } = windowsCheckService;
     private IFullAnalysisService FullAnalysisService { get; } = fullAnalysisService;
     private IResultsService ResultsService { get; } = resultsService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
@@ -77,6 +79,9 @@ public class TestMap(
                 break;
             case RunMode.ValidateProjects:
                 await ValidateProjectsAsync();
+                break;
+            case RunMode.WindowsCheck:
+                await WindowsCheckAsync();
                 break;
             case RunMode.GenerateTests:
                 await GenerateTestsModeAsync();
@@ -129,6 +134,11 @@ public class TestMap(
     {
         await LoadDatabaseAsync();
         await ValidateProjectsService.ValidateProjectAsync();
+    }
+    
+    private async Task WindowsCheckAsync()
+    {
+        await WindowsCheckService.WindowsCheckAsync();
     }
 
     /// <summary>

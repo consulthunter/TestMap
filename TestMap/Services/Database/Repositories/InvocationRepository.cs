@@ -95,16 +95,15 @@ public class InvocationRepository
                 i.id, i.target_method_id, i.source_method_id, i.guid, i.full_string,
                 m.id, m.class_id, m.guid, m.name,
                 c.id, c.file_id, c.guid, c.name,
-                s.name, s.path, s.package_id, s.guid,
-                sp.id, sp.package_name, sp.analysis_project_id, sp.guid,
+                s.name, s.path, s.guid,
+                s.analysis_project_id,
                 ap.id, ap.project_path, ap.solution_id, ap.guid,
                 asol.id, asol.solution_path, asol.guid
             FROM invocations AS i
             JOIN methods AS m ON i.target_method_id = m.id
             JOIN classes AS c ON m.class_id = c.id
             JOIN source_files AS s ON c.file_id = s.id
-            JOIN source_packages AS sp ON s.package_id = sp.id
-            JOIN analysis_projects AS ap ON sp.analysis_project_id = ap.id
+            JOIN analysis_projects AS ap ON s.analysis_project_id = ap.id
             JOIN analysis_solutions AS asol ON ap.solution_id = asol.id
             WHERE i.source_method_id = 0;
         ";
@@ -132,22 +131,18 @@ public class InvocationRepository
 
                 FileName = reader.GetString(13),
                 FilePath = reader.GetString(14),
-                PackageId = reader.GetInt32(15),
-                FileGuid = reader.GetString(16),
+                FileGuid = reader.GetString(15),
+                
+                AnalysisProjectId = reader.GetInt32(16),
 
-                SourcePackageId = reader.GetInt32(17),
-                PackageName = reader.GetString(18),
-                AnalysisProjectId = reader.GetInt32(19),
-                PackageGuid = reader.GetString(20),
+                ProjectId = reader.GetInt32(17),
+                ProjectPath = reader.GetString(18),
+                SolutionId = reader.GetInt32(19),
+                ProjectGuid = reader.GetString(20),
 
-                ProjectId = reader.GetInt32(21),
-                ProjectPath = reader.GetString(22),
-                SolutionId = reader.GetInt32(23),
-                ProjectGuid = reader.GetString(24),
-
-                SolutionDbId = reader.GetInt32(25),
-                SolutionPath = reader.GetString(26),
-                SolutionGuid = reader.GetString(27)
+                SolutionDbId = reader.GetInt32(21),
+                SolutionPath = reader.GetString(22),
+                SolutionGuid = reader.GetString(23)
             };
 
             results.Add(item);

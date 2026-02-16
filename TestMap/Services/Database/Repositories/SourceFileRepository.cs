@@ -45,13 +45,13 @@ public class SourceFileRepository
             var insertCmd = conn.CreateCommand();
             insertCmd.CommandText = @"
             INSERT INTO source_files (
-                package_id, guid, namespace, name, language, meta_data, usings, path, content_hash
+                analysis_project_id, guid, namespace, name, language, meta_data, usings, path, content_hash
             ) VALUES (
-                @package_id, @guid, @namespace, @name, @language, @meta_data, @usings, @path, @content_hash
+                @analysis_project_id, @guid, @namespace, @name, @language, @meta_data, @usings, @path, @content_hash
             );
         ";
 
-            insertCmd.Parameters.AddWithValue("@package_id", file.PackageId);
+            insertCmd.Parameters.AddWithValue("@analysis_project_id", file.AnalysisProjectId);
             insertCmd.Parameters.AddWithValue("@guid", file.Guid);
             insertCmd.Parameters.AddWithValue("@namespace", file.Namespace);
             insertCmd.Parameters.AddWithValue("@name", file.Name);

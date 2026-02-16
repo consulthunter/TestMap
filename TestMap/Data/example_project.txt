@@ -1,1 +1,1 @@
-﻿https://github.com/consulthunter/TestMap-Example
+﻿https://github.com/teststack/teststack.bddfy

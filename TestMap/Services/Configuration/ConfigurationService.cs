@@ -88,7 +88,6 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
             config.FilePaths.OutputDirPath,
             Config.FilePaths.TempDirPath,
             Config.Frameworks,
-            Config.Docker,
             dbFilePath,
             Config);
 

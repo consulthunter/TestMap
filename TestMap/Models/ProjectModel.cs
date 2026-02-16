@@ -34,7 +34,7 @@ public class ProjectModel
     /// <param name="scripts">Batch or shell scripts defined in the config</param>
     public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "", string runDate = "",
         string directoryPath = "", string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
-        Dictionary<string, List<string>>? testingFrameworks = null, Dictionary<string, string>? docker = null,
+        Dictionary<string, List<string>>? testingFrameworks = null,
         string? databasePath = null, TestMapConfig config = null)
     {
         GitHubUrl = gitHubUrl;
@@ -48,7 +48,6 @@ public class ProjectModel
         OutputDirPath = outputDirPath;
         TempDirPath = tempDirPath;
         TestingFrameworks = testingFrameworks;
-        Docker = docker;
         DatabasePath = databasePath;
         Config = config ?? new TestMapConfig();
 

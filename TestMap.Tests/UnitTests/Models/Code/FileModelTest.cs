@@ -21,7 +21,7 @@ public class FileModelTest
         // Assert
         Assert.NotNull(fileModel);
         Assert.Equal(0, fileModel.Id);
-        Assert.Equal(0, fileModel.PackageId);
+        Assert.Equal(0, fileModel.AnalysisProjectId);
         Assert.Equal("", fileModel.Guid);
         Assert.Equal("", fileModel.Namespace);
         Assert.Equal("", fileModel.Name);
@@ -51,7 +51,7 @@ public class FileModelTest
 
         // Assert
         Assert.NotNull(fileModel);
-        Assert.Equal(packageId, fileModel.PackageId);
+        Assert.Equal(packageId, fileModel.AnalysisProjectId);
         Assert.Equal(guid, fileModel.Guid);
         Assert.Equal(ns, fileModel.Namespace);
         Assert.Equal(name, fileModel.Name);
@@ -88,10 +88,10 @@ public class FileModelTest
         var fileModel = new FileModel(new List<string>());
 
         // Act
-        fileModel.PackageId = packageId;
+        fileModel.AnalysisProjectId = packageId;
 
         // Assert
-        Assert.Equal(packageId, fileModel.PackageId);
+        Assert.Equal(packageId, fileModel.AnalysisProjectId);
     }
 
     [Theory]

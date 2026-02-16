@@ -157,12 +157,25 @@ public class BuildTestService : IBuildTestService
     public async Task RunDockerContainerAsync(string solutions)
     {
         var localDir = _projectModel.DirectoryPath!;
-        var imageName = _projectModel.Docker!["all"];
+        var context = _projectModel.Config.Docker.Context;
+        var imageName = _projectModel.Config.Docker.Image;
 
-        var args =
-            $"run -d --name {_containerName} -v \"{localDir}:/app/project\" {imageName} /bin/bash ./scripts/run_main.sh \"{runId}\" \"{solutions}\"";
-
-        await RunProcessAsync("docker", args);
+        if (context.Contains("desktop-windows"))
+        {
+            var args =
+                $"--context {context} run -d --name {_containerName} " +
+                $"-v \"{localDir}:C:\\app\\project\" {imageName} " +
+                "powershell -NoProfile -ExecutionPolicy Bypass " +
+                "-File C:\\app\\scripts\\run_main.ps1 " +
+                $"\"{runId}\" \"{solutions}\"";
+            await RunProcessAsync("docker", args);
+        }
+        else
+        {
+            var args =
+                $"--context {context} run -d --name {_containerName} -v \"{localDir}:/app/project\" {imageName} /bin/bash ./scripts/run_main.sh \"{runId}\" \"{solutions}\"";
+            await RunProcessAsync("docker", args);
+        }
     }
 
 
@@ -486,21 +499,11 @@ public class BuildTestService : IBuildTestService
 
         foreach (var package in coverageReport.Packages)
         {
-            var packageId =
-                await _sqliteDatabaseService.SourcePackageRepository
-                    .FindPackage(package.Name);
-
-            if (packageId == 0)
-            {
-                _projectModel.Logger?.Warning(
-                    $"Coverage package '{package.Name}' not found in DB.");
-                continue;
-            }
 
             var packCoverId =
                 await _sqliteDatabaseService.PackageCoverageRepository
                     .InsertPackageCoverageGetId(
-                        package, reportId, packageId);
+                        package, reportId);
 
             foreach (var claCov in package.Classes)
             {

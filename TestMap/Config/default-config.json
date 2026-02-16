@@ -10,7 +10,8 @@
     "RunDateFormat": "yyyy-MM-dd"
   },
   "Docker": {
-    "all": "net-sdk-all"
+    "Context": "desktop-linux",
+    "Image": "net-sdk-all"
   },
   "Frameworks": {
     "NUnit": [
@@ -36,15 +37,15 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Provider": "ollama",
-    "Model": "gpt-oss:20b",
+    "Provider": "openai",
+    "Model": "gpt-3.5-turbo",
     "MaxRetries": 1
   },
   "Amazon": {
     "AwsRegion": "us-east-1"
   },
   "Ollama": {
-    "Endpoint": "http://localhost:11434/"
+    "Endpoint": "http://localhost:10000/"
   },
   "Custom": {
     "Endpoint": "http://localhost:11434/"

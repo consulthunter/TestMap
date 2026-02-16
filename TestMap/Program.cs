@@ -63,6 +63,9 @@ public class Program
             case ValidateProjectsOptions vo:
                 await RunValidateProjects(vo);
                 break;
+            case WindowsCheckOptions wc:
+                await RunWindowsCheck(wc);
+                break;
         }
     }
 
@@ -161,6 +164,21 @@ public class Program
         Utilities.Utilities.Load();
         var config = new ConfigurationBuilder()
             .AddJsonFile(ConfigurationLocation(options.ValidateProjectsConfigFilePath), false, true)
+            .Build();
+        var configObj = new TestMapConfig();
+        config.Bind(configObj);
+        var configurationService = new ConfigurationService(configObj);
+        configurationService.RunMode = options.Mode;
+        configurationService.SetSecrets();
+        var testMapRunner = new TestMapRunner(configurationService);
+        await testMapRunner.RunAsync();
+    }
+    
+    private static async Task RunWindowsCheck(WindowsCheckOptions options)
+    {
+        Utilities.Utilities.Load();
+        var config = new ConfigurationBuilder()
+            .AddJsonFile(ConfigurationLocation(options.WindowsCheckConfigFilePath), false, true)
             .Build();
         var configObj = new TestMapConfig();
         config.Bind(configObj);

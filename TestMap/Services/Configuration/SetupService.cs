@@ -25,7 +25,7 @@ public class SetupService
         CreateEnvFile();
         CheckForDocker();
         CheckForGit();
-        BuildDockerImage();
+        BuildAllImages();
     }
 
     private void CheckForDocker()
@@ -40,16 +40,85 @@ public class SetupService
         if (!IsCommandAvailable("git")) throw new InvalidOperationException("Git is not installed or not on the PATH.");
         Console.WriteLine("Git found.");
     }
-
-    private void BuildDockerImage(string imageName = "net-sdk-all:latest")
+    
+    private bool DockerContextExists(string contextName)
     {
-        var dockerfilePath = Path.Combine(_basePath, "Docker", "Dockerfile");
-        if (!File.Exists(dockerfilePath)) throw new FileNotFoundException($"Dockerfile not found at {dockerfilePath}");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "docker",
+            Arguments = "context ls",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(startInfo)!;
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+
+        return process.ExitCode == 0 &&
+               output.Split('\n')
+                   .Any(line => line.StartsWith(contextName + " ", StringComparison.Ordinal));
+    }
+    
+    private bool IsWindowsDaemon(string contextName)
+    {
+        string command = $"--context {contextName} info --format \"{{{{.OSType}}}}\"";
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "docker",
+            Arguments = command,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(startInfo)!;
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+
+        return process.ExitCode == 0 &&
+               output.Contains("windows", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool CanBuildWindowsImages()
+    {
+        if (!OperatingSystem.IsWindows())
+            return false;
+
+        const string windowsContext = "desktop-windows";
+
+        if (!DockerContextExists(windowsContext))
+            return false;
+
+        if (!IsWindowsDaemon(windowsContext))
+            return false;
+
+        return true;
+    }
+
+    
+    private string GetDockerfile(string os)
+    {
+        var dockerRoot = Path.Combine(_basePath, "Docker");
+
+        return os switch
+        {
+            "linux"   => Path.Combine(dockerRoot, "linux", "Dockerfile"),
+            "windows" => Path.Combine(dockerRoot, "windows", "Dockerfile"),
+            _ => throw new InvalidOperationException($"Unknown OS: {os}")
+        };
+    }
+    private void BuildForContext(string contextName, string dockerfilePath, string imageName)
+    {
+        var contextDir = Path.GetDirectoryName(dockerfilePath)!;
 
         var startInfo = new ProcessStartInfo
         {
             FileName = "docker",
-            Arguments = $"build -t {imageName} -f \"{dockerfilePath}\" \"{_basePath}/Docker\"",
+            Arguments = $"--context {contextName} build -t {imageName} -f \"{dockerfilePath}\" \"{contextDir}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -57,8 +126,8 @@ public class SetupService
         };
 
         using var process = new Process { StartInfo = startInfo };
-        process.OutputDataReceived += (sender, args) => Console.WriteLine(args.Data);
-        process.ErrorDataReceived += (sender, args) => Console.Error.WriteLine(args.Data);
+        process.OutputDataReceived += (_, args) => Console.WriteLine(args.Data);
+        process.ErrorDataReceived  += (_, args) => Console.Error.WriteLine(args.Data);
 
         process.Start();
         process.BeginOutputReadLine();
@@ -66,9 +135,34 @@ public class SetupService
         process.WaitForExit();
 
         if (process.ExitCode != 0)
-            throw new Exception($"Docker build failed with exit code {process.ExitCode}");
+            throw new Exception($"Docker build failed for context '{contextName}' with exit code {process.ExitCode}");
 
-        Console.WriteLine($"Docker image '{imageName}' built successfully.");
+        Console.WriteLine($"Image '{imageName}' built successfully for context '{contextName}'.");
+    }
+    
+    public void BuildAllImages()
+    {
+        Console.WriteLine("=== Building Linux Image ===");
+        var linuxDockerfile = GetDockerfile("linux");
+        BuildForContext(
+            contextName: "desktop-linux",
+            dockerfilePath: linuxDockerfile,
+            imageName: "net-sdk-all:latest"
+        );
+
+        Console.WriteLine("=== Building Windows Image ===");
+
+        if (!CanBuildWindowsImages())
+        {
+            Console.WriteLine("Skipping Windows image build: Windows containers are not available on this host.");
+            return;
+        }
+
+        BuildForContext(
+            contextName: "desktop-windows",
+            dockerfilePath: GetDockerfile("windows"),
+            imageName: "net-sdk-all:latest"
+        );
     }
 
     private bool IsCommandAvailable(string command)

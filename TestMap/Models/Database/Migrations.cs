@@ -42,21 +42,10 @@ CREATE TABLE IF NOT EXISTS analysis_projects (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_projects_hash ON analysis_projects(content_hash);
 
-CREATE TABLE IF NOT EXISTS source_packages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    analysis_project_id INTEGER NOT NULL,
-    guid TEXT NOT NULL,
-    package_name TEXT NOT NULL,
-    package_path TEXT NOT NULL,
-    content_hash TEXT,
-    FOREIGN KEY (analysis_project_id) REFERENCES analysis_projects(id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_source_packages_hash ON source_packages(content_hash);
 
 CREATE TABLE IF NOT EXISTS source_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    package_id INTEGER NOT NULL,
+    analysis_project_id INTEGER NOT NULL,
     guid TEXT NOT NULL,
     namespace TEXT,
     name TEXT,
@@ -65,7 +54,7 @@ CREATE TABLE IF NOT EXISTS source_files (
     usings TEXT,
     path TEXT,
     content_hash TEXT,
-    FOREIGN KEY (package_id) REFERENCES source_packages(id)
+    FOREIGN KEY (analysis_project_id) REFERENCES analysis_projects(id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_source_files_hash ON source_files(content_hash);
@@ -284,12 +273,10 @@ CREATE TABLE IF NOT EXISTS lizard_function_code_metrics (
 CREATE TABLE IF NOT EXISTS package_coverage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     coverage_report_id INTEGER NOT NULL,
-    package_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     line_rate REAL,
     branch_rate REAL,
     complexity INTEGER,
-    FOREIGN KEY (package_id) REFERENCES source_packages(id),
     FOREIGN KEY (coverage_report_id) REFERENCES coverage_reports(id)
 );
 
@@ -327,11 +314,12 @@ WITH UncoveredMethods AS (
         m.name AS method_name,
         m.full_string AS method_body,
         c.name AS class_name,
-        sf.id AS source_file_id
+        sf.analysis_project_id
     FROM method_coverage mc
     JOIN methods m ON mc.method_id = m.id
     JOIN classes c ON m.class_id = c.id
     JOIN source_files sf ON c.file_id = sf.id
+    JOIN analysis_projects ap ON sf.analysis_project_id = ap.id
     WHERE mc.line_rate != 1
 ),
 MethodTestMapping AS (
@@ -380,10 +368,8 @@ SELECT
 FROM UncoveredMethods um
 LEFT JOIN MethodTestMapping mt 
     ON um.method_id = mt.source_method_id
-LEFT JOIN source_packages sp 
-    ON sp.id = (SELECT package_id FROM source_files WHERE id = um.source_file_id)
 LEFT JOIN analysis_projects ap 
-    ON ap.id = sp.analysis_project_id
+    ON ap.id = um.analysis_project_id
 LEFT JOIN analysis_solutions asol 
     ON asol.id = ap.solution_id
 WHERE test_method_id IS NOT NULL

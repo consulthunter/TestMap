@@ -20,11 +20,8 @@ public class InvocationDetails
 
     public string FileName { get; set; }
     public string FilePath { get; set; }
-    public int PackageId { get; set; }
     public string FileGuid { get; set; }
-
-    public int SourcePackageId { get; set; }
-    public string PackageName { get; set; }
+    
     public int AnalysisProjectId { get; set; }
     public string PackageGuid { get; set; }
 
