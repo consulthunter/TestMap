@@ -23,6 +23,7 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="F23.StringSimilarity" Version="7.0.1" />
         <PackageReference Include="LibGit2Sharp" Version="0.31.0"/>
         <PackageReference Include="Microsoft.Build" Version="17.14.28" ExcludeAssets="runtime"/>
         <PackageReference Include="Microsoft.Build.Locator" Version="1.10.12"/>

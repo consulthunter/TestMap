@@ -94,7 +94,7 @@ public class TestMapRunner
             var db = new SqliteDatabaseService(project);
             var buildTest = new BuildTestService(project, db);
             var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
-            
+
             var testMap = new Models.TestMap
             (
                 project,

@@ -11,6 +11,7 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="F23.StringSimilarity" Version="7.0.1" />
         <PackageReference Include="JetBrains.Annotations" Version="2024.3.0"/>
         <PackageReference Include="LibGit2Sharp" Version="0.31.0"/>
         <PackageReference Include="Microsoft.CodeAnalysis.Metrics" Version="4.14.0"/>
