@@ -5,8 +5,8 @@ authors:
     given-names: Hunter
     orcid: https://orcid.org/0009-0008-1056-8106
 title: "TestMap"
-version: 1.0.0
+version: 2.0.0
 identifiers:
   - type: doi
-    value: 10.5281/zenodo.14262975
-date-released: 2024-12-02
+    value: 10.5281/zenodo.18258537
+date-released: 2026-01-15
