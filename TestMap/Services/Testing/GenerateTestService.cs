@@ -46,6 +46,7 @@ public class GenerateTestService : IGenerateTestService
                     prompt = testGenerator.CreateTestPrompt(
                         methodResult.MethodBody,
                         methodResult.TestMethodBody,
+                        methodResult.TestClassBody,
                         methodResult.TestFramework,
                         methodResult.TestDependencies
                     );
@@ -59,6 +60,7 @@ public class GenerateTestService : IGenerateTestService
                     prompt = testGenerator.CreateRepairTestPrompt(
                         methodResult.MethodBody,
                         candidateTest,
+                        methodResult.TestClassBody,
                         methodResult.TestFramework,
                         methodResult.TestDependencies,
                         logs
@@ -71,6 +73,8 @@ public class GenerateTestService : IGenerateTestService
                 try
                 {
                     rawTest = await testGenerator.CreateTest(prompt);
+                    
+                    if (string.IsNullOrEmpty(rawTest)) continue;
                 }
                 catch (Exception ex)
                 {
@@ -90,6 +94,18 @@ public class GenerateTestService : IGenerateTestService
                 candidateTest = test;
 
                 var testMethodName = Utilities.Utilities.ExtractTestMethodName(test) ?? "";
+                
+                var methodModel = new MethodModel(methodResult.TestClassId,
+                    Guid.NewGuid().ToString(),
+                    testMethodName, "", new List<string>(),
+                    new List<string>(), test, "", true, true, 
+                    methodResult.TestFramework,
+                    new Location(0, 0, 0, 0)
+                    );
+                
+                // insert test method into DB
+                await _sqliteDatabaseService.MethodRepository.InsertMethodsGetId(methodModel);
+                
 
                 if (string.IsNullOrEmpty(test) || string.IsNullOrEmpty(testMethodName))
                 {
@@ -115,8 +131,8 @@ public class GenerateTestService : IGenerateTestService
                     {
                         SourceMethodId = methodResult.MethodId,
                         TestMethodId = methodResult.TestMethodId,
+                        GenTestMethodId = methodModel.Id,
                         FilePath = methodResult.TestFilePath,
-                        GeneratedBody = test,
                         GenerationDuration = generationTime,
                         Model = _testMapConfig.Generation.Model,
                         Provider = _testMapConfig.Generation.Provider,

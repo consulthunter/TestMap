@@ -77,7 +77,7 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
 
         var dirPath = Path.Combine(Config.FilePaths.TempDirPath ?? "", repoName);
 
-        var repoOutputPath = Path.Combine(Config.FilePaths.OutputDirPath ?? "", repoName);
+        var repoOutputPath = Path.Combine(Config.FilePaths.OutputDirPath ?? "", $"{owner}-{repoName}");
 
         var dbFilePath = Path.Combine(repoOutputPath, "analysis.db");
 

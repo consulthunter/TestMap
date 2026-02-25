@@ -180,8 +180,10 @@ public class SqliteDatabaseService : ISqliteDatabaseService
                 MethodId = reader.GetInt32(0),
                 MethodName = reader.GetString(1),
                 MethodBody = reader.GetString(2),
-                LineRate = reader.GetDouble(3),
-                BranchRate = reader.GetDouble(4),
+                
+                // Handle nullable numeric columns
+                LineRate = reader.IsDBNull(3) ? (double)(0.0) : reader.GetDouble(3),
+                BranchRate = reader.IsDBNull(4) ? (double)(0.0) : reader.GetDouble(4),
 
                 ClassId = reader.GetInt32(5),
                 ClassName = reader.GetString(6),
@@ -193,22 +195,40 @@ public class SqliteDatabaseService : ISqliteDatabaseService
                 TestMethodBody = reader.IsDBNull(10) ? string.Empty : reader.GetString(10),
                 TestClassId = reader.IsDBNull(11) ? 0 : reader.GetInt32(11),
                 TestClassName = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
-                TestFramework = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                TestClassBody = reader.IsDBNull(13) ? string.Empty : reader.GetString(13),
+                TestFramework = reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
 
-                TestClassLineStart = reader.IsDBNull(14) ? 0 : reader.GetInt32(14),
-                TestClassBodyStart = reader.IsDBNull(15) ? 0 : reader.GetInt32(15),
-                TestClassLineEnd = reader.IsDBNull(16) ? 0 : reader.GetInt32(16),
-                TestClassBodyEnd = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
+                TestClassLineStart = reader.IsDBNull(15) ? 0 : reader.GetInt32(15),
+                TestClassBodyStart = reader.IsDBNull(16) ? 0 : reader.GetInt32(16),
+                TestClassLineEnd = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
+                TestClassBodyEnd = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
 
-                TestFilePath = reader.IsDBNull(18) ? string.Empty : reader.GetString(18),
-                TestDependencies = reader.IsDBNull(19) ? string.Empty : reader.GetString(19),
+                TestFilePath = reader.IsDBNull(19) ? string.Empty : reader.GetString(19),
+                TestDependencies = reader.IsDBNull(20) ? string.Empty : reader.GetString(20),
+                TestNamespace = reader.IsDBNull(21) ? string.Empty : reader.GetString(21),
 
-                SolutionFilePath = reader.IsDBNull(20) ? string.Empty : reader.GetString(20)
+                SolutionFilePath = reader.IsDBNull(22) ? string.Empty : reader.GetString(22)
             };
 
             results.Add(item);
         }
 
         return results;
+    }
+    
+    public async Task<bool> HasCandidateMethods()
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        // First, check if the invocation already exists
+        var checkCmd = conn.CreateCommand();
+        checkCmd.CommandText = @"
+            SELECT COUNT(*) FROM v_baseline_uncovered_tested_methods;
+        ";
+        
+
+        var count = (long)await checkCmd.ExecuteScalarAsync();
+        return count > 0;
     }
 }

@@ -96,7 +96,7 @@ public class ProjectModel
     {
         var rnd = new Random();
         var randomNumber = rnd.Next(1, 1000001);
-        ProjectId = $"{randomNumber}_{RepoName}";
+        ProjectId = $"{randomNumber}_{Owner}-{RepoName}";
     }
 
     /// <summary>
@@ -124,7 +124,7 @@ public class ProjectModel
     {
         if (ProjectId != null)
         {
-            var outputPath = Path.Combine(OutputDirPath ?? string.Empty, RepoName);
+            var outputPath = Path.Combine(OutputDirPath ?? string.Empty, $"{Owner}-{RepoName}");
             if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
             OutputPath = outputPath;
         }

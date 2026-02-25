@@ -47,9 +47,15 @@ public class TestGenerator
                 if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(ollamaConfig?.Endpoint))
                     throw new ConfigurationErrorsException(
                         "For ollama provider: Model, and Endpoint must be configured.");
+                var httpClient = new HttpClient
+                {
+                    BaseAddress = new Uri(ollamaConfig.Endpoint),
+                    Timeout = TimeSpan.FromSeconds(300)
+                };
                 builder.AddOllamaChatCompletion(
                     model,
-                    new Uri(ollamaConfig.Endpoint));
+                    httpClient
+                    );
                 break;
 
             case "google":
@@ -113,36 +119,38 @@ public class TestGenerator
         }
     }
 
-    public string CreateTestPrompt(string method, string test, string testFramework, string testDependencies)
+    public string CreateTestPrompt(string method, string test, string testClass, string testFramework, string testDependencies)
     {
         return $"Here is a method that I'd like to test: {method}\n" +
-               $"Here is a test from the same test class: {test}\n" +
+               $"Here is a test from the same test class that covers this method: {test}\n" +
+               $"This test is part of the class: {testClass}\n" +
                $"These are the dependencies for the test class: {testDependencies}\n" +
-               $"Please write one test that will pass with good coverage using the {testFramework}\n" +
+               $"Please write one test that will pass and extend coverage using the {testFramework}\n" +
                $"Please add a doc-string to the test. \n" +
                $"Also comment the test with: // arrange, act, assert.\n" +
                $"I need just the test method not the test class." +
                $"Finally, delimit the code with ``` for the beginning and end of the block.";
     }
 
-    public string CreateRepairTestPrompt(string method, string test, string testFramework, string testDependencies,
+    public string CreateRepairTestPrompt(string method, string test, string testClass, string testFramework, string testDependencies,
         string previousLogs)
     {
         return
             $"I previously attempted to generate a test for the following method:\n{method}\n\n" +
             $"Here is the test that was generated:\n{test}\n\n" +
+            $"This test is part of the class: {testClass}\n\n" +
             $"The test class dependencies are:\n{testDependencies}\n\n" +
             $"The previous test run produced the following logs:\n{previousLogs}\n\n" +
             $"Please write one **corrected test method** in {testFramework} that:\n" +
-            "- Passes all tests\n" +
-            "- Provides good coverage of the target method\n" +
+            "- Compiles and Passes\n" +
+            "- Extends good coverage of the target method\n" +
             "- Includes a doc-string describing what the test does\n" +
             "- Uses comments: // arrange, // act, // assert\n\n" +
             $"Only provide the test method body, **not the entire class**, and delimit it with triple backticks ```.";
     }
 
 
-    public async Task<string> CreateTest(string prompt, double temperature = 0.7)
+    public async Task<string> CreateTest(string prompt, double temperature = 0.0)
     {
         string test = "";
         try

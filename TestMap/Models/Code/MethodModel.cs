@@ -30,6 +30,7 @@ public class MethodModel(
     string fullString = "",
     string docString = "",
     bool isTestMethod = false,
+    bool isGenerated = false,
     string testingFramework = "",
     Location? location = null)
 {
@@ -48,6 +49,7 @@ public class MethodModel(
     public string FullString { get; set; } = fullString;
     public string DocString { get; set; } = docString;
     public bool IsTestMethod { get; set; } = isTestMethod;
+    public bool IsGenerated { get; set; } = isGenerated;
     public string TestingFramework { get; set; } = testingFramework;
     public string TestType { get; set; } = "";
     public Location Location = location ?? new Location(0, 0, 0, 0);

@@ -20,6 +20,7 @@ ENV PATH="${DOTNET_ROOT}:${PATH}"
 # Install Stryker globally
 RUN dotnet tool install -g dotnet-stryker
 RUN dotnet tool install -g dotnet-coverage
+RUN dotnet tool install --global dotnet-reportgenerator-globaltool
 ENV PATH="${PATH}:/root/.dotnet/tools"
 
 

@@ -42,7 +42,7 @@ public class TestMapRunner
 
         var logPath = Path.Combine(_testMapConfig.FilePaths.LogsDirPath ?? string.Empty,
             ConfigurationService.RunDate,
-            $"collection_{ConfigurationService.RunDate}.log");
+            $"{ConfigurationService.RunMode}_{ConfigurationService.RunDate}.log");
 
         // Configure logging for this instance of TestMap using Serilog
         Logger = new LoggerConfiguration()

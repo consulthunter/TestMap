@@ -194,4 +194,34 @@ public class MethodRepository
 
         return 0; // not found
     }
+    
+    public async Task<bool> HasXUnitTestMethods()
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT testing_framework
+        FROM methods
+        WHERE is_test_method = 1;
+    ";
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                string framework = reader.GetString(0);
+
+                if (string.Equals(framework, "xunit", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true; // Stop early once found
+                }
+            }
+        }
+
+        return false;
+    }
 }

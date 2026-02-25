@@ -55,7 +55,7 @@ public class ClassCoverageRepository
             insertCmd.Parameters.AddWithValue("@name", classCoverage.Name);
             insertCmd.Parameters.AddWithValue("@lineRate", classCoverage.LineRate);
             insertCmd.Parameters.AddWithValue("@branchRate", classCoverage.BranchRate);
-            insertCmd.Parameters.AddWithValue("@complexity", classCoverage.Complexity);
+            insertCmd.Parameters.AddWithValue("@complexity", classCoverage.ComplexityValue);
 
             await insertCmd.ExecuteNonQueryAsync();
 

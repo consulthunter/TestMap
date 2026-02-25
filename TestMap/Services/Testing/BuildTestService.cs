@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text.Json;
+using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Serialization;
 using TestMap.Models;
@@ -21,6 +22,7 @@ public class BuildTestService : IBuildTestService
     public List<TrxTestResult> LatestTestResults { get; private set; } = new();
     public string LatestTestResultRaw { get; private set; } = "";
     public string LatestCoverageReportRaw { get; private set; } = "";
+    public string LatestCoverageReportNormalizedRaw { get; private set; } = "";
     public string LatestMutationReportRaw { get; private set; } = "";
     public string LatestLizardReportRaw { get; private set; } = "";
     public CoverageReport? LatestCoverageReport { get; private set; }
@@ -197,17 +199,47 @@ public class BuildTestService : IBuildTestService
 
     private async Task LoadMergedCoverageReport()
     {
-        var source = Path.Combine(_projectModel.DirectoryPath!, "coverage", $"merged_{runId}.cobertura.xml");
+        var covDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
+        var rawFile = Path.Combine(covDir, $"merged_{runId}_raw.cobertura.xml");
+        var normalizedFile = Path.Combine(covDir, $"report_{runId}", "Cobertura.xml");
+
         try
         {
-            var serializer = new XmlSerializer(typeof(CoverageReport));
-            LatestCoverageReportRaw = await File.ReadAllTextAsync(source);
-            using var fs = new FileStream(source, FileMode.Open);
-            _projectModel.CoverageReport = serializer.Deserialize(fs) as CoverageReport;
-            LatestCoverageReport = _projectModel.CoverageReport;
-            if (_projectModel.CoverageReport != null)
-                await SaveCoverageReport(_projectModel.CoverageReport);
-            _projectModel.Logger?.Information("Coverage report loaded successfully.");
+            // 1️⃣ Read raw merged file for debugging purposes
+            if (File.Exists(rawFile))
+            {
+                LatestCoverageReportRaw = await File.ReadAllTextAsync(rawFile);
+            }
+            else
+            {
+                _projectModel.Logger?.Warning($"Raw coverage file not found: {rawFile}");
+            }
+
+            // 2️⃣ Deserialize normalized Cobertura XML for processing
+            if (File.Exists(normalizedFile))
+            {
+                var settings = new XmlReaderSettings
+                {
+                    DtdProcessing = DtdProcessing.Ignore
+                };
+
+                using var fs = new FileStream(normalizedFile, FileMode.Open, FileAccess.Read);
+                using var reader = XmlReader.Create(fs, settings);
+                var serializer = new XmlSerializer(typeof(CoverageReport));
+                _projectModel.CoverageReport = serializer.Deserialize(reader) as CoverageReport;
+                LatestCoverageReportNormalizedRaw = await File.ReadAllTextAsync(normalizedFile);
+                LatestCoverageReport = _projectModel.CoverageReport;
+
+                if (_projectModel.CoverageReport != null)
+                    await SaveCoverageReport(_projectModel.CoverageReport);
+
+                _projectModel.Logger?.Information("Normalized coverage report loaded successfully.");
+            }
+            else
+            {
+                _projectModel.Logger?.Warning($"Normalized coverage file not found: {normalizedFile}");
+                _projectModel.CoverageReport = new CoverageReport();
+            }
         }
         catch (Exception ex)
         {
@@ -322,7 +354,7 @@ public class BuildTestService : IBuildTestService
             _projectModel.Logger?.Information($"Parsing TRX file: {trxFile}");
             var results = ParseTrxFile(trxFile);
 
-            LatestTestResults = results;
+            LatestTestResults.AddRange(results);
 
             _projectModel.TestResults.AddRange(results);
             foreach (var result in results)
@@ -495,7 +527,7 @@ public class BuildTestService : IBuildTestService
         var reportId =
             await _sqliteDatabaseService.CoverageReportRepository
                 .InsertCoverageReportGetId(
-                    coverageReport, runId, LatestCoverageReportRaw);
+                    coverageReport, runId, LatestCoverageReportNormalizedRaw);
 
         foreach (var package in coverageReport.Packages)
         {

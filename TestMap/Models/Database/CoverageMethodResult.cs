@@ -21,6 +21,7 @@ public class CoverageMethodResult
     public int TestClassId { get; set; }
     public string TestClassName { get; set; }
     public string TestFramework { get; set; }
+    public string TestClassBody { get; set; }
 
     // Test class location (nullable since not all methods have tests)
     public int TestClassLineStart { get; set; }
@@ -31,6 +32,7 @@ public class CoverageMethodResult
     // Source file info
     public string TestFilePath { get; set; }
     public string TestDependencies { get; set; }
+    public string TestNamespace { get; set; }
 
     // Test method info
     public int TestMethodId { get; set; }

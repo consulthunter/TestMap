@@ -9,6 +9,7 @@
  */
 
 
+using System.Globalization;
 using System.Xml.Serialization;
 
 namespace TestMap.Models.Coverage;
@@ -19,7 +20,14 @@ public class ClassCoverage
 
     [XmlAttribute("branch-rate")] public double BranchRate { get; set; } = 0.0;
 
-    [XmlAttribute("complexity")] public int Complexity { get; set; } = 1;
+    [XmlAttribute("complexity")]
+    public string ComplexityRaw { get; set; } = "0";
+
+    [XmlIgnore]
+    public double ComplexityValue =>
+        double.TryParse(ComplexityRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) 
+            ? val 
+            : 0.0;
 
     [XmlAttribute("name")] public string Name { get; set; } = "";
 

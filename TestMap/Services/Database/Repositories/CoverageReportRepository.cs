@@ -56,7 +56,7 @@ public class CoverageReportRepository
             insertCmd.Parameters.AddWithValue("@linesValid", report.LinesValid);
             insertCmd.Parameters.AddWithValue("@branchesValid", report.BranchesValid);
             insertCmd.Parameters.AddWithValue("@branchesCovered", report.BranchesCovered);
-            insertCmd.Parameters.AddWithValue("@complexity", report.Complexity);
+            insertCmd.Parameters.AddWithValue("@complexity", report.ComplexityValue);
             insertCmd.Parameters.AddWithValue("@rawReport", rawReport);           
 
             await insertCmd.ExecuteNonQueryAsync();

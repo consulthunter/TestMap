@@ -46,7 +46,7 @@ run_step() {
 
 # Call each component
 run_step "Unit Tests + Coverage" "$SCRIPT_DIR/run_dotnet_tests.sh"
-run_step "Mutation Testing (Stryker)" "$SCRIPT_DIR/run_dotnet_stryker.sh"
+# run_step "Mutation Testing (Stryker)" "$SCRIPT_DIR/run_dotnet_stryker.sh"
 run_step "Code Complexity (Lizard)" "$SCRIPT_DIR/run_lizard.sh"
 
 echo "=============================="

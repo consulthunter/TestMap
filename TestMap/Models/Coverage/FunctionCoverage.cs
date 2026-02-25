@@ -8,6 +8,7 @@
  * FunctionCoverage.cs
  */
 
+using System.Globalization;
 using System.Xml.Serialization;
 
 namespace TestMap.Models.Coverage;
@@ -18,5 +19,12 @@ public class FunctionCoverage
     [XmlElement("signature")] public string Signature { get; set; } = "";
     [XmlElement("line-rate")] public string LineRate { get; set; } = "";
     [XmlElement("branch-rate")] public string BranchRate { get; set; } = "";
-    [XmlElement("complexity")] public string Complexity { get; set; } = "";
+    [XmlAttribute("complexity")]
+    public string ComplexityRaw { get; set; } = "0";
+
+    [XmlIgnore]
+    public double ComplexityValue =>
+        double.TryParse(ComplexityRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) 
+            ? val 
+            : 0.0;
 }

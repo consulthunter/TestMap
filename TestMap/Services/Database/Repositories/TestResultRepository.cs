@@ -48,4 +48,32 @@ public class TestResultRepository
 
         await tx.CommitAsync();
     }
+    public async Task<bool> HasPassingTests()
+    {
+        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
+        await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+        SELECT test_outcome
+        FROM test_results;
+    ";
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                string outcome = reader.GetString(0);
+
+                if (string.Equals(outcome, "passed", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true; // Stop early once found
+                }
+            }
+        }
+
+        return false;
+    }
 }

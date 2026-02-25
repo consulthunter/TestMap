@@ -19,6 +19,10 @@ public class ValidateProjectsService : IValidateProjectsService
     {
         // check the db for coverage report, mutation report, etc.
         var hasTests = await _sqliteDatabaseService.CoverageReportRepository.HasCoverageReports();
+        var hasPassingTests = await _sqliteDatabaseService.TestResultRepository.HasPassingTests();
+        var hasCandidateMethods = await _sqliteDatabaseService.HasCandidateMethods();
+        // need to look to see if the project has xunit or not
+        var hasXunit = await _sqliteDatabaseService.MethodRepository.HasXUnitTestMethods();
         var hasMutationReports = await _sqliteDatabaseService.MutationReportRepository.HasMutationReports();
         var hasFileCodeMetrics =
             await _sqliteDatabaseService.LizardFileCodeMetricsRepository.HasLizardFileCodeMetrics();
@@ -26,8 +30,13 @@ public class ValidateProjectsService : IValidateProjectsService
             await _sqliteDatabaseService.LizardFunctionCodeMetricsRepository.HasLizardFunctionCodeMetrics();
         
         var result = new ProjectValidationResult(
+            _projectModel.GitHubUrl,
+            _projectModel.Owner,
             _projectModel.RepoName,
+            hasXunit,
             hasTests,
+            hasPassingTests,
+            hasCandidateMethods,
             hasMutationReports,
             hasFileCodeMetrics,
             hasFunctionCodeMetrics
@@ -51,12 +60,17 @@ public class ValidateProjectsService : IValidateProjectsService
         if (!fileExists)
         {
             writer.WriteLine(
-                "ProjectName,HasCoverage,HasMutationReports,HasFileCodeMetrics,HasFunctionCodeMetrics");
+                "URL,Owner,Repo,HasXUnit,HasCoverage,HasPassingTests,HasCandidateMethods,HasMutationReports,HasFileCodeMetrics,HasFunctionCodeMetrics");
         }
 
         writer.WriteLine(
-            $"{result.ProjectName}," +
+            $"{result.Url}," +
+            $"{result.Owner}," +
+            $"{result.Repo}," +
+            $"{result.HasXUnit}," +
             $"{result.HasCoverage}," +
+            $"{result.HasPassingTests}," +
+            $"{result.HasCandidateMethods}," +
             $"{result.HasMutationReports}," +
             $"{result.HasFileCodeMetrics}," +
             $"{result.HasFunctionCodeMetrics}");

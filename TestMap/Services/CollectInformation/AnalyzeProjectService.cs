@@ -20,6 +20,7 @@ using TestMap.Models.Code;
 using TestMap.Models.Results;
 using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
+using TestMap.Services.xNose;
 using TestMap.Services.xNose.Reporters;
 using TestMap.Services.xNose.Smells;
 using TestMap.Services.xNose.Visitors;
@@ -33,14 +34,12 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private Dictionary<string, List<InvocationModel>> _invocations = new();
     private Dictionary<string, MethodModel> _methods = new();
     private SqliteDatabaseService _databaseService;
-    private ClassVirtualizationVisitor _classVirtualizationVisitor;
 
 
     public AnalyzeProjectService(ProjectModel projectModel, SqliteDatabaseService databaseService)
     {
         _projectModel = projectModel;
         _databaseService = databaseService;
-        _classVirtualizationVisitor = new ClassVirtualizationVisitor();
     }
 
     /// <summary>
@@ -52,10 +51,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     public virtual async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
     {
         _projectModel.Logger?.Information($"Analyzing project {analysisProject.ProjectFilePath}");
+        var xnose = new xNoseService(_projectModel, _databaseService);
         // for every .cs file in the current project
         if (cSharpCompilation != null)
         {
-
             foreach (var document in cSharpCompilation.SyntaxTrees)
             {
                 if (document.FilePath.EndsWith(".g.cs") || document.FilePath.EndsWith("AssemblyAttributes.cs") ||
@@ -63,13 +62,12 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     continue;
 
                 _projectModel.Logger?.Information($"Analyzing {document.FilePath}");
-
-                _classVirtualizationVisitor.Visit(document.GetRoot());
                 // Necessary to analyze types and retrieve declarations
                 // for invocations
                 // var semanticModel = compilation.GetSemanticModel(document);
 
                 var root = await document.GetRootAsync();
+                xnose.ClassVirtualizationVisitor.Visit(root);
 
                 var namespaceDec = FindNamespace(root);
 
@@ -152,7 +150,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
                 foreach (var import in usings) await _databaseService.ImportRepository.InsertImports(import);
             }
-            XNoseAnalyze(_classVirtualizationVisitor, analysisProject.SolutionFilePath ?? analysisProject.ProjectFilePath);
+
+            await xnose.Analyze(analysisProject.SolutionFilePath);
         }
 
         _methods.Clear();
@@ -383,7 +382,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
                 spec.EndLinePosition.Line, spec.EndLinePosition.Character);
             var method = new MethodModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString,
-                docstring, isTest, framework, location);
+                docstring, isTest, false, framework, location);
             // only capture invocations if the method is a test method
             // otherwise, we get a major slowdown on capturing every invocation
             if (isTest)
@@ -543,222 +542,5 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             // Add the invocation model to the list under the given key
             _invocations[key].Add(invocationModel);
         }
-    }
-
-    private async void XNoseAnalyze(ClassVirtualizationVisitor classVisitor, string solutionPath)
-    {
-        try
-        {
-            List<string> counter = new List<string>();
-            var reporter = new JsonFileReporter(solutionPath);
-            int testClassCount = 0, testMethodCount = 0;
-
-            var testSmells = new List<ASmell>
-            {
-                new EmptyTestSmell(),
-                new ConditionalTestSmell(),
-                new CyclomaticComplexityTestSmell(),
-                new ExpectedExceptionTestSmell(),
-                new AssertionRouletteTestSmell(),
-                new UnknownTestSmell(),
-                new RedundantPrintTestSmell(),
-                new SleepyTestSmell(),
-                new IgnoreTestSmell(),
-                new RedundantAssertionTestSmell(),
-                new DuplicateAssertionTestSmell(),
-                new MagicNumberTestSmell(),
-                new EagerTestSmell(),
-                new BoolInAssertEqualSmell(),
-                new EqualInAssertSmell(),
-                new SensitiveEqualitySmell(),
-                new ConstructorInitializationTestSmell(),
-                new ObscureInLineSetUpSmell()
-            };
-
-            Dictionary<string, Dictionary<string, bool>> otherMethodTestSmell =
-                new Dictionary<string, Dictionary<string, bool>>();
-            foreach (var (classDeclaration, methodDeclarations) in classVisitor.ClassWithOtherMethods)
-            {
-                foreach (var methodDeclaration in methodDeclarations)
-                {
-                    if (methodDeclaration.Body == null)
-                        continue;
-                    if (!otherMethodTestSmell.ContainsKey(methodDeclaration.Identifier.Text))
-                        otherMethodTestSmell[methodDeclaration.Identifier.Text] = new Dictionary<string, bool>();
-                    foreach (var smell in testSmells)
-                    {
-                        smell.Node = methodDeclaration;
-
-                        otherMethodTestSmell[methodDeclaration.Identifier.Text][smell.Name()] = smell.HasSmell();
-                    }
-
-                }
-            }
-
-            _projectModel.Logger?.Information("Break");
-            foreach (var smell in testSmells)
-            {
-                smell.otherMethodTestSmell = otherMethodTestSmell;
-            }
-
-            foreach (var (classDeclaration, methodDeclarations) in classVisitor.ClassWithMethods)
-            {
-                List<string> methodBodyCollection = new List<string>();
-                var classReporter = new ClassReporter
-                {
-                    Name = classDeclaration.Identifier.ValueText
-                };
-                testClassCount++;
-                testMethodCount += methodDeclarations.Count;
-                // _projectModel.Logger?.Information(
-                //     $"Analysis started for class: {classReporter.Name}, ProjectName: {project.Name.ToString()}");
-                foreach (var methodDeclaration in methodDeclarations)
-                {
-                    if (methodDeclaration.Body == null)
-                    {
-                        string errorLine =
-                            $"Could not load the body for function: {methodDeclaration.Identifier.Text} in class: {classReporter.Name}";
-                        _projectModel.Logger?.Error(errorLine);
-                        var tempMethodReporter = new MethodReporter
-                        {
-                            Name = methodDeclaration.Identifier.Text,
-                            Body = errorLine
-                        };
-                        classReporter.AddMethodReport(tempMethodReporter);
-                        continue;
-                    }
-
-                    var methodReporter = new MethodReporter
-                    {
-                        Name = methodDeclaration.Identifier.Text,
-                        Body = methodDeclaration.Body.NormalizeWhitespace().ToFullString()
-                    };
-                    methodBodyCollection.Add(methodReporter.Body);
-                    foreach (var smell in testSmells)
-                    {
-                        smell.Node = methodDeclaration;
-                        var message = new MethodReporterMessage
-                        {
-                            Name = smell.Name(),
-                            Status = smell.HasSmell() ? "Found" : "Not Found"
-                        };
-                        methodReporter.AddMessage(message);
-                    }
-
-                    classReporter.AddMethodReport(methodReporter);
-                }
-
-                if (HasLackOfCohesion(methodBodyCollection))
-                {
-                    classReporter.Message = "This class has Lack of Cohesion of Test Cases";
-                }
-
-                reporter.AddClassReporter(classReporter);
-                _projectModel.Logger?.Information($"Analysis ended for class: {classReporter.Name}");
-            }
-
-            _projectModel.Logger?.Information(
-                $"Total Test projects: {counter.Count()}, testClassCount: {testClassCount}, testMethodCount: {testMethodCount}"
-            );
-            await reporter.SaveReportAsync();
-            
-            // load into DB
-            await SaveTestSmellsToDb(solutionPath);
-        }
-        catch (Exception e)
-        {
-            _projectModel.Logger?.Error("Error in xNose " + e.ToString());
-            throw e;
-        }
-    }
-
-    private async Task SaveTestSmellsToDb(string solutionPath)
-    {
-        try
-        {
-            var fileName =
-                $"{Path.GetFileName(solutionPath).Replace(".sln", "").ToLowerInvariant()}_test_smell_reports.json";
-            var dirName = Path.Join(Path.GetDirectoryName(solutionPath), fileName);
-
-            string json = File.ReadAllText(dirName);
-
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-
-            List<TestSmellResult> results =
-                JsonSerializer.Deserialize<List<TestSmellResult>>(json, options);
-
-            // 3. Loop and insert
-            foreach (var testClass in results ?? new())
-            {
-                var classId = await _databaseService.ClassRepository.FindClass(testClass.Name);
-                if (classId != 0)
-                {
-                    foreach (var method in testClass.Methods ?? new())
-                    {
-                        var methodId = await _databaseService.MethodRepository.FindMethod(method.Name, classId);
-                        if (methodId != 0)
-                        {
-                            foreach (var smell in method.Smells ?? new())
-                            {
-                                var smellId = await _databaseService.TestSmellRepository.FindTestSmell(smell.Name);
-                                if (smellId != 0)
-                                {
-                                    await _databaseService.MethodTestSmellRepository.InsertMethodTestSmellGetId(
-                                        methodId, smellId, smell.Status);
-                                }
-                                else
-                                {
-                                    _projectModel.Logger?.Information($"Test Smell {smell.Name} not found in DB");
-                                }
-                            }
-                        }
-                        else
-                        {
-                            _projectModel.Logger?.Information($"Method {method.Name} not found in DB");
-                        }
-                    }
-                }
-                else
-                {
-                    _projectModel.Logger?.Information($"Class {testClass.Name} not found in DB");
-                }
-            }
-
-            // 4. Delete the file
-            File.Delete(dirName);
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-        }
-
-    }
-
-
-    private bool HasLackOfCohesion(List<string> methodBodyCollection)
-    {
-        var cosineInstance = new Cosine();
-        double cosineScoreSum = 0.0;
-        int pairCount = 0;
-        for (int i = 0; i < methodBodyCollection.Count; i++)
-        {
-            for (int j = 0; j < methodBodyCollection.Count; j++)
-            {
-                if (i != j)
-                {
-                    cosineScoreSum += cosineInstance.Similarity(methodBodyCollection[i], methodBodyCollection[j]);
-                    pairCount++;
-                }
-            }
-        }
-        if (pairCount <= 0)
-            return false;
-
-        var testClassCohesionScore = cosineScoreSum / (double)pairCount;
-        _projectModel.Logger?.Information(testClassCohesionScore.ToString());
-        return ((1.0 - testClassCohesionScore) >= 0.6);//from paper
     }
 }

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS methods (
     full_string TEXT,
     doc_string TEXT,
     is_test_method BOOLEAN,
+    is_generated BOOLEAN,
     testing_framework TEXT,
     test_type TEXT,
     location_start_lin_no INTEGER,
@@ -178,21 +179,22 @@ CREATE TABLE IF NOT EXISTS generated_tests (
     test_run_id INTEGER NOT NULL,
     original_method_id INTEGER NOT NULL,
     test_method_id INTEGER NOT NULL,
+    gen_test_method_id INTEGER NOT NULL,
     filepath TEXT,
     provider TEXT,
     model TEXT,
     strategy TEXT,
     prompt_token_count INTEGER,
     generation_duration INTEGER,
-    generated_body TEXT,
     FOREIGN KEY (test_run_id) REFERENCES test_runs(id),
-    FOREIGN KEY (original_method_id) REFERENCES methods(id)
-    FOREIGN KEY (test_method_id) REFERENCES methods(id)
+    FOREIGN KEY (original_method_id) REFERENCES methods(id),
+    FOREIGN KEY (test_method_id) REFERENCES methods(id),
+    FOREIGN KEY (gen_test_method_id) REFERENCES methods(id)
 );
 
 CREATE TABLE IF NOT EXISTS coverage_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    test_run_id INTEGER,
+    test_run_id TEXT,
     timestamp INTEGER,
     line_rate REAL,
     branch_rate REAL,
@@ -336,59 +338,76 @@ CREATE TABLE IF NOT EXISTS method_coverage (
     FOREIGN KEY (method_id) REFERENCES methods(id)
 );
 
-CREATE VIEW IF NOT EXISTS v_baseline_uncovered_tested_methods AS
-WITH UncoveredMethods AS (
-    SELECT 
-        mc.method_id, 
-        mc.line_rate, 
-        mc.branch_rate,
-        m.class_id, 
-        m.name AS method_name,
-        m.full_string AS method_body,
-        c.name AS class_name,
-        sf.analysis_project_id
-    FROM method_coverage mc
-    JOIN methods m ON mc.method_id = m.id
-    JOIN classes c ON m.class_id = c.id
-    JOIN source_files sf ON c.file_id = sf.id
-    JOIN analysis_projects ap ON sf.analysis_project_id = ap.id
-    WHERE mc.line_rate != 1
-),
-MethodTestMapping AS (
-    SELECT
-        sm.id AS source_method_id,
-        tm.id AS test_method_id,
-        tm.name AS test_method_name,
-        tm.full_string AS test_method_body,
-        tc.id AS test_class_id,
-        tc.name AS test_class_name,
-        tc.testing_framework,
-        tc.location_start_lin_no AS test_class_lin_start,
-        tc.location_body_start AS test_class_body_start,
-        tc.location_end_lin_no AS test_class_lin_end,
-        tc.location_body_end AS test_class_body_end,
-        tf.path AS test_file_path,
-        tf.usings AS test_dependencies
-    FROM invocations i
-    JOIN methods sm ON i.source_method_id = sm.id
-    JOIN methods tm ON i.target_method_id = tm.id AND tm.is_test_method = 1
-    JOIN classes tc ON tm.class_id = tc.id
-    JOIN source_files tf ON tc.file_id = tf.id
-)
+CREATE VIEW IF NOT EXISTS v_method_coverage_agg AS
+SELECT
+    method_id,
+    MAX(line_rate) AS max_line_rate,    -- best line coverage achieved
+    MAX(branch_rate) AS max_branch_rate, -- best branch coverage achieved
+    AVG(line_rate) AS avg_line_rate,    -- average line coverage across reports
+    AVG(branch_rate) AS avg_branch_rate -- average branch coverage
+FROM method_coverage
+GROUP BY method_id;
+
+CREATE VIEW IF NOT EXISTS v_candidate_covered_methods AS
 SELECT 
-    um.method_id,
-    um.method_name,
-    um.method_body,
-    um.line_rate,
-    um.branch_rate,
-    um.class_id,
-    um.class_name,
-    CASE WHEN mt.test_method_id IS NOT NULL THEN 'Has tests covering method' ELSE 'No tests covering method' END AS coverage_status,
+    m.id AS method_id,
+    m.name AS method_name,
+    m.full_string AS method_body,
+    mc_agg.max_line_rate AS line_rate,
+    mc_agg.max_branch_rate AS branch_rate,
+    c.id AS class_id,
+    c.name AS class_name,
+    sf.analysis_project_id
+FROM methods m
+JOIN classes c ON m.class_id = c.id
+JOIN source_files sf ON c.file_id = sf.id
+JOIN v_method_coverage_agg mc_agg 
+    ON mc_agg.method_id = m.id
+WHERE (mc_agg.max_line_rate IS NOT NULL OR mc_agg.max_branch_rate IS NOT NULL)
+AND (mc_agg.max_line_rate != 1 OR mc_agg.max_branch_rate != 1);
+
+CREATE VIEW IF NOT EXISTS v_method_test_mapping AS
+SELECT
+    i.source_method_id,
+    tm.id AS test_method_id,
+    tm.name AS test_method_name,
+    tm.full_string AS test_method_body,
+    tc.id AS test_class_id,
+    tc.name AS test_class_name,
+    tc.full_string AS test_class_body,
+    tc.testing_framework,
+    tc.location_start_lin_no AS test_class_lin_start,
+    tc.location_body_start AS test_class_body_start,
+    tc.location_end_lin_no AS test_class_lin_end,
+    tc.location_body_end AS test_class_body_end,
+    tf.path AS test_file_path,
+    tf.usings AS test_dependencies,
+    tf.namespace AS test_namespace
+FROM invocations i
+JOIN methods tm ON i.target_method_id = tm.id AND tm.is_test_method = 1
+JOIN methods sm ON i.source_method_id = sm.id
+JOIN classes tc ON tm.class_id = tc.id
+JOIN classes sc ON sm.class_id = sc.id
+JOIN source_files tf ON tc.file_id = tf.id
+WHERE i.source_method_id != 0
+AND sc.is_test_class = 0;
+
+CREATE VIEW IF NOT EXISTS v_baseline_uncovered_tested_methods AS
+SELECT DISTINCT
+    cm.method_id,
+    cm.method_name,
+    cm.method_body,
+    cm.line_rate,
+    cm.branch_rate,
+    cm.class_id,
+    cm.class_name,
+    'Has tests covering method' AS coverage_status,
     mt.test_method_id,
     mt.test_method_name,
     mt.test_method_body,
     mt.test_class_id,
     mt.test_class_name,
+    mt.test_class_body,
     mt.testing_framework,
     mt.test_class_lin_start,
     mt.test_class_body_start,
@@ -396,15 +415,143 @@ SELECT
     mt.test_class_body_end,
     mt.test_file_path,
     mt.test_dependencies,
+    mt.test_namespace,
     asol.solution_path AS solution_file_path
-FROM UncoveredMethods um
-LEFT JOIN MethodTestMapping mt 
-    ON um.method_id = mt.source_method_id
+FROM v_candidate_covered_methods cm
+JOIN v_method_test_mapping mt 
+    ON cm.method_id = mt.source_method_id
 LEFT JOIN analysis_projects ap 
-    ON ap.id = um.analysis_project_id
+    ON ap.id = cm.analysis_project_id
 LEFT JOIN analysis_solutions asol 
-    ON asol.id = ap.solution_id
-WHERE test_method_id IS NOT NULL
-ORDER BY um.method_name, mt.test_method_name;
+    ON asol.id = ap.solution_id;
+
+
+CREATE VIEW IF NOT EXISTS v_baseline_report AS
+SELECT cr.id
+FROM coverage_reports cr
+WHERE cr.test_run_id LIKE '%baseline%'
+ORDER BY cr.timestamp DESC
+LIMIT 1;
+
+CREATE VIEW IF NOT EXISTS v_baseline_coverage AS
+SELECT
+    mc.method_id,
+    mc.line_rate  AS baseline_line_rate,
+    mc.branch_rate AS baseline_branch_rate,
+    mc.complexity AS baseline_complexity
+FROM v_baseline_report lbr
+JOIN package_coverage pc
+    ON pc.coverage_report_id = lbr.id
+JOIN class_coverage cc
+    ON cc.package_coverage_id = pc.id
+JOIN method_coverage mc
+    ON mc.class_coverage_id = cc.id;
+
+CREATE VIEW IF NOT EXISTS v_gen_test_coverage AS
+SELECT
+    gt.original_method_id AS method_id,
+    gt.test_method_id,
+	gt.gen_test_method_id,
+    tr.id AS test_run_db_id,
+    mc.line_rate  AS generated_line_rate,
+    mc.branch_rate AS generated_branch_rate,
+    mc.complexity AS generated_complexity
+FROM generated_tests gt
+JOIN test_runs tr
+    ON tr.id = gt.test_run_id
+JOIN coverage_reports cr
+    ON cr.test_run_id = tr.run_id
+JOIN package_coverage pc
+    ON pc.coverage_report_id = cr.id
+JOIN class_coverage cc 
+    ON cc.package_coverage_id = pc.id
+JOIN method_coverage mc
+    ON mc.class_coverage_id = cc.id
+   AND mc.method_id = gt.original_method_id;
+
+CREATE VIEW IF NOT EXISTS v_latest_test_outcome AS
+SELECT
+    tr_db.id AS test_run_db_id,
+    tr.method_id AS test_method_id,
+    tr.test_outcome,
+    tr.test_duration,
+    tr.error_message
+FROM test_results tr
+JOIN test_runs tr_db
+    ON tr_db.run_id = tr.run_id;
+
+CREATE VIEW IF NOT EXISTS v_test_agg AS
+SELECT
+    gt.id                           AS generated_test_id,
+    gt.test_run_id,
+    gt.provider,
+    gt.model,
+    gt.strategy,
+    gt.prompt_token_count,
+    gt.generation_duration,
+
+    m.id                            AS method_id,
+    m.name                          AS method_name,
+    c.name                          AS class_name,
+
+    AVG(bc.baseline_line_rate)      AS baseline_line_rate,
+    AVG(gr.generated_line_rate)     AS generated_line_rate,
+
+    AVG(bc.baseline_branch_rate)    AS baseline_branch_rate,
+    AVG(gr.generated_branch_rate)   AS generated_branch_rate,
+
+    AVG(bc.baseline_complexity)     AS baseline_complexity,
+    AVG(gr.generated_complexity)    AS generated_complexity,
+
+    lto.test_outcome,
+    lto.test_duration,
+    lto.error_message
+
+FROM generated_tests gt
+JOIN methods m 
+    ON gt.original_method_id = m.id
+JOIN classes c 
+    ON m.class_id = c.id
+LEFT JOIN v_baseline_coverage bc 
+    ON bc.method_id = m.id
+LEFT JOIN v_gen_test_coverage gr 
+    ON gr.method_id = m.id
+    AND gr.test_run_db_id = gt.test_run_id
+LEFT JOIN v_latest_test_outcome lto
+    ON lto.test_method_id = gt.gen_test_method_id
+    AND lto.test_run_db_id = gt.test_run_id
+GROUP BY 
+    gt.id, gt.test_run_id, gt.provider, gt.model, gt.strategy, gt.prompt_token_count, gt.generation_duration,
+    m.id, m.name, c.name,
+    lto.test_outcome, lto.test_duration, lto.error_message;
+
+CREATE VIEW IF NOT EXISTS v_generated_test_evaluation AS
+SELECT
+    *,
+    -- calculate deltas
+    (generated_line_rate - baseline_line_rate) AS line_rate_delta,
+    (generated_branch_rate - baseline_branch_rate) AS branch_rate_delta,
+    ((generated_line_rate - baseline_line_rate) + (generated_branch_rate - baseline_branch_rate)) / 2 AS coverage_delta,
+    -- evaluation category
+    CASE
+        WHEN (test_outcome IN ('Passed', 'pass') AND ((generated_line_rate - baseline_line_rate) + (generated_branch_rate - baseline_branch_rate))/2 > 0)
+            THEN 'Approved / Improved Test'
+        WHEN (test_outcome IN ('Passed', 'pass') AND ((generated_line_rate - baseline_line_rate) + (generated_branch_rate - baseline_branch_rate))/2 = 0)
+            THEN 'Benign Test'
+        WHEN (test_outcome IN ('Failed', 'fail', 'Error') AND ((generated_line_rate - baseline_line_rate) + (generated_branch_rate - baseline_branch_rate))/2 > 0)
+            THEN 'Candidate Test'
+        ELSE 'Failed Test'
+    END AS evaluation_category,
+    -- UI color
+    CASE
+        WHEN (test_outcome IN ('Passed', 'pass') AND ((generated_line_rate - baseline_line_rate) + (generated_branch_rate - baseline_branch_rate))/2 > 0)
+            THEN 'green'
+        WHEN (test_outcome IN ('Passed', 'pass') AND ((generated_line_rate - baseline_line_rate) + (generated_branch_rate - baseline_branch_rate))/2 = 0)
+            THEN 'gray'
+        WHEN (test_outcome IN ('Failed', 'fail', 'Error') AND ((generated_line_rate - baseline_line_rate) + (generated_branch_rate - baseline_branch_rate))/2 > 0)
+            THEN 'yellow'
+        ELSE 'red'
+    END AS ui_color
+FROM v_test_agg;
 ";
 }

@@ -37,15 +37,15 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Provider": "custom",
-    "Model": "gpt-oss-120b",
+    "Provider": "ollama",
+    "Model": "gpt-oss:20b",
     "MaxRetries": 5
   },
   "Amazon": {
     "AwsRegion": "us-east-1"
   },
   "Ollama": {
-    "Endpoint": "http://localhost:10000/"
+    "Endpoint": "http://localhost:11434/"
   },
   "Custom": {
     "Endpoint": "http://localhost:8080/v1"
