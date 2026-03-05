@@ -117,7 +117,28 @@ public class FullAnalysisService : IFullAnalysisService
                 var encoding = GptEncoding.GetEncoding("cl100k_base");
                 var tokens = encoding.Encode(prompt).Count;
 
-                var test = rawTest.Split("```")[1].Replace("csharp", "");
+                var test = rawTest;
+                if (rawTest.Contains("```"))
+                {
+                    var parts = rawTest.Split("```");
+                    if (parts.Length > 1)
+                    {
+                        test = parts[1].Replace("csharp", "");
+                    }
+                }
+                else
+                {
+                    _projectModel.Logger?.Warning("No markdown code block delimiters (```) found in rawTest. Using raw string.");
+                }
+                
+                test = test.Trim();
+                
+                if (string.IsNullOrWhiteSpace(test))
+                {
+                    _projectModel.Logger?.Warning("Extracted test code is empty.");
+                    continue;
+                }
+                
                 candidateTest = test;
 
                 var testMethodName =

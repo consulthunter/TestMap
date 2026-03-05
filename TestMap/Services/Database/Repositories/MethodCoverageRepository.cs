@@ -35,7 +35,7 @@ public class MethodCoverageRepository
         using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
-            int id = reader.GetInt16(0);
+            int id = reader.GetInt32(0);
 
             return id;
         }

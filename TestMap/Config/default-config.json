@@ -1,6 +1,6 @@
 {
   "FilePaths": {
-    "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+    "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\csharp\\final_eval.txt",
     "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
     "TempDirPath": "D:\\Projects\\TestMap\\Temp",
     "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
@@ -37,8 +37,8 @@
     "KeepProjectFiles": true
   },
   "Generation": {
-    "Provider": "ollama",
-    "Model": "gpt-oss:20b",
+    "Provider": "custom",
+    "Model": "GLM-4.7-Flash",
     "MaxRetries": 5
   },
   "Amazon": {
@@ -46,6 +46,11 @@
   },
   "Ollama": {
     "Endpoint": "http://localhost:11434/"
+  },
+  "Google":{
+    "ProjectId": "testmap-489018",
+    "Location": "us-east1",
+    "TokenPath": "C:\\SomePath\\token.json"
   },
   "Custom": {
     "Endpoint": "http://localhost:8080/v1"

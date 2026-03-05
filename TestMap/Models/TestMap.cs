@@ -127,7 +127,7 @@ public class TestMap(
 
     private async Task CheckProjectsAsync()
     {
-        await CheckProjectsService.ProcessRepositoryListAsync();
+        await CheckProjectsService.ProcessRepositoryAsync();
     }
 
     private async Task ValidateProjectsAsync()

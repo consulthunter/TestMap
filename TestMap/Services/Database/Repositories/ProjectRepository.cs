@@ -31,7 +31,7 @@ public class ProjectRepository
         await using var reader = await checkCmd.ExecuteReaderAsync();
         if (await reader.ReadAsync())
         {
-            _projectModel.DbId = reader.GetInt16(0);
+            _projectModel.DbId = reader.GetInt32(0);
         }
         else
         {

@@ -1,4 +1,5 @@
 using Octokit;
+using TestMap.Models;
 using TestMap.Models.Configuration;
 
 namespace TestMap.Services.ProjectOperations;
@@ -7,60 +8,48 @@ public class CheckProjectsService : ICheckProjectsService
 {
     private readonly GitHubClient _client;
     private readonly TestMapConfig _config;
+    private readonly ProjectModel _projectModel;
 
-    public CheckProjectsService(TestMapConfig config, string token)
+    // Serialize writes within this process (across all concurrent projects)
+    private static readonly SemaphoreSlim _fileWriteGate = new(1, 1);
+
+    public CheckProjectsService(TestMapConfig config, string token, ProjectModel projectModel)
     {
         _config = config;
         _client = new GitHubClient(new ProductHeaderValue("TestMap"));
         _client.Credentials = new Credentials(token);
+        _projectModel = projectModel;
     }
 
-    public async Task ProcessRepositoryListAsync()
+    public async Task ProcessRepositoryAsync()
     {
         if (!File.Exists(_config.FilePaths.TargetFilePath))
             throw new FileNotFoundException("Repo list file not found", _config.FilePaths.TargetFilePath);
 
-        var baseDir = Path.GetDirectoryName(_config.FilePaths.TargetFilePath)!;
+        var baseDir = Path.GetDirectoryName(_config.FilePaths.TargetFilePath) ?? throw new InvalidOperationException();
 
-        var fileRepos = await File.ReadAllLinesAsync(_config.FilePaths.TargetFilePath);
+        Console.WriteLine($"Checking {_projectModel.Owner}/{_projectModel.RepoName} ...");
 
-        var repos = fileRepos.Select(l => l.Trim())
-            .Where(l => !string.IsNullOrWhiteSpace(l))
-            .ToList();
-
-        var withTests = new List<string>();
-        var withoutTests = new List<string>();
-
-        foreach (var repoUrl in repos)
-            try
-            {
-                var (owner, name) = Utilities.Utilities.ExtractOwnerAndRepo(repoUrl);
-
-                Console.WriteLine($"Checking {owner}/{name} ...");
-
-                var hasTests = await RepoLikelyHasTests(owner, name);
-
-                if (hasTests)
-                    withTests.Add(repoUrl);
-                else
-                    withoutTests.Add(repoUrl);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error processing {repoUrl}: {ex.Message}");
-                withoutTests.Add($"{repoUrl}    # ERROR");
-            }
+        var hasTests = await RepoLikelyHasTests(_projectModel.Owner, _projectModel.RepoName);
 
         // Output files
         var withFile = Path.Combine(baseDir, "repos_with_tests.txt");
         var withoutFile = Path.Combine(baseDir, "repos_without_tests.txt");
 
-        await File.WriteAllLinesAsync(withFile, withTests);
-        await File.WriteAllLinesAsync(withoutFile, withoutTests);
+        await _fileWriteGate.WaitAsync();
+        try
+        {
+            if (hasTests)
+                await File.AppendAllLinesAsync(withFile, new[] { _projectModel.GitHubUrl });
+            else
+                await File.AppendAllLinesAsync(withoutFile, new[] { _projectModel.GitHubUrl });
+        }
+        finally
+        {
+            _fileWriteGate.Release();
+        }
 
         Console.WriteLine("Done.");
-        Console.WriteLine($"Repos with tests: {withTests.Count}");
-        Console.WriteLine($"Repos without tests: {withoutTests.Count}");
     }
 
     private async Task<bool> RepoLikelyHasTests(string owner, string repo)
@@ -90,19 +79,15 @@ public class CheckProjectsService : ICheckProjectsService
 
             return tree.Tree.Any(t => t.Path.Contains("test", StringComparison.OrdinalIgnoreCase));
         }
-        catch (NotFoundException nf)
+        catch (NotFoundException)
         {
-            // branch or repo not found
             return false;
         }
         catch (ApiException apiEx)
         {
-            // GitHub API error
             Console.WriteLine(apiEx.Message);
             return false;
         }
-
-        return false;
     }
 
     private bool ContainsTestIndicators(IEnumerable<string> names)

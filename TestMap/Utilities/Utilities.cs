@@ -76,25 +76,44 @@ public static class Utilities
 
     public static void InsertTestIntoFile(string className, string filePath, string testMethodCode)
     {
-        var sourceText = File.ReadAllText(filePath);
-        var tree = CSharpSyntaxTree.ParseText(sourceText);
-        var root = tree.GetCompilationUnitRoot();
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                Console.WriteLine($"InsertTestIntoFile: File not found: {filePath}");
+                return;
+            }
 
-        var classNode = root.DescendantNodes()
-            .OfType<ClassDeclarationSyntax>()
-            .FirstOrDefault(c => c.Identifier.Text == className);
+            var sourceText = File.ReadAllText(filePath);
+            var tree = CSharpSyntaxTree.ParseText(sourceText);
+            var root = tree.GetCompilationUnitRoot();
 
-        if (classNode == null)
-            throw new InvalidOperationException($"Class '{className}' not found in {filePath}");
+            var classNode = root.DescendantNodes()
+                .OfType<ClassDeclarationSyntax>()
+                .FirstOrDefault(c => c.Identifier.Text == className);
 
-        // Parse the method text into syntax
-        var method = SyntaxFactory.ParseMemberDeclaration(testMethodCode)
-                     ?? throw new InvalidOperationException("Invalid test method syntax.");
+            if (classNode == null)
+            {
+                Console.WriteLine($"InsertTestIntoFile: Class '{className}' not found in {filePath}");
+                return;
+            }
 
-        var newClassNode = classNode.AddMembers(method);
+            var method = SyntaxFactory.ParseMemberDeclaration(testMethodCode);
 
-        var newRoot = root.ReplaceNode(classNode, newClassNode);
+            if (method == null)
+            {
+                Console.WriteLine("InsertTestIntoFile: Invalid test method syntax.");
+                return;
+            }
 
-        File.WriteAllText(filePath, newRoot.NormalizeWhitespace().ToFullString());
+            var newClassNode = classNode.AddMembers(method);
+            var newRoot = root.ReplaceNode(classNode, newClassNode);
+
+            File.WriteAllText(filePath, newRoot.NormalizeWhitespace().ToFullString());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"InsertTestIntoFile failed: {ex}");
+        }
     }
 }

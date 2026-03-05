@@ -2,5 +2,5 @@
 
 public interface ICheckProjectsService
 {
-    Task ProcessRepositoryListAsync();
+    Task ProcessRepositoryAsync();
 }

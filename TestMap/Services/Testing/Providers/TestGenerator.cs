@@ -7,8 +7,10 @@ using Microsoft.SemanticKernel.Connectors.Amazon;
 using Microsoft.SemanticKernel.Connectors.Google;
 using Microsoft.SemanticKernel.Connectors.Ollama;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using OpenAI.Chat;
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.Providers;
+using ChatMessageContent = Microsoft.SemanticKernel.ChatMessageContent;
 
 namespace TestMap.Services.Testing.Providers;
 
@@ -59,12 +61,22 @@ public class TestGenerator
                 break;
 
             case "google":
+                var googleClient = new HttpClient
+                {
+                    Timeout = TimeSpan.FromSeconds(300)
+                };
+                
+                var vertexAiTokenProvider = new VertexAiTokenProvider(googleConfig.TokenPath);
                 if (string.IsNullOrEmpty(model) || string.IsNullOrEmpty(googleConfig?.ApiKey))
                     throw new ConfigurationErrorsException(
                         "For google provider: Model, and ApiKey must be configured.");
-                builder.AddGoogleAIGeminiChatCompletion(
+                builder.AddVertexAIGeminiChatCompletion(
                     model,
-                    googleConfig.ApiKey);
+                    bearerTokenProvider: () => vertexAiTokenProvider.GetTokenAsync(),
+                    location: googleConfig.Location,
+                    googleConfig.ProjectId,
+                    httpClient: googleClient
+                    );
                 break;
 
             case "amazon":
@@ -81,15 +93,18 @@ public class TestGenerator
                 break;
 
             case "custom":
-                var uri = new Uri(customConfig?.Endpoint ?? string.Empty);
+                var customClient = new HttpClient
+                {
+                    BaseAddress = new Uri(customConfig.Endpoint),
+                    Timeout = TimeSpan.FromSeconds(300)
+                };
                 if (string.IsNullOrEmpty(model) ||
                     string.IsNullOrEmpty(customConfig?.ApiKey))
                     throw new ConfigurationErrorsException(
                         "For openai provider: OrgID, Model, and ApiKey must be configured.");
                 builder.AddOpenAIChatCompletion(
                     model,
-                    uri,
-                    apiKey: customConfig.ApiKey);
+                    apiKey: customConfig.ApiKey, httpClient: customClient);
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported LLM provider: {provider}");
@@ -165,7 +180,7 @@ public class TestGenerator
                 case "openai":
                     var openai = await chat.GetChatMessageContentAsync(chatHistory, new OpenAIPromptExecutionSettings
                     {
-                        Temperature = temperature
+                        Temperature = 1
                     });
                     chatHistory.Add(openai);
                     break;
@@ -199,10 +214,12 @@ public class TestGenerator
                     }
                     break;
                 case "custom":
-                    var custom = await chat.GetChatMessageContentAsync(chatHistory, new OpenAIPromptExecutionSettings
+
+                    var settings = new OpenAIPromptExecutionSettings
                     {
-                        Temperature = temperature
-                    });
+                        Temperature = temperature,      // lower temperature for deterministic output
+                    };
+                    var custom = await chat.GetChatMessageContentAsync(chatHistory, settings);
                     chatHistory.Add(custom);
                     break;
             }

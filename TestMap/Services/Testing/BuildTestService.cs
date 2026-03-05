@@ -359,7 +359,8 @@ public class BuildTestService : IBuildTestService
             _projectModel.TestResults.AddRange(results);
             foreach (var result in results)
             {
-                var methodId = await _sqliteDatabaseService.MethodRepository.FindMethodFromContains(result.TestName);
+                var name = ExtractSimpleTestMethodName(result.TestName);
+                var methodId = await _sqliteDatabaseService.MethodRepository.FindMethodFromExact(name);
                 result.MethodId = methodId;
             }
 
@@ -381,6 +382,11 @@ public class BuildTestService : IBuildTestService
         }
     }
 
+    private static string ExtractSimpleTestMethodName(string fullName)
+    {
+        return fullName.Split('.').Last();
+    }
+    
     private List<TrxTestResult> ParseTrxFile(string trxFilePath)
     {
         var results = new List<TrxTestResult>();

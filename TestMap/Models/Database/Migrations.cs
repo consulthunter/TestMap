@@ -348,6 +348,23 @@ SELECT
 FROM method_coverage
 GROUP BY method_id;
 
+CREATE VIEW IF NOT EXISTS v_method_coverage_baseline_agg AS
+SELECT
+    mc.method_id,
+    mc.line_rate   AS max_line_rate,
+    mc.branch_rate AS max_branch_rate,
+    mc.line_rate   AS avg_line_rate,
+    mc.branch_rate AS avg_branch_rate
+FROM method_coverage mc
+JOIN class_coverage cc 
+    ON mc.class_coverage_id = cc.id
+JOIN package_coverage pc 
+    ON cc.package_coverage_id = pc.id
+JOIN coverage_reports cr 
+    ON pc.coverage_report_id = cr.id
+JOIN v_baseline_report br
+    ON cr.id = br.id;
+
 CREATE VIEW IF NOT EXISTS v_candidate_covered_methods AS
 SELECT 
     m.id AS method_id,
@@ -361,7 +378,7 @@ SELECT
 FROM methods m
 JOIN classes c ON m.class_id = c.id
 JOIN source_files sf ON c.file_id = sf.id
-JOIN v_method_coverage_agg mc_agg 
+JOIN v_method_coverage_baseline_agg mc_agg 
     ON mc_agg.method_id = m.id
 WHERE (mc_agg.max_line_rate IS NOT NULL OR mc_agg.max_branch_rate IS NOT NULL)
 AND (mc_agg.max_line_rate != 1 OR mc_agg.max_branch_rate != 1);

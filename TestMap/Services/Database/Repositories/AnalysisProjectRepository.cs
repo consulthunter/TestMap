@@ -36,8 +36,8 @@ public class AnalysisProjectRepository
             await using var reader = await checkCmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
-                int id = reader.GetInt16(0);
-                int solutionId = reader.GetInt16(1);
+                int id = reader.GetInt32(0);
+                int solutionId = reader.GetInt32(1);
                 var guid = reader.GetString(2);
 
                 project.Id = id;

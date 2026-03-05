@@ -106,7 +106,7 @@ public class TestMapRunner
                 new AnalyzeProjectService(project, db),
                 new MapUnresolvedService(project, db),
                 new GenerateTestService(project, _testMapConfig, db, buildTest),
-                new CheckProjectsService(_testMapConfig, token),
+                new CheckProjectsService(_testMapConfig, token, project),
                 new ValidateProjectsService(project, db),
                 new WindowsCheckService(project, _testMapConfig),
                 new FullAnalysisService(project, _testMapConfig, db, buildTest),
