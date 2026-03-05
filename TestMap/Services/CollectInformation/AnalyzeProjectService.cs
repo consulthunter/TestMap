@@ -10,20 +10,14 @@
  * AnalyzeProjectService.cs
  */
 
-using System.Text.Json;
-using F23.StringSimilarity;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models;
 using TestMap.Models.Code;
-using TestMap.Models.Results;
 using TestMap.Services.Database;
 using TestMap.Services.ProjectOperations;
 using TestMap.Services.xNose;
-using TestMap.Services.xNose.Reporters;
-using TestMap.Services.xNose.Smells;
-using TestMap.Services.xNose.Visitors;
 using Location = TestMap.Models.Code.Location;
 
 namespace TestMap.Services.CollectInformation;
@@ -67,7 +61,6 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 // var semanticModel = compilation.GetSemanticModel(document);
 
                 var root = await document.GetRootAsync();
-                xnose.ClassVirtualizationVisitor.Visit(root);
 
                 var namespaceDec = FindNamespace(root);
 

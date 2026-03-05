@@ -1,3 +1,0 @@
-﻿1. filename
-2. function name
-3. range

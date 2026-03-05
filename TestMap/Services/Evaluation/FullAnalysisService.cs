@@ -209,15 +209,10 @@ public class FullAnalysisService : IFullAnalysisService
                         .GeneratedTestRepository
                         .InsertGeneratedTest(genTest);
 
-                    var text = await File.ReadAllTextAsync(methodResult.TestFilePath);
-                    var code = CSharpSyntaxTree.ParseText(text);
-                    var root = await code.GetRootAsync();
-
                     var xnose = new xNoseService(
                         _projectModel,
                         _sqliteDatabaseService);
-
-                    xnose.ClassVirtualizationVisitor.Visit(root);
+                    
                     await xnose.Analyze(methodResult.SolutionFilePath);
                 }
 
