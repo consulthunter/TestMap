@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using TestMap.Execution;
+using TestMap.Execution.Steps;
 using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Runs;
@@ -98,6 +99,7 @@ public class ProjectRunCoordinator
         services.AddSingleton(_config);
         services.AddScoped<ProjectContext>(_ => context);
 
+        
         services.AddScoped<SqliteDatabaseService>();
         services.AddScoped<ISqliteDatabaseService>(sp => sp.GetRequiredService<SqliteDatabaseService>());
 
@@ -117,6 +119,14 @@ public class ProjectRunCoordinator
         services.AddScoped<IDeleteProjectService, DeleteProjectService>();
 
         services.AddTransient<IPipelineRunFactory, PipelineRunFactory>();
+        
+        services.AddScoped<CloneRepoStep>();
+        services.AddScoped<LoadDatabaseStep>();
+        services.AddScoped<ExtractInfoStep>();
+        services.AddScoped<InsertProjectInfoStep>();
+        services.AddScoped<AnalyzeProjectStep>();
+        services.AddScoped<BuildTestStep>();
+        services.AddScoped<MapInfoStep>();
 
         services.AddTransient<CollectTestsRun>();
 
