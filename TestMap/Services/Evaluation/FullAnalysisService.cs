@@ -7,27 +7,28 @@ using TestMap.Models.Code;
 using TestMap.Models.Configuration;
 using TestMap.Models.Database;
 using TestMap.Models.Results;
+using TestMap.App;
 using TestMap.Services.Database;
 using TestMap.Services.Testing;
 using TestMap.Services.Testing.Providers;
-using TestMap.Services.xNose;
+using TestMap.Services.StaticAnalysis;
 
 namespace TestMap.Services.Evaluation;
 
 public class FullAnalysisService : IFullAnalysisService
 {
-    private readonly ProjectModel _projectModel;
+    private readonly ProjectContext _context;
     private readonly TestMapConfig _testMapConfig;
     private readonly SqliteDatabaseService _sqliteDatabaseService;
     public readonly BuildTestService _buildTestService;
 
     public FullAnalysisService(
-        ProjectModel project,
-        TestMapConfig config,
+        ProjectContext context,
+        TestMapConfig config,   
         SqliteDatabaseService sqliteDatabaseService,
         BuildTestService buildTestService)
     {
-        _projectModel = project;
+        _context = context;
         _testMapConfig = config;
         _sqliteDatabaseService = sqliteDatabaseService;
         _buildTestService = buildTestService;
@@ -66,7 +67,7 @@ public class FullAnalysisService : IFullAnalysisService
 
             for (var attempt = 1; attempt <= retries; attempt++)
             {
-                _projectModel.Logger?.Information(
+                _context.Logger?.Information(
                     $"[{strategy}] Attempt {attempt} for {methodResult.MethodName}");
 
                 string prompt;
@@ -107,7 +108,7 @@ public class FullAnalysisService : IFullAnalysisService
                 }
                 catch (Exception ex)
                 {
-                    _projectModel.Logger?.Error($"Generation failed: {ex.Message}");
+                    _context.Logger?.Error($"Generation failed: {ex.Message}");
                     continue;
                 }
 
@@ -128,14 +129,14 @@ public class FullAnalysisService : IFullAnalysisService
                 }
                 else
                 {
-                    _projectModel.Logger?.Warning("No markdown code block delimiters (```) found in rawTest. Using raw string.");
+                    _context.Logger?.Warning("No markdown code block delimiters (```) found in rawTest. Using raw string.");
                 }
                 
                 test = test.Trim();
                 
                 if (string.IsNullOrWhiteSpace(test))
                 {
-                    _projectModel.Logger?.Warning("Extracted test code is empty.");
+                    _context.Logger?.Warning("Extracted test code is empty.");
                     continue;
                 }
                 
@@ -146,7 +147,7 @@ public class FullAnalysisService : IFullAnalysisService
 
                 if (string.IsNullOrEmpty(testMethodName))
                 {
-                    _projectModel.Logger?.Warning("Failed to extract test name.");
+                    _context.Logger?.Warning("Failed to extract test name.");
                     continue;
                 }
 
@@ -209,8 +210,8 @@ public class FullAnalysisService : IFullAnalysisService
                         .GeneratedTestRepository
                         .InsertGeneratedTest(genTest);
 
-                    var xnose = new xNoseService(
-                        _projectModel,
+                    var xnose = new XNoseNextService(
+                        _context,
                         _sqliteDatabaseService);
                     
                     await xnose.Analyze(methodResult.SolutionFilePath);
@@ -221,14 +222,14 @@ public class FullAnalysisService : IFullAnalysisService
 
                 if (generatedTestResult == null)
                 {
-                    _projectModel.Logger?.Warning(
+                    _context.Logger?.Warning(
                         $"Generated test did not run: {testMethodName} (suite aborted?)");
 
                     // Retry allowed
                 }
                 else
                 {
-                    _projectModel.Logger?.Information(
+                    _context.Logger?.Information(
                         $"Generated test outcome: {generatedTestResult.Outcome}");
 
                     if (generatedTestResult.Outcome == "Passed")
@@ -236,7 +237,7 @@ public class FullAnalysisService : IFullAnalysisService
                         if (runResult is GeneratedTestRunResult gen &&
                             gen.MethodCoverage > baseline)
                         {
-                            _projectModel.Logger?.Information(
+                            _context.Logger?.Information(
                                 $"Coverage improved from {baseline} to {gen.MethodCoverage}");
                         }
 
@@ -245,7 +246,7 @@ public class FullAnalysisService : IFullAnalysisService
                     }
                     else if (generatedTestResult.Outcome == "Failed")
                     {
-                        _projectModel.Logger?.Warning(
+                        _context.Logger?.Warning(
                             $"Generated test failed: {testMethodName}");
                         // Retry allowed
                     }
@@ -261,7 +262,7 @@ public class FullAnalysisService : IFullAnalysisService
 
     private void RollbackRepo()
     {
-        using var repo = new Repository(_projectModel.DirectoryPath);
+        using var repo = new Repository(_context.Project.DirectoryPath);
 
         var headCommit = repo.Head.Tip;
         repo.Reset(ResetMode.Hard, headCommit);
@@ -271,14 +272,14 @@ public class FullAnalysisService : IFullAnalysisService
         foreach (var untracked in status.Untracked)
         {
             var path = Path.Combine(
-                _projectModel.DirectoryPath,
+                _context.Project.DirectoryPath,
                 untracked.FilePath);
 
             if (File.Exists(path))
                 File.Delete(path);
         }
 
-        _projectModel.Logger?.Information(
+        _context.Logger?.Information(
             "Repository rolled back to last commit.");
     }
 }

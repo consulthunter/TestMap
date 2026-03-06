@@ -9,7 +9,9 @@
 using System.Reflection;
 using CommandLine;
 using Microsoft.Extensions.Configuration;
+using TestMap.App;
 using TestMap.CLIOptions;
+using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Services;
 using TestMap.Services.Configuration;
@@ -76,16 +78,25 @@ public class Program
     private static async Task RunCollect(CollectTestOptions testOptions)
     {
         Utilities.Utilities.Load();
+
+        // 1. Load config
         var config = new ConfigurationBuilder()
             .AddJsonFile(ConfigurationLocation(testOptions.CollectConfigFilePath), false, true)
             .Build();
+
         var configObj = new TestMapConfig();
         config.Bind(configObj);
+
+        // 2. Configure service
         var configurationService = new ConfigurationService(configObj);
         configurationService.RunMode = testOptions.Mode;
         configurationService.SetSecrets();
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
+        
+        // 4. Create the runner
+        var pipelineRunner = new ProjectRunCoordinator(configurationService);
+
+        // 5. Run all projects
+        await pipelineRunner.RunAsync();
     }
 
     /// <summary>

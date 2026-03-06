@@ -16,6 +16,8 @@ using TestMap.Services.Configuration;
 using TestMap.Services.Database;
 using TestMap.Services.Evaluation;
 using TestMap.Services.ProjectOperations;
+using TestMap.Services.RepoOperations.Clone;
+using TestMap.Services.RepoOperations.Delete;
 using TestMap.Services.Testing;
 
 namespace TestMap.Services;
@@ -31,7 +33,7 @@ public class TestMapRunner
     /// <param name="configurationService">Configuration service for access to variables</param>
     public TestMapRunner(IConfigurationService configurationService)
     {
-        ConfigurationService = configurationService;
+        /*ConfigurationService = configurationService;
 
         MSBuildLocator.RegisterDefaults();
         ConfigurationService.ConfigureRunAsync().GetAwaiter().GetResult();
@@ -48,17 +50,17 @@ public class TestMapRunner
         Logger = new LoggerConfiguration()
             .Enrich.FromLogContext()
             .WriteTo.File(logPath)
-            .CreateLogger();
+            .CreateLogger();*/
     }
 
     public TestMapRunner()
     {
-        MaxConcurrency = 1;
-        _projects = new List<ProjectModel>();
-        Logger = new LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.File(Path.GetTempFileName())
-            .CreateLogger();
+        // MaxConcurrency = 1;
+        // _projects = new List<ProjectModel>();
+        // Logger = new LoggerConfiguration()
+        //     .Enrich.FromLogContext()
+        //     .WriteTo.File(Path.GetTempFileName())
+        //     .CreateLogger();
     }
 
     // fields
@@ -74,7 +76,7 @@ public class TestMapRunner
     /// </summary>
     public async Task RunAsync()
     {
-        var tasks = new List<Task>();
+        /*var tasks = new List<Task>();
 
         // Use SemaphoreSlim for concurrency control
         Logger.Information("Starting runner.");
@@ -118,7 +120,7 @@ public class TestMapRunner
             tasks.Add(RunTestMapAsync(testMap, semaphore));
         }
 
-        await Task.WhenAll(tasks);
+        await Task.WhenAll(tasks);*/
     }
 
     /// <summary>

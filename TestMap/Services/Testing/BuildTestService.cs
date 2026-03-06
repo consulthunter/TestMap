@@ -6,13 +6,14 @@ using System.Xml.Serialization;
 using TestMap.Models;
 using TestMap.Models.Coverage;
 using TestMap.Models.Results;
+using TestMap.App;
 using TestMap.Services.Database;
 
 namespace TestMap.Services.Testing;
 
 public class BuildTestService : IBuildTestService
 {
-    private readonly ProjectModel _projectModel;
+    private readonly ProjectContext _context;
     private readonly string _containerName;
     private readonly SqliteDatabaseService _sqliteDatabaseService;
     private string runId;
@@ -29,10 +30,10 @@ public class BuildTestService : IBuildTestService
     public bool LatestSuccess { get; private set; }
     public int LatestCoverage { get; private set; }
 
-    public BuildTestService(ProjectModel project, SqliteDatabaseService sqliteDatabaseService)
+    public BuildTestService(ProjectContext context, SqliteDatabaseService sqliteDatabaseService)
     {
-        _projectModel = project;
-        _containerName = _projectModel.RepoName.ToLower() + "-testing";
+        _context = context;
+        _containerName = _context.Project.RepoName.ToLower() + "-testing";
         _sqliteDatabaseService = sqliteDatabaseService;
         runId = "";
         runDate = "";
@@ -158,9 +159,9 @@ public class BuildTestService : IBuildTestService
 
     public async Task RunDockerContainerAsync(string solutions)
     {
-        var localDir = _projectModel.DirectoryPath!;
-        var context = _projectModel.Config.Docker.Context;
-        var imageName = _projectModel.Config.Docker.Image;
+        var localDir = _context.Project.DirectoryPath!;
+        var context = _context.Project.Config.Docker.Context;
+        var imageName = _context.Project.Config.Docker.Image;
 
         if (context.Contains("desktop-windows"))
         {
@@ -183,7 +184,7 @@ public class BuildTestService : IBuildTestService
 
     private async Task WaitForContainerExitAsync(string containerName)
     {
-        _projectModel.Logger?.Information($"Waiting for container '{containerName}' to exit...");
+        _context.Project.Logger?.Information($"Waiting for container '{containerName}' to exit...");
 
         while (true)
         {
@@ -194,12 +195,12 @@ public class BuildTestService : IBuildTestService
             await Task.Delay(2000);
         }
 
-        _projectModel.Logger?.Information($"Container '{containerName}' has exited.");
+        _context.Project.Logger?.Information($"Container '{containerName}' has exited.");
     }
 
     private async Task LoadMergedCoverageReport()
     {
-        var covDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
+        var covDir = Path.Combine(_context.Project.DirectoryPath!, "coverage");
         var rawFile = Path.Combine(covDir, $"merged_{runId}_raw.cobertura.xml");
         var normalizedFile = Path.Combine(covDir, $"report_{runId}", "Cobertura.xml");
 
@@ -212,7 +213,7 @@ public class BuildTestService : IBuildTestService
             }
             else
             {
-                _projectModel.Logger?.Warning($"Raw coverage file not found: {rawFile}");
+                _context.Project.Logger?.Warning($"Raw coverage file not found: {rawFile}");
             }
 
             // 2️⃣ Deserialize normalized Cobertura XML for processing
@@ -226,25 +227,25 @@ public class BuildTestService : IBuildTestService
                 using var fs = new FileStream(normalizedFile, FileMode.Open, FileAccess.Read);
                 using var reader = XmlReader.Create(fs, settings);
                 var serializer = new XmlSerializer(typeof(CoverageReport));
-                _projectModel.CoverageReport = serializer.Deserialize(reader) as CoverageReport;
+                _context.Project.CoverageReport = serializer.Deserialize(reader) as CoverageReport;
                 LatestCoverageReportNormalizedRaw = await File.ReadAllTextAsync(normalizedFile);
-                LatestCoverageReport = _projectModel.CoverageReport;
+                LatestCoverageReport = _context.Project.CoverageReport;
 
-                if (_projectModel.CoverageReport != null)
-                    await SaveCoverageReport(_projectModel.CoverageReport);
+                if (_context.Project.CoverageReport != null)
+                    await SaveCoverageReport(_context.Project.CoverageReport);
 
-                _projectModel.Logger?.Information("Normalized coverage report loaded successfully.");
+                _context.Project.Logger?.Information("Normalized coverage report loaded successfully.");
             }
             else
             {
-                _projectModel.Logger?.Warning($"Normalized coverage file not found: {normalizedFile}");
-                _projectModel.CoverageReport = new CoverageReport();
+                _context.Project.Logger?.Warning($"Normalized coverage file not found: {normalizedFile}");
+                _context.Project.CoverageReport = new CoverageReport();
             }
         }
         catch (Exception ex)
         {
-            _projectModel.Logger?.Error($"Error loading coverage report: {ex.Message}");
-            _projectModel.CoverageReport = new CoverageReport();
+            _context.Project.Logger?.Error($"Error loading coverage report: {ex.Message}");
+            _context.Project.CoverageReport = new CoverageReport();
         }
     }
     
@@ -253,7 +254,7 @@ public class BuildTestService : IBuildTestService
         foreach (var solution in solutions)
         {
             string reportDir = $"{solution.Split(".sln")[0]}_{runId}";
-            var report = Path.Combine(_projectModel.DirectoryPath!, "mutation", $"{reportDir}", "reports",
+            var report = Path.Combine(_context.Project.DirectoryPath!, "mutation", $"{reportDir}", "reports",
                 $"mutation-report.json");
 
             try
@@ -267,18 +268,18 @@ public class BuildTestService : IBuildTestService
                 //
                 await SaveMutationReport(result ?? new StrykerMutationResults());
                 // need to calculate score, map 
-                _projectModel.Logger?.Information("Mutation report loaded successfully.");
+                _context.Project.Logger?.Information("Mutation report loaded successfully.");
             }
             catch (Exception ex)
             {
-                _projectModel.Logger?.Error($"Error loading Mutation report: {ex.Message}");
+                _context.Project.Logger?.Error($"Error loading Mutation report: {ex.Message}");
             }
         }
     }
     
     private async Task LoadLizardReport()
     {
-        var report = Path.Combine(_projectModel.DirectoryPath!, "lizard",
+        var report = Path.Combine(_context.Project.DirectoryPath!, "lizard",
             $"lizard_{runId}.xml");
 
         try
@@ -292,71 +293,71 @@ public class BuildTestService : IBuildTestService
             
             await SaveLizardReport(functionMetrics, fileMetrics);
 
-            _projectModel.Logger?.Information("Lizard report loaded successfully.");
+            _context.Project.Logger?.Information("Lizard report loaded successfully.");
         }
         catch (Exception ex)
         {
-            _projectModel.Logger?.Error($"Error loading Lizard report: {ex.Message}");
+            _context.Project.Logger?.Error($"Error loading Lizard report: {ex.Message}");
         }
     }
 
     private void CleanupProjectDirectory()
     {
-        var coverageDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
-        var mutationDir = Path.Combine(_projectModel.DirectoryPath!, "mutation");
-        var lizardDir = Path.Combine(_projectModel.DirectoryPath!, "lizard");
+        var coverageDir = Path.Combine(_context.Project.DirectoryPath!, "coverage");
+        var mutationDir = Path.Combine(_context.Project.DirectoryPath!, "mutation");
+        var lizardDir = Path.Combine(_context.Project.DirectoryPath!, "lizard");
         if (Directory.Exists(coverageDir))
             try
             {
                 Directory.Delete(coverageDir, true);
-                _projectModel.Logger?.Information($"Coverage directory '{coverageDir}' deleted successfully.");
+                _context.Project.Logger?.Information($"Coverage directory '{coverageDir}' deleted successfully.");
             }
             catch (Exception ex)
             {
-                _projectModel.Logger?.Warning($"Failed to delete coverage directory '{coverageDir}': {ex.Message}");
+                _context.Project.Logger?.Warning($"Failed to delete coverage directory '{coverageDir}': {ex.Message}");
             }
         
         if (Directory.Exists(mutationDir))
             try
             {
                 Directory.Delete(mutationDir, true);
-                _projectModel.Logger?.Information($"Mutation directory '{mutationDir}' deleted successfully.");
+                _context.Project.Logger?.Information($"Mutation directory '{mutationDir}' deleted successfully.");
             }
             catch (Exception ex)
             {
-                _projectModel.Logger?.Warning($"Failed to delete mutation directory '{mutationDir}': {ex.Message}");
+                _context.Project.Logger?.Warning($"Failed to delete mutation directory '{mutationDir}': {ex.Message}");
             }
         
         if (Directory.Exists(lizardDir))
             try
             {
                 Directory.Delete(lizardDir, true);
-                _projectModel.Logger?.Information($"Lizard directory '{lizardDir}' deleted successfully.");
+                _context.Project.Logger?.Information($"Lizard directory '{lizardDir}' deleted successfully.");
             }
             catch (Exception ex)
             {
-                _projectModel.Logger?.Warning($"Failed to delete lizard directory '{lizardDir}': {ex.Message}");
+                _context.Project.Logger?.Warning($"Failed to delete lizard directory '{lizardDir}': {ex.Message}");
             }
     }
 
     private async Task ProcessTrxResults()
     {
-        var trxDir = Path.Combine(_projectModel.DirectoryPath!, "coverage");
+        var trxDir = Path.Combine(_context.Project.DirectoryPath!, "coverage");
         if (!Directory.Exists(trxDir))
         {
-            _projectModel.Logger?.Warning($"TRX results directory not found: {trxDir}");
+            _context.Project.Logger?.Warning($"TRX results directory not found: {trxDir}");
             return;
         }
 
         var trxFiles = Directory.GetFiles(trxDir, "*.trx");
         foreach (var trxFile in trxFiles)
         {
-            _projectModel.Logger?.Information($"Parsing TRX file: {trxFile}");
+            _context.Project.Logger?.Information($"Parsing TRX file: {trxFile}");
             var results = ParseTrxFile(trxFile);
 
             LatestTestResults.AddRange(results);
 
-            _projectModel.TestResults.AddRange(results);
+            _context.Project.TestResults.AddRange(results);
             foreach (var result in results)
             {
                 var name = ExtractSimpleTestMethodName(result.TestName);
@@ -369,12 +370,12 @@ public class BuildTestService : IBuildTestService
             var invalidResults = results.Where(r => r.MethodId == 0).ToList();
 
             // Add only valid results to project model
-            _projectModel.TestResults.AddRange(validResults);
+            _context.Project.TestResults.AddRange(validResults);
 
             // Optionally log missing methods
             foreach (var result in invalidResults)
             {
-                _projectModel.Logger?.Warning($"Test method not found in DB, skipping TestResult: {result.TestName}");
+                _context.Project.Logger?.Warning($"Test method not found in DB, skipping TestResult: {result.TestName}");
             }
 
             // Insert only valid results
@@ -511,10 +512,10 @@ public class BuildTestService : IBuildTestService
     {
         var containerName = _containerName ?? throw new InvalidOperationException("Container name is null.");
         var logsFilePath =
-            (_projectModel.LogsFilePath ?? throw new InvalidOperationException("LogsFilePath is null!")).Replace(".log",
+            (_context.Project.LogsFilePath ?? throw new InvalidOperationException("LogsFilePath is null!")).Replace(".log",
                 "") + $"-docker-{runId}.log";
 
-        _projectModel.Logger?.Information($"Capturing logs for container: {containerName}");
+        _context.Project.Logger?.Information($"Capturing logs for container: {containerName}");
 
         var logs = await RunProcessAsync("docker", $"logs --since 24h {containerName}");
 
@@ -522,10 +523,10 @@ public class BuildTestService : IBuildTestService
 
         LatestLogPath = logsFilePath;
 
-        _projectModel.Logger?.Information($"Docker container logs written to: {logsFilePath}");
+        _context.Project.Logger?.Information($"Docker container logs written to: {logsFilePath}");
 
         await RunProcessAsync("docker", $"rm {containerName}");
-        _projectModel.Logger?.Information($"Container '{containerName}' removed.");
+        _context.Project.Logger?.Information($"Container '{containerName}' removed.");
     }
 
     private async Task SaveCoverageReport(CoverageReport coverageReport)
@@ -551,7 +552,7 @@ public class BuildTestService : IBuildTestService
 
                 if (claId == 0)
                 {
-                    _projectModel.Logger?.Warning(
+                    _context.Project.Logger?.Warning(
                         $"Coverage class '{claCov.Name}' not found in DB.");
                     continue;
                 }
@@ -574,7 +575,7 @@ public class BuildTestService : IBuildTestService
 
                     if (methodId == 0)
                     {
-                        _projectModel.Logger?.Warning(
+                        _context.Project.Logger?.Warning(
                             $"Coverage method '{methodCov.Name}' not found in DB.");
                         continue;
                     }
@@ -642,7 +643,7 @@ public class BuildTestService : IBuildTestService
                                     }
                                     else
                                     {
-                                        _projectModel.Logger?.Warning($"Test method '{testMap[covered]}' not found in database.");
+                                        _context.Project.Logger?.Warning($"Test method '{testMap[covered]}' not found in database.");
                                     }
                                 }
 
@@ -659,29 +660,29 @@ public class BuildTestService : IBuildTestService
                                     }
                                     else
                                     {
-                                        _projectModel.Logger?.Warning($"Test method '{testMap[killed]}' not found in database.");
+                                        _context.Project.Logger?.Warning($"Test method '{testMap[killed]}' not found in database.");
                                     }
                                 }
                             }
                             else
                             {
-                                _projectModel.Logger?.Warning($"Mutant '{mutant.location}' not found in database.");
+                                _context.Project.Logger?.Warning($"Mutant '{mutant.location}' not found in database.");
                             }
                         }
                         else
                         {
-                            _projectModel.Logger?.Warning($"Method mutation result '{mutant.location}' not found in database.");
+                            _context.Project.Logger?.Warning($"Method mutation result '{mutant.location}' not found in database.");
                         }
                     }
                 }
                 else
                 {
-                    _projectModel.Logger?.Warning($"File mutation result '{name}' not found in database.");
+                    _context.Project.Logger?.Warning($"File mutation result '{name}' not found in database.");
                 }
             }
             else
             {
-                _projectModel.Logger?.Warning($"Source file '{name}' not found in database.");
+                _context.Project.Logger?.Warning($"Source file '{name}' not found in database.");
             }
         }
     }
@@ -702,7 +703,7 @@ public class BuildTestService : IBuildTestService
             }
             else
             {
-                _projectModel.Logger?.Warning($"Function '{functionName}' not found in database.");
+                _context.Project.Logger?.Warning($"Function '{functionName}' not found in database.");
             }
             
         }
@@ -720,7 +721,7 @@ public class BuildTestService : IBuildTestService
             }
             else
             {
-                _projectModel.Logger?.Warning($"File '{filePath}' not found in database.");
+                _context.Project.Logger?.Warning($"File '{filePath}' not found in database.");
             }
         }
     }

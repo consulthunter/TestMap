@@ -5,6 +5,7 @@ using TestMap.Models;
 using TestMap.Models.Code;
 using TestMap.Models.Configuration;
 using TestMap.Models.Results;
+using TestMap.App;
 using TestMap.Services.Database;
 using TestMap.Services.Testing.Providers;
 
@@ -12,18 +13,18 @@ namespace TestMap.Services.Testing;
 
 public class GenerateTestService : IGenerateTestService
 {
-    private readonly ProjectModel _projectModel;
+    private readonly ProjectContext _context;
     private readonly TestMapConfig _testMapConfig;
     private readonly SqliteDatabaseService _sqliteDatabaseService;
     public readonly BuildTestService _buildTestService;
 
     public GenerateTestService(
-        ProjectModel project,
+        ProjectContext context,
         TestMapConfig config,
         SqliteDatabaseService sqliteDatabaseService,
         BuildTestService buildTestService)
     {
-        _projectModel = project;
+        _context = context;
         _testMapConfig = config;
         _sqliteDatabaseService = sqliteDatabaseService;
         _buildTestService = buildTestService;
@@ -39,7 +40,7 @@ public class GenerateTestService : IGenerateTestService
             var candidateTest = "";
             for (var attempt = 1; attempt <= _testMapConfig.Generation.MaxRetries; attempt++)
             {
-                _projectModel.Logger?.Information($"[Attempt {attempt}] Generating test for {methodResult.MethodName}");
+                _context.Project.Logger?.Information($"[Attempt {attempt}] Generating test for {methodResult.MethodName}");
                 var prompt = "";
 
                 if (attempt == 1)
@@ -78,16 +79,16 @@ public class GenerateTestService : IGenerateTestService
                 }
                 catch (Exception ex)
                 {
-                    _projectModel.Logger?.Error($"Failed to generate test: {ex.Message}");
+                    _context.Project.Logger?.Error($"Failed to generate test: {ex.Message}");
                     continue;
                 }
 
                 stopwatch.Stop();
                 double generationTime = stopwatch.Elapsed.TotalSeconds;
-                _projectModel.Logger?.Information($"Test generation took {generationTime} seconds.");
+                _context.Project.Logger?.Information($"Test generation took {generationTime} seconds.");
                 var encoding = GptEncoding.GetEncoding("cl100k_base");
                 int tokens = encoding.Encode(prompt).Count;
-                _projectModel.Logger?.Information($"Tokens: {tokens}");
+                _context.Project.Logger?.Information($"Tokens: {tokens}");
 
                 var test = rawTest.Split("```")[1].Replace("csharp", "");
 
@@ -109,7 +110,7 @@ public class GenerateTestService : IGenerateTestService
 
                 if (string.IsNullOrEmpty(test) || string.IsNullOrEmpty(testMethodName))
                 {
-                    _projectModel.Logger?.Warning("Failed to generate test.");
+                    _context.Project.Logger?.Warning("Failed to generate test.");
                     continue;
                 }
 
@@ -146,7 +147,7 @@ public class GenerateTestService : IGenerateTestService
                 }
                 else
                 {
-                    _projectModel.Logger?.Warning($"Failed to get test run id {runResult.RunId}.");
+                    _context.Project.Logger?.Warning($"Failed to get test run id {runResult.RunId}.");
                 }
 
                 RollbackRepo();
@@ -163,7 +164,7 @@ public class GenerateTestService : IGenerateTestService
 
     private void RollbackRepo()
     {
-        using var repo = new Repository(_projectModel.DirectoryPath);
+        using var repo = new Repository(_context.Project.DirectoryPath);
 
         // Hard reset to HEAD (clean working tree, discard changes)
         var headCommit = repo.Head.Tip;
@@ -173,10 +174,10 @@ public class GenerateTestService : IGenerateTestService
         var status = repo.RetrieveStatus(new StatusOptions());
         foreach (var untracked in status.Untracked)
         {
-            var path = Path.Combine(_projectModel.DirectoryPath, untracked.FilePath);
+            var path = Path.Combine(_context.Project.DirectoryPath, untracked.FilePath);
             if (File.Exists(path)) File.Delete(path);
         }
 
-        _projectModel.Logger?.Information("Repository rolled back to last commit.");
+        _context.Project.Logger?.Information("Repository rolled back to last commit.");
     }
 }

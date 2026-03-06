@@ -1,13 +1,13 @@
 using Microsoft.Data.Sqlite;
 using TestMap.Models;
 using TestMap.Models.Database;
+using TestMap.App;
 using TestMap.Services.Database.Repositories;
 
 namespace TestMap.Services.Database;
 
 public class SqliteDatabaseService : ISqliteDatabaseService
 {
-    private readonly ProjectModel _projectModel;
     private readonly string _dbPath;
 
     public ProjectRepository ProjectRepository { get; set; }
@@ -54,51 +54,53 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     public MethodTestSmellRepository MethodTestSmellRepository { get; set; }
     public TestSmellRepository TestSmellRepository { get; set; }
 
-    public SqliteDatabaseService(ProjectModel projectModel)
+    private readonly ProjectContext _context;
+
+    public SqliteDatabaseService(ProjectContext context)
     {
-        _projectModel = projectModel;
+        _context = context;
 
         // Set DB path under the project output directory, e.g. output/<runDate>/<projectId>/project.db
-        var dbFolder = Path.Combine(_projectModel.OutputPath ?? string.Empty);
+        var dbFolder = Path.Combine(_context.Project.OutputPath ?? string.Empty);
         if (!Directory.Exists(dbFolder)) Directory.CreateDirectory(dbFolder);
-
+    
         _dbPath = Path.Combine(dbFolder, "analysis.db");
 
-        ProjectRepository = new ProjectRepository(projectModel, _dbPath);
-        AnalysisSolutionRepository = new AnalysisSolutionRepository(projectModel, _dbPath);
-        AnalysisProjectRepository = new AnalysisProjectRepository(projectModel, _dbPath);
-        SourceFileRepository = new SourceFileRepository(projectModel, _dbPath);
-        ImportRepository = new ImportRepository(projectModel, _dbPath);
-        ClassRepository = new ClassRepository(projectModel, _dbPath);
-        MethodRepository = new MethodRepository(projectModel, _dbPath);
-        InvocationRepository = new InvocationRepository(projectModel, _dbPath);
-        PropertyRepository = new PropertyRepository(projectModel, _dbPath);
+        ProjectRepository = new ProjectRepository(_context.Project, _dbPath);
+        AnalysisSolutionRepository = new AnalysisSolutionRepository(_context.Project, _dbPath);
+        AnalysisProjectRepository = new AnalysisProjectRepository(_context.Project, _dbPath);
+        SourceFileRepository = new SourceFileRepository(_context.Project, _dbPath);
+        ImportRepository = new ImportRepository(_context.Project, _dbPath);
+        ClassRepository = new ClassRepository(_context.Project, _dbPath);
+        MethodRepository = new MethodRepository(_context.Project, _dbPath);
+        InvocationRepository = new InvocationRepository(_context.Project, _dbPath);
+        PropertyRepository = new PropertyRepository(_context.Project, _dbPath);
         // Coverage
-        CoverageReportRepository = new CoverageReportRepository(projectModel, _dbPath);
-        PackageCoverageRepository = new PackageCoverageRepository(projectModel, _dbPath);
-        ClassCoverageRepository = new ClassCoverageRepository(projectModel, _dbPath);
-        MethodCoverageRepository = new MethodCoverageRepository(projectModel, _dbPath);
+        CoverageReportRepository = new CoverageReportRepository(_context.Project, _dbPath);
+        PackageCoverageRepository = new PackageCoverageRepository(_context.Project, _dbPath);
+        ClassCoverageRepository = new ClassCoverageRepository(_context.Project, _dbPath);
+        MethodCoverageRepository = new MethodCoverageRepository(_context.Project, _dbPath);
         
         // test results
-        TestResultRepository = new TestResultRepository(projectModel, _dbPath);
-        TestRunRepository = new TestRunRepository(projectModel, _dbPath);
+        TestResultRepository = new TestResultRepository(_context.Project, _dbPath);
+        TestRunRepository = new TestRunRepository(_context.Project, _dbPath);
         
         // generated tests
-        GeneratedTestRepository = new GeneratedTestRepository(projectModel, _dbPath);
+        GeneratedTestRepository = new GeneratedTestRepository(_context.Project, _dbPath);
         
         // Mutation
-        FileMutationResultRepository = new FileMutationResultRepository(projectModel, _dbPath);
-        MutationReportRepository = new MutationReportRepository(projectModel, _dbPath);
-        MutantTestMapRepository = new MutantTestMapRepository(projectModel, _dbPath);
-        MutantRepository = new MutantRepository(projectModel, _dbPath);
+        FileMutationResultRepository = new FileMutationResultRepository(_context.Project, _dbPath);
+        MutationReportRepository = new MutationReportRepository(_context.Project, _dbPath);
+        MutantTestMapRepository = new MutantTestMapRepository(_context.Project, _dbPath);
+        MutantRepository = new MutantRepository(_context.Project, _dbPath);
         
         // Metrics
-        LizardFileCodeMetricsRepository = new LizardFileCodeMetricsRepository(projectModel, _dbPath);
-        LizardFunctionCodeMetricsRepository = new LizardFunctionCodeMetricsRepository(projectModel, _dbPath);
+        LizardFileCodeMetricsRepository = new LizardFileCodeMetricsRepository(_context.Project, _dbPath);
+        LizardFunctionCodeMetricsRepository = new LizardFunctionCodeMetricsRepository(_context.Project, _dbPath);
         
         // Test Smells
-        MethodTestSmellRepository = new MethodTestSmellRepository(projectModel, _dbPath);
-        TestSmellRepository = new TestSmellRepository(projectModel, _dbPath);
+        MethodTestSmellRepository = new MethodTestSmellRepository(_context.Project, _dbPath);
+        TestSmellRepository = new TestSmellRepository(_context.Project, _dbPath);
 
     }
 
@@ -107,7 +109,7 @@ public class SqliteDatabaseService : ISqliteDatabaseService
     /// </summary>
     public async Task InitializeAsync()
     {
-        _projectModel.Logger?.Information($"Initializing SQLite DB at {_dbPath}");
+        _context.Project.Logger?.Information($"Initializing SQLite DB at {_dbPath}");
         try
         {
             await using var conn = new SqliteConnection($"Data Source={_dbPath}");
@@ -116,11 +118,11 @@ public class SqliteDatabaseService : ISqliteDatabaseService
             await using var cmd = new SqliteCommand(Migrations.Schema, conn);
             await cmd.ExecuteNonQueryAsync();
 
-            _projectModel.Logger?.Information("SQLite migrations executed successfully.");
+            _context.Project.Logger?.Information("SQLite migrations executed successfully.");
         }
         catch (Exception ex)
         {
-            _projectModel.Logger?.Error($"Error executing migrations: {ex.Message}");
+            _context.Project.Logger?.Error($"Error executing migrations: {ex.Message}");
             throw;
         }
     }
@@ -148,15 +150,15 @@ public class SqliteDatabaseService : ISqliteDatabaseService
 
     public void ApplyProjectModelIdToSolutions()
     {
-        foreach (var solution in _projectModel.Solutions) solution.ProjectModelId = _projectModel.DbId;
+        foreach (var solution in _context.Project.Solutions) solution.ProjectModelId = _context.Project.DbId;
     }
 
 
     public void ApplySolutionIdToProjects()
     {
-        foreach (var project in _projectModel.Projects)
+        foreach (var project in _context.Project.Projects)
             project.SolutionId =
-                _projectModel.Solutions.Find(x => x.SolutionFilePath == project.SolutionFilePath)?.Id ?? 0;
+                _context.Project.Solutions.Find(x => x.SolutionFilePath == project.SolutionFilePath)?.Id ?? 0;
     }
 
 

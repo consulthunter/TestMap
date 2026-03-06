@@ -1,4 +1,4 @@
-﻿namespace TestMap.Services.ProjectOperations;
+﻿namespace TestMap.Services.CollectInformation;
 
 public interface IExtractInformationService
 {

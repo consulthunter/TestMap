@@ -1,18 +1,19 @@
 using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Models.Results;
+using TestMap.App;
 using TestMap.Services.Database;
 
 namespace TestMap.Services.ProjectOperations;
 
 public class WindowsCheckService: IWindowsCheckService
 {
-    private ProjectModel _projectModel;
+    private ProjectContext _context;
     private TestMapConfig _config;
 
-    public WindowsCheckService(ProjectModel projectModel, TestMapConfig config)
+    public WindowsCheckService(ProjectContext context, TestMapConfig config)
     {
-        _projectModel = projectModel;
+        _context = context;
         _config = config;
     }
 
@@ -22,7 +23,7 @@ public class WindowsCheckService: IWindowsCheckService
         var check = await CheckLogs();
         
         var result = new WindowsCheckResult(
-            _projectModel.RepoName,
+            _context.Project.RepoName,
             check
         );
 
@@ -32,7 +33,7 @@ public class WindowsCheckService: IWindowsCheckService
     public async Task<bool> CheckLogs()
     {
         // Normalize the project name for filename matching
-        var projectName = _projectModel.RepoName;
+        var projectName = _context.Project.RepoName;
 
         // Pattern: must contain project name AND "docker" AND end with ".log"
         var logFiles = Directory.GetFiles(_config.FilePaths.LogsDirPath, "*.log", SearchOption.AllDirectories)
@@ -85,7 +86,7 @@ public class WindowsCheckService: IWindowsCheckService
     private void WriteCsvRow(WindowsCheckResult result)
     {
         // Parent of the project output directory
-        var outputRoot = Directory.GetParent(_projectModel.OutputPath)!.FullName;
+        var outputRoot = Directory.GetParent(_context.Project.OutputPath)!.FullName;
         var csvPath = Path.Combine(outputRoot, "windows-check.csv");
 
         var fileExists = File.Exists(csvPath);

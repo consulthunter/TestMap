@@ -15,24 +15,23 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models;
 using TestMap.Models.Code;
+using TestMap.App;
 using TestMap.Services.Database;
-using TestMap.Services.ProjectOperations;
-using TestMap.Services.xNose;
 using Location = TestMap.Models.Code.Location;
 
-namespace TestMap.Services.CollectInformation;
+namespace TestMap.Services.StaticAnalysis;
 
 public class AnalyzeProjectService : IAnalyzeProjectService
 {
-    private readonly ProjectModel _projectModel;
+    private readonly ProjectContext _context;
     private Dictionary<string, List<InvocationModel>> _invocations = new();
     private Dictionary<string, MethodModel> _methods = new();
     private SqliteDatabaseService _databaseService;
 
 
-    public AnalyzeProjectService(ProjectModel projectModel, SqliteDatabaseService databaseService)
+    public AnalyzeProjectService(ProjectContext context, SqliteDatabaseService databaseService)
     {
-        _projectModel = projectModel;
+        _context = context;
         _databaseService = databaseService;
     }
 
@@ -44,8 +43,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <param name="cSharpCompilation">Csharp compilation for the project</param>
     public virtual async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
     {
-        _projectModel.Logger?.Information($"Analyzing project {analysisProject.ProjectFilePath}");
-        var xnose = new xNoseService(_projectModel, _databaseService);
+        _context.Logger?.Information($"Analyzing project {analysisProject.ProjectFilePath}");
+        var xnose = new XNoseNextService(_context, _databaseService);
         // for every .cs file in the current project
         if (cSharpCompilation != null)
         {
@@ -55,7 +54,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     document.FilePath.EndsWith("AssemblyInfo.cs"))
                     continue;
 
-                _projectModel.Logger?.Information($"Analyzing {document.FilePath}");
+                _context.Logger?.Information($"Analyzing {document.FilePath}");
                 // Necessary to analyze types and retrieve declarations
                 // for invocations
                 // var semanticModel = compilation.GetSemanticModel(document);
@@ -82,11 +81,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
 
                 var classDeclarationSyntaxes = root.DescendantNodes().OfType<ClassDeclarationSyntax>().ToList();
-                _projectModel.Logger?.Information($"Number of class declarations: {classDeclarationSyntaxes.Count}");
+                _context.Logger?.Information($"Number of class declarations: {classDeclarationSyntaxes.Count}");
 
                 foreach (var classDeclaration in classDeclarationSyntaxes)
                 {
-                    _projectModel.Logger?.Information($"Class declaration: {classDeclaration.Identifier.ToString()}");
+                    _context.Logger?.Information($"Class declaration: {classDeclaration.Identifier.ToString()}");
                     var name = classDeclaration.Identifier.ToString();
                     var modifiers = FindClassModifiers(classDeclaration);
                     var attr = FindClassAttributes(classDeclaration);
@@ -159,7 +158,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <returns>String, namespace identifier if found</returns>
     private string FindNamespace(SyntaxNode rootNode)
     {
-        _projectModel.Logger?.Information("Looking for namespace.");
+        _context.Logger?.Information("Looking for namespace.");
         var namespaceDec = "";
         var namespaceDeclaration = rootNode.DescendantNodes().OfType<NamespaceDeclarationSyntax>().FirstOrDefault();
 
@@ -179,10 +178,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 namespaceDec = fileScopedNamespaceDeclarationDeclaration.Name.ToFullString();
             // if it's not either of them, then the namespace may not be present in the file.
             else
-                _projectModel.Logger?.Warning("No namespace found.");
+                _context.Logger?.Warning("No namespace found.");
         }
 
-        _projectModel.Logger?.Information("Finished looking for namespace.");
+        _context.Logger?.Information("Finished looking for namespace.");
         return namespaceDec;
     }
 
@@ -193,7 +192,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <returns>List of strings, using statements</returns>
     private List<ImportModel> GetUsingStatements(SyntaxNode rootNode)
     {
-        _projectModel.Logger?.Information("Looking for using statements.");
+        _context.Logger?.Information("Looking for using statements.");
         List<ImportModel> usingStatements = new();
 
         // Get all using directives
@@ -206,8 +205,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 usingStatements.Add(import);
             }
 
-        _projectModel.Logger?.Information($"Number of using statements found. {usingStatements.Count}");
-        _projectModel.Logger?.Information("Finished looking for using statements.");
+        _context.Logger?.Information($"Number of using statements found. {usingStatements.Count}");
+        _context.Logger?.Information("Finished looking for using statements.");
         return usingStatements;
     }
 
@@ -220,16 +219,16 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private string FindTestingFrameworkFromUsings(List<ImportModel> usings)
     {
         var testingFramework = "";
-        _projectModel.Logger?.Information("Looking for testing framework.");
+        _context.Logger?.Information("Looking for testing framework.");
         foreach (var usingStatement in usings)
-            if (_projectModel.TestingFrameworks != null)
-                foreach (var framework in _projectModel.TestingFrameworks.Keys)
+            if (_context.Project.TestingFrameworks != null)
+                foreach (var framework in _context.Project.TestingFrameworks.Keys)
                     if (usingStatement.FullString.ToLower().Contains(framework.ToLower()))
                         testingFramework = framework;
 
-        if (string.IsNullOrEmpty(testingFramework)) _projectModel.Logger?.Warning("No testing framework found.");
+        if (string.IsNullOrEmpty(testingFramework)) _context.Logger?.Warning("No testing framework found.");
 
-        _projectModel.Logger?.Information("Finished looking for testing framework.");
+        _context.Logger?.Information("Finished looking for testing framework.");
         return testingFramework;
     }
 
@@ -283,7 +282,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <returns>List of attributes</returns>
     private List<string> FindClassAttributes(ClassDeclarationSyntax classDeclaration)
     {
-        _projectModel.Logger?.Information("Looking for class attributes.");
+        _context.Logger?.Information("Looking for class attributes.");
         List<string> attributes = new();
 
         foreach (var attribute in classDeclaration.AttributeLists) attributes.Add(attribute.ToFullString());
@@ -298,7 +297,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <returns>List of modifiers</returns>
     private List<string> FindClassModifiers(ClassDeclarationSyntax classDeclaration)
     {
-        _projectModel.Logger?.Information("Looking for class modifiers.");
+        _context.Logger?.Information("Looking for class modifiers.");
         List<string> modifiers = new();
 
         foreach (var modifier in classDeclaration.Modifiers) modifiers.Add(modifier.ToFullString());
@@ -313,7 +312,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<PropertyModel> FindClassFields(SyntaxNode classNode)
     {
         List<PropertyModel> results = new();
-        _projectModel.Logger?.Information("Looking for fields.");
+        _context.Logger?.Information("Looking for fields.");
         var properties = classNode.DescendantNodes().OfType<PropertyDeclarationSyntax>().ToList();
         var fields = classNode.DescendantNodes().OfType<FieldDeclarationSyntax>().ToList();
         foreach (var property in properties)
@@ -346,8 +345,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             results.Add(propertModel);
         }
 
-        _projectModel.Logger?.Information($"Number of field declarations: {results.Count}.");
-        _projectModel.Logger?.Information("Finished looking for fields.");
+        _context.Logger?.Information($"Number of field declarations: {results.Count}.");
+        _context.Logger?.Information("Finished looking for fields.");
         return results;
     }
 
@@ -359,7 +358,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<MethodModel> FindClassMethods(SyntaxNode classNode)
     {
         List<MethodModel> methods = new();
-        _projectModel.Logger?.Information("Looking for method declarations.");
+        _context.Logger?.Information("Looking for method declarations.");
         var methodDeclarationSyntaxes = classNode.DescendantNodes().OfType<MethodDeclarationSyntax>().ToList();
 
         foreach (var methodDeclarationSyntax in methodDeclarationSyntaxes)
@@ -390,7 +389,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             _methods.TryAdd(key, method);
         }
 
-        _projectModel.Logger?.Information("Finished looking for test method declarations.");
+        _context.Logger?.Information("Finished looking for test method declarations.");
         return methods;
     }
 
@@ -402,7 +401,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<string> FindMethodAttributes(MethodDeclarationSyntax method)
     {
         List<string> attributes = new();
-        _projectModel.Logger?.Information("Looking for method attributes.");
+        _context.Logger?.Information("Looking for method attributes.");
 
         foreach (var attribute in method.AttributeLists) attributes.Add(attribute.ToFullString());
         return attributes;
@@ -416,8 +415,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private (bool, string) IsTestMethod(MethodDeclarationSyntax methodDeclarationSyntax)
     {
         // Iterate through all testing frameworks in the project model
-        if (_projectModel.TestingFrameworks != null)
-            foreach (var framework in _projectModel.TestingFrameworks)
+        if (_context.Project.TestingFrameworks != null)
+            foreach (var framework in _context.Project.TestingFrameworks)
             {
                 var frameworkName = framework.Key; // Framework name (e.g., "NUnit", "xUnit")
                 var frameworkAttributes = framework.Value; // List of attributes for the framework
@@ -441,7 +440,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<string> FindMethodModifiers(MethodDeclarationSyntax method)
     {
         List<string> modifiers = new();
-        _projectModel.Logger?.Information("Looking for method modifiers.");
+        _context.Logger?.Information("Looking for method modifiers.");
 
         foreach (var variableModifier in method.Modifiers) modifiers.Add(variableModifier.ToFullString());
         return modifiers;
@@ -455,7 +454,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<string> FindPropertyModifiers(PropertyDeclarationSyntax property)
     {
         List<string> modifiers = new();
-        _projectModel.Logger?.Information("Looking for property modifiers.");
+        _context.Logger?.Information("Looking for property modifiers.");
 
         foreach (var variableModifier in property.Modifiers) modifiers.Add(variableModifier.ToFullString());
         return modifiers;
@@ -469,7 +468,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<string> FindPropertyAttributes(PropertyDeclarationSyntax property)
     {
         List<string> attributes = new();
-        _projectModel.Logger?.Information("Looking for property attributes.");
+        _context.Logger?.Information("Looking for property attributes.");
 
         foreach (var attribute in property.AttributeLists) attributes.Add(attribute.ToFullString());
         return attributes;
@@ -483,7 +482,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<string> FindFieldModifiers(FieldDeclarationSyntax field)
     {
         List<string> modifiers = new();
-        _projectModel.Logger?.Information("Looking for field modifiers.");
+        _context.Logger?.Information("Looking for field modifiers.");
 
         foreach (var variableModifier in field.Modifiers) modifiers.Add(variableModifier.ToFullString());
         return modifiers;
@@ -497,7 +496,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private List<string> FindFieldAttributes(FieldDeclarationSyntax field)
     {
         List<string> attributes = new();
-        _projectModel.Logger?.Information("Looking for field attributes.");
+        _context.Logger?.Information("Looking for field attributes.");
 
         foreach (var attribute in field.AttributeLists) attributes.Add(attribute.ToFullString());
         return attributes;
@@ -510,7 +509,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     /// <returns>List of tuples, (method invocation, method definition)</returns>
     private void FindInvocations(MethodDeclarationSyntax methodDeclarationSyntax, string methodGuid = "")
     {
-        _projectModel.Logger?.Information("Looking for method invocations.");
+        _context.Logger?.Information("Looking for method invocations.");
 
         // Find the invocations
         var invocations = methodDeclarationSyntax.DescendantNodes().OfType<InvocationExpressionSyntax>();

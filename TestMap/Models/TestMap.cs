@@ -13,7 +13,11 @@ using TestMap.Models.Configuration;
 using TestMap.Services.CollectInformation;
 using TestMap.Services.Database;
 using TestMap.Services.Evaluation;
+using TestMap.Services.Mapping;
 using TestMap.Services.ProjectOperations;
+using TestMap.Services.RepoOperations.Clone;
+using TestMap.Services.RepoOperations.Delete;
+using TestMap.Services.StaticAnalysis;
 using TestMap.Services.Testing;
 
 namespace TestMap.Models;
@@ -41,7 +45,6 @@ public class TestMap(
     IValidateProjectsService validateProjectsService,
     IWindowsCheckService windowsCheckService,
     IFullAnalysisService fullAnalysisService,
-    IResultsService resultsService,
     IDeleteProjectService deleteProjectService,
     RunMode runMode)
 {
@@ -59,7 +62,6 @@ public class TestMap(
     private IValidateProjectsService ValidateProjectsService { get; } = validateProjectsService;
     private IWindowsCheckService WindowsCheckService { get; } = windowsCheckService;
     private IFullAnalysisService FullAnalysisService { get; } = fullAnalysisService;
-    private IResultsService ResultsService { get; } = resultsService;
     private IDeleteProjectService DeleteProjectService { get; } = deleteProjectService;
     private readonly HashSet<string> _analyzedProjectIds = new();
 
@@ -89,9 +91,6 @@ public class TestMap(
             case RunMode.FullAnalysis:
                 await FullAnalysisModeAsync();
                 break;
-            case RunMode.Results:
-                await ResultsModeAsync();
-                break;
             default:
                 throw new ArgumentOutOfRangeException();
         }
@@ -118,11 +117,6 @@ public class TestMap(
     private async Task FullAnalysisModeAsync()
     {
         await FullAnalysisAsync();
-    }
-    
-    private async Task ResultsModeAsync()
-    {
-        await ResultsService.ResultsAsync();
     }
 
     private async Task CheckProjectsAsync()

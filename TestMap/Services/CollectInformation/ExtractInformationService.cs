@@ -13,10 +13,11 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.MSBuild;
 using Newtonsoft.Json.Linq;
 using TestMap.Models;
+using TestMap.App;
 
-namespace TestMap.Services.ProjectOperations;
+namespace TestMap.Services.CollectInformation;
 
-public class ExtractInformationService(ProjectModel projectModel) : IExtractInformationService
+public class ExtractInformationService(ProjectContext context) : IExtractInformationService
 {
     private string _globalTargetFramework;
 
@@ -35,15 +36,15 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     /// </summary>
     private async Task FindAllSolutionFilesAsync()
     {
-        if (Path.Exists(projectModel.DirectoryPath))
+        if (Path.Exists(context.Project.DirectoryPath))
         {
-            var solutions = Directory.GetFiles(projectModel.DirectoryPath, "*.sln", SearchOption.AllDirectories);
+            var solutions = Directory.GetFiles(context.Project.DirectoryPath, "*.sln", SearchOption.AllDirectories);
 
             // we work through all of the solutions
             // then do the projects outside the loop
             foreach (var solution in solutions)
             {
-                projectModel.Logger?.Information($"Solution file found: {solution}");
+                context.Project.Logger?.Information($"Solution file found: {solution}");
                 await LoadSolutionAsync(solution);
             }
         }
@@ -58,7 +59,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     {
         try
         {
-            projectModel.Logger?.Information($"Loading solution {solutionPath}");
+            context.Project.Logger?.Information($"Loading solution {solutionPath}");
             using (var workspace = MSBuildWorkspace.Create())
             {
                 var solution = await workspace.OpenSolutionAsync(solutionPath);
@@ -95,44 +96,44 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                         {
                             var filepath = project.FilePath;
 
-                            if (!projectModel.Projects.Exists(proj => proj.ProjectFilePath == filepath) &&
+                            if (!context.Project.Projects.Exists(proj => proj.ProjectFilePath == filepath) &&
                                 !solutionProjects.Exists(path => path == filepath))
                             {
-                                projectModel.Projects.Add(analysisProject);
+                                context.Project.Projects.Add(analysisProject);
                                 solutionProjects.Add(filepath);
                             }
                             else
                             {
-                                projectModel.Logger?.Warning(
+                                context.Project.Logger?.Warning(
                                     $"Project {project.Id} filepath already exists in the list.");
                             }
                         }
                         else
                         {
                             // If filepath already exists in addedProjects, skip adding
-                            projectModel.Logger?.Warning($"Project {project.Id} filepath is null.");
+                            context.Project.Logger?.Warning($"Project {project.Id} filepath is null.");
                         }
                     }
                 }
 
-                if (!projectModel.Solutions.Exists(sol => sol.Solution.FilePath == solution.FilePath))
+                if (!context.Project.Solutions.Exists(sol => sol.Solution.FilePath == solution.FilePath))
                 {
                     var analysisSolution =
                         new AnalysisSolution(0, Guid.NewGuid().ToString(), solution, solutionProjects);
-                    projectModel.Solutions.Add(analysisSolution);
+                    context.Project.Solutions.Add(analysisSolution);
                 }
                 else
                 {
-                    projectModel.Logger?.Warning($"Solution {solution.FilePath} already exists in the list.");
+                    context.Project.Logger?.Warning($"Solution {solution.FilePath} already exists in the list.");
                 }
             }
         }
         catch (Exception ex)
         {
-            projectModel.Logger?.Error(ex.Message);
+            context.Project.Logger?.Error(ex.Message);
         }
 
-        projectModel.Logger?.Information($"Loading {solutionPath} finished.");
+        context.Project.Logger?.Information($"Loading {solutionPath} finished.");
     }
 
     /// <summary>
@@ -163,7 +164,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                     if (!projectReferences.Contains(referencedProject.FilePath))
                         projectReferences.Add(referencedProject.FilePath);
                     else
-                        projectModel.Logger?.Information(
+                        context.Project.Logger?.Information(
                             $"Skipping project {referencedProject}. Already in project references.");
                 }
                 // this is the lookup for project references
@@ -195,34 +196,34 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                                 // Join the last two parts to form the trimmed filepath
                                 var trimmedPath = string.Join("\\", parts[2..]);
 
-                                projectModel.Logger?.Information(
+                                context.Project.Logger?.Information(
                                     $"Original outside project reference filepath {filepath}");
-                                projectModel.Logger?.Information(
+                                context.Project.Logger?.Information(
                                     $"Trimmed outside project reference filepath {trimmedPath}");
 
-                                var fullRefPath = Path.Combine(projectModel.DirectoryPath, trimmedPath);
+                                var fullRefPath = Path.Combine(context.Project.DirectoryPath, trimmedPath);
 
                                 if (File.Exists(fullRefPath) && !projectReferences.Contains(fullRefPath))
                                     projectReferences.Add(fullRefPath);
                             }
                             else
                             {
-                                projectModel.Logger?.Warning(
+                                context.Project.Logger?.Warning(
                                     $"Cannot trim the first two directories from filepath: {filepath}");
                             }
                         }
                         else
                         {
-                            projectModel.Logger?.Error("No filepath found.");
+                            context.Project.Logger?.Error("No filepath found.");
                         }
                     }
                     catch (Exception ex)
                     {
-                        projectModel.Logger?.Error(
+                        context.Project.Logger?.Error(
                             $"Couldn't extract project reference {projectReference.ProjectId}: {ex.Message}");
                     }
 
-                    projectModel.Logger?.Information($"Project {referencedProject} filepath is null.");
+                    context.Project.Logger?.Information($"Project {referencedProject} filepath is null.");
                 }
             }
 
@@ -254,7 +255,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     /// <returns>Dictionary, key is the absolute path to the document, value is the SyntaxTree</returns>
     private async Task<Dictionary<string, SyntaxTree>?> GetSyntaxTrees(Project project, List<string> documents)
     {
-        projectModel.Logger?.Information($"Creating project {project.FilePath} syntax trees.");
+        context.Project.Logger?.Information($"Creating project {project.FilePath} syntax trees.");
         Dictionary<string, SyntaxTree> treeDict = new();
         try
         {
@@ -264,14 +265,14 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
                 // for the semantic analysis using CSharpCompilation
                 var syntaxTree = CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(document), path: document);
                 if (treeDict.TryAdd(document, syntaxTree))
-                    projectModel.Logger?.Information($"Added {document} syntax tree.");
+                    context.Project.Logger?.Information($"Added {document} syntax tree.");
                 else
-                    projectModel.Logger?.Information($"Skipping {document} syntax tree. Already exists.");
+                    context.Project.Logger?.Information($"Skipping {document} syntax tree. Already exists.");
             }
         }
         catch (Exception ex)
         {
-            projectModel.Logger?.Error(ex.Message);
+            context.Project.Logger?.Error(ex.Message);
         }
 
         return treeDict;
@@ -281,7 +282,7 @@ public class ExtractInformationService(ProjectModel projectModel) : IExtractInfo
     {
         // Step 1: Recursively search for all global.json files
         var globalJsonFiles =
-            Directory.GetFiles(projectModel.DirectoryPath, "global.json", SearchOption.AllDirectories);
+            Directory.GetFiles(context.Project.DirectoryPath, "global.json", SearchOption.AllDirectories);
 
         // Step 2: Iterate through each global.json file
         foreach (var globalJsonPath in globalJsonFiles)

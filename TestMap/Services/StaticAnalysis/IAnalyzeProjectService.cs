@@ -1,7 +1,7 @@
 ﻿using Microsoft.CodeAnalysis.CSharp;
 using TestMap.Models;
 
-namespace TestMap.Services.ProjectOperations;
+namespace TestMap.Services.StaticAnalysis;
 
 public interface IAnalyzeProjectService
 {

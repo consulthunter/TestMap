@@ -1,19 +1,20 @@
 using System.Text.Json;
 using TestMap.Models;
 using TestMap.Models.Results;
+using TestMap.App;
 using TestMap.Services.Database;
 using XNoseNext.Core;
 using XNoseNext.Core.Reporters;
 
-namespace TestMap.Services.xNose;
+namespace TestMap.Services.StaticAnalysis;
 
-public class xNoseService
+public class XNoseNextService
 {
-    private readonly ProjectModel _projectModel;
+    private readonly ProjectContext _context;
     private readonly SqliteDatabaseService _databaseService;
-    public xNoseService(ProjectModel projectModel, SqliteDatabaseService sqliteDatabaseService)
+    public XNoseNextService(ProjectContext context, SqliteDatabaseService sqliteDatabaseService)
     {
-        _projectModel = projectModel;
+        _context = context;
         _databaseService = sqliteDatabaseService;
     }
 
@@ -82,19 +83,19 @@ public class xNoseService
                                 }
                                 else
                                 {
-                                    _projectModel.Logger?.Information($"Test Smell {smell.Name} not found in DB");
+                                    _context.Logger?.Information($"Test Smell {smell.Name} not found in DB");
                                 }
                             }
                         }
                         else
                         {
-                            _projectModel.Logger?.Information($"Method {method.Name} not found in DB");
+                            _context.Logger?.Information($"Method {method.Name} not found in DB");
                         }
                     }
                 }
                 else
                 {
-                    _projectModel.Logger?.Information($"Class {testClass.Name} not found in DB");
+                    _context.Logger?.Information($"Class {testClass.Name} not found in DB");
                 }
             }
 

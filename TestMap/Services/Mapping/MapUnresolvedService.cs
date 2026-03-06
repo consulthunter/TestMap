@@ -3,18 +3,19 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models;
 using TestMap.Models.Database;
+using TestMap.App;
 using TestMap.Services.Database;
 
-namespace TestMap.Services.CollectInformation;
+namespace TestMap.Services.Mapping;
 
 public class MapUnresolvedService : IMapUnresolvedService
 {
-    private ProjectModel _projectModel;
+    private ProjectContext _context;
     private SqliteDatabaseService _sqliteDatabaseService;
 
-    public MapUnresolvedService(ProjectModel projectModel, SqliteDatabaseService sqliteDatabaseService)
+    public MapUnresolvedService(ProjectContext context, SqliteDatabaseService sqliteDatabaseService)
     {
-        _projectModel = projectModel;
+        _context = context;
         _sqliteDatabaseService = sqliteDatabaseService;
     }
 
@@ -29,7 +30,7 @@ public class MapUnresolvedService : IMapUnresolvedService
 
         foreach (var invocationDetail in invocationDetails)
         {
-            var analysisProject = _projectModel.Projects.FirstOrDefault(x => x.Guid == invocationDetail.ProjectGuid);
+            var analysisProject = _context.Project.Projects.FirstOrDefault(x => x.Guid == invocationDetail.ProjectGuid);
             if (analysisProject != null)
             {
                 var compilation = analysisProject.Compilation;
@@ -80,47 +81,47 @@ public class MapUnresolvedService : IMapUnresolvedService
                                                         .UpdateInvocationSourceId(invocationDetail.InvocationId,
                                                             sourceMethodId);
                                                 else
-                                                    _projectModel.Logger?.Warning(
+                                                    _context.Project.Logger?.Warning(
                                                         $"Matching Invocation Not Found {name} {definitionFilePath}");
                                             }
 
-                                            _projectModel.Logger?.Information($"Declaration found: {definition}");
+                                            _context.Project.Logger?.Information($"Declaration found: {definition}");
                                         }
                                         else
                                         {
-                                            _projectModel.Logger?.Warning(
+                                            _context.Project.Logger?.Warning(
                                                 $"Definition not found. Declaration found: {declaration}");
                                         }
                                     }
                                     else
                                     {
-                                        _projectModel.Logger?.Warning(
+                                        _context.Project.Logger?.Warning(
                                             $"Declaration Not Found. Method symbol {methodSymbol}");
                                     }
                                 }
                                 else
                                 {
-                                    _projectModel.Logger?.Warning(
+                                    _context.Project.Logger?.Warning(
                                         $"Method symbol not found: {invocationDetail.FullString}");
                                 }
                             }
                         else
-                            _projectModel.Logger?.Warning($"Not found: {invocationDetail.FullString}");
+                            _context.Project.Logger?.Warning($"Not found: {invocationDetail.FullString}");
                     }
                     else
                     {
-                        _projectModel.Logger?.Warning(
+                        _context.Project.Logger?.Warning(
                             $"Could not find syntax tree with name: {invocationDetail.FullString}");
                     }
                 }
                 else
                 {
-                    _projectModel.Logger?.Warning($"No compilation found for {invocationDetail.FullString}");
+                    _context.Project.Logger?.Warning($"No compilation found for {invocationDetail.FullString}");
                 }
             }
             else
             {
-                _projectModel.Logger?.Warning($"No such project: {invocationDetail.ProjectGuid}");
+                _context.Project.Logger?.Warning($"No such project: {invocationDetail.ProjectGuid}");
             }
         }
     }

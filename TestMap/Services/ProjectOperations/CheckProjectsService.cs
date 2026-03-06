@@ -1,6 +1,7 @@
 using Octokit;
 using TestMap.Models;
 using TestMap.Models.Configuration;
+using TestMap.App;
 
 namespace TestMap.Services.ProjectOperations;
 
@@ -8,17 +9,17 @@ public class CheckProjectsService : ICheckProjectsService
 {
     private readonly GitHubClient _client;
     private readonly TestMapConfig _config;
-    private readonly ProjectModel _projectModel;
+    private readonly ProjectContext _context;
 
     // Serialize writes within this process (across all concurrent projects)
     private static readonly SemaphoreSlim _fileWriteGate = new(1, 1);
 
-    public CheckProjectsService(TestMapConfig config, string token, ProjectModel projectModel)
+    public CheckProjectsService(TestMapConfig config, string token, ProjectContext context)
     {
         _config = config;
         _client = new GitHubClient(new ProductHeaderValue("TestMap"));
         _client.Credentials = new Credentials(token);
-        _projectModel = projectModel;
+        _context = context;
     }
 
     public async Task ProcessRepositoryAsync()
@@ -28,9 +29,9 @@ public class CheckProjectsService : ICheckProjectsService
 
         var baseDir = Path.GetDirectoryName(_config.FilePaths.TargetFilePath) ?? throw new InvalidOperationException();
 
-        Console.WriteLine($"Checking {_projectModel.Owner}/{_projectModel.RepoName} ...");
+        Console.WriteLine($"Checking {_context.Project.Owner}/{_context.Project.RepoName} ...");
 
-        var hasTests = await RepoLikelyHasTests(_projectModel.Owner, _projectModel.RepoName);
+        var hasTests = await RepoLikelyHasTests(_context.Project.Owner, _context.Project.RepoName);
 
         // Output files
         var withFile = Path.Combine(baseDir, "repos_with_tests.txt");
@@ -40,9 +41,9 @@ public class CheckProjectsService : ICheckProjectsService
         try
         {
             if (hasTests)
-                await File.AppendAllLinesAsync(withFile, new[] { _projectModel.GitHubUrl });
+                await File.AppendAllLinesAsync(withFile, new[] { _context.Project.GitHubUrl });
             else
-                await File.AppendAllLinesAsync(withoutFile, new[] { _projectModel.GitHubUrl });
+                await File.AppendAllLinesAsync(withoutFile, new[] { _context.Project.GitHubUrl });
         }
         finally
         {

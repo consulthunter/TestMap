@@ -1,4 +1,4 @@
-﻿namespace TestMap.Services.ProjectOperations;
+﻿namespace TestMap.Services.RepoOperations.Delete;
 
 public interface IDeleteProjectService
 {

@@ -204,7 +204,8 @@ public class TestGenerator
                     {
                         var amazon = await chat.GetChatMessageContentAsync(chatHistory, new AmazonClaudeExecutionSettings
                         {
-                            Temperature = (float)temperature
+                            Temperature = (float)temperature,
+                            MaxTokensToSample = 4096,
                         });
                         chatHistory.Add(amazon);
                     }

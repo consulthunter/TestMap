@@ -6,38 +6,39 @@
  * DeleteProjectService.cs
  */
 
-using TestMap.Models;
 
-namespace TestMap.Services.ProjectOperations;
+using TestMap.App;
 
-public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectService
+namespace TestMap.Services.RepoOperations.Delete;
+
+public class DeleteProjectService(ProjectContext context) : IDeleteProjectService
 {
     /// <summary>
     ///     Removes the project directory from the file system
     /// </summary>
     public Task DeleteProjectAsync()
     {
-        if (!Directory.Exists(projectModel.DirectoryPath))
+        if (!Directory.Exists(context.Project.DirectoryPath))
         {
-            projectModel.Logger?.Warning($"Directory {projectModel.DirectoryPath} does not exist.");
+            context.Project.Logger?.Warning($"Directory {context.Project.DirectoryPath} does not exist.");
             return Task.CompletedTask;
         }
 
         try
         {
-            projectModel.Logger?.Information($"Deleting repository: {projectModel.GitHubUrl}");
+            context.Project.Logger?.Information($"Deleting repository: {context.Project.GitHubUrl}");
 
             // Remove ReadOnly attribute recursively before deleting
-            RemoveReadOnlyAttributes(projectModel.DirectoryPath);
+            RemoveReadOnlyAttributes(context.Project.DirectoryPath);
 
             // Recursively delete the directory
-            Directory.Delete(projectModel.DirectoryPath, true);
+            Directory.Delete(context.Project.DirectoryPath, true);
 
-            projectModel.Logger?.Information($"Successfully deleted repository: {projectModel.GitHubUrl}");
+            context.Project.Logger?.Information($"Successfully deleted repository: {context.Project.GitHubUrl}");
         }
         catch (Exception ex)
         {
-            projectModel.Logger?.Error($"Failed to delete repository: {ex.Message}");
+            context.Project.Logger?.Error($"Failed to delete repository: {ex.Message}");
         }
 
         return Task.CompletedTask;
@@ -54,7 +55,7 @@ public class DeleteProjectService(ProjectModel projectModel) : IDeleteProjectSer
             if (file.IsReadOnly)
             {
                 file.IsReadOnly = false;
-                projectModel.Logger?.Information($"Removed ReadOnly attribute from file: {file.FullName}");
+                context.Project.Logger?.Information($"Removed ReadOnly attribute from file: {file.FullName}");
             }
     }
 }

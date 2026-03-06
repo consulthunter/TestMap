@@ -1,6 +1,6 @@
 using TestMap.Models.Code;
 
-namespace TestMap.Services.CollectInformation;
+namespace TestMap.Services.Mapping;
 
 public interface IMapUnresolvedService
 {

@@ -1,17 +1,18 @@
 using TestMap.Models;
 using TestMap.Models.Results;
+using TestMap.App;
 using TestMap.Services.Database;
 
 namespace TestMap.Services.ProjectOperations;
 
 public class ValidateProjectsService : IValidateProjectsService
 {
-    private ProjectModel _projectModel;
+    private ProjectContext _context;
     private SqliteDatabaseService _sqliteDatabaseService;
 
-    public ValidateProjectsService(ProjectModel projectModel, SqliteDatabaseService sqliteDatabaseService)
+    public ValidateProjectsService(ProjectContext context, SqliteDatabaseService sqliteDatabaseService)
     {
-        _projectModel = projectModel;
+        _context = context;
         _sqliteDatabaseService = sqliteDatabaseService;
     }
     
@@ -30,9 +31,9 @@ public class ValidateProjectsService : IValidateProjectsService
             await _sqliteDatabaseService.LizardFunctionCodeMetricsRepository.HasLizardFunctionCodeMetrics();
         
         var result = new ProjectValidationResult(
-            _projectModel.GitHubUrl,
-            _projectModel.Owner,
-            _projectModel.RepoName,
+            _context.Project.GitHubUrl,
+            _context.Project.Owner,
+            _context.Project.RepoName,
             hasXunit,
             hasTests,
             hasPassingTests,
@@ -49,7 +50,7 @@ public class ValidateProjectsService : IValidateProjectsService
     private void WriteCsvRow(ProjectValidationResult result)
     {
         // Parent of the project output directory
-        var outputRoot = Directory.GetParent(_projectModel.OutputPath)!.FullName;
+        var outputRoot = Directory.GetParent(_context.Project.OutputPath)!.FullName;
         var csvPath = Path.Combine(outputRoot, "project-validation.csv");
 
         var fileExists = File.Exists(csvPath);
