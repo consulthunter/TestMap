@@ -1,6 +1,19 @@
-namespace TestMap.Analysis.Passes;
+using TestMap.App;
+using TestMap.Services.CollectInformation;
 
-public class ExtractInfoStep
+namespace TestMap.Execution.Steps;
+
+public class ExtractInfoStep : IPipelineStep
 {
+    private readonly IExtractInformationService _extractInformationService;
     
+    public ExtractInfoStep(IExtractInformationService extractInformationService)
+    {
+        _extractInformationService = extractInformationService;
+    }
+
+    public async Task ExecuteAsync(ProjectContext? context = null)
+    {
+        await _extractInformationService.ExtractInfoAsync();
+    }
 }

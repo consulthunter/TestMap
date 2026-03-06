@@ -12,8 +12,8 @@ public class CloneRepoStep : IPipelineStep
         _repoOps = repoOps;
     }
 
-    public async Task ExecuteAsync(ProjectContext context)
+    public async Task ExecuteAsync(ProjectContext? context = null)
     {
-        await _repoOps.CloneRepoAsync(context);
+        await _repoOps.CloneRepoAsync();
     }
 }

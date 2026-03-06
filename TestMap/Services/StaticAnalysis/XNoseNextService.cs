@@ -1,5 +1,4 @@
 using System.Text.Json;
-using TestMap.Models;
 using TestMap.Models.Results;
 using TestMap.App;
 using TestMap.Services.Database;
@@ -48,11 +47,10 @@ public class XNoseNextService
     {
         try
         {
-            var fileName =
-                $"{Path.GetFileName(solutionPath).Replace(".sln", "").ToLowerInvariant()}_test_smell_reports.json";
-            var dirName = Path.Join(Path.GetDirectoryName(solutionPath), fileName);
+            var solutionParentDir = Path.GetDirectoryName(solutionPath) ?? "";
+            var filePath = Path.Combine(solutionParentDir, "xnose-next-report.json");
 
-            string json = File.ReadAllText(dirName);
+            string json = File.ReadAllText(filePath);
 
             var options = new JsonSerializerOptions
             {
@@ -100,11 +98,11 @@ public class XNoseNextService
             }
 
             // 4. Delete the file
-            File.Delete(dirName);
+            File.Delete(filePath);
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            _context.Logger?.Error(e, "Error processing XNoseNext report");
         }
 
     }

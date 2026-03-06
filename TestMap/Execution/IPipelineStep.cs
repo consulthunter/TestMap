@@ -4,5 +4,5 @@ namespace TestMap.Execution;
 
 public interface IPipelineStep
 {
-    Task ExecuteAsync(ProjectContext context);
+    Task ExecuteAsync(ProjectContext? context = null);
 }

@@ -20,15 +20,13 @@ public class RepoOperations : IRepoOperations
         _deleteService = deleteService;
     }
 
-    public async Task CloneRepoAsync(ProjectContext context)
+    public async Task CloneRepoAsync()
     {
         await _cloneService.CloneRepoAsync();
-        context.Logger?.Information("Repo cloned to {RepoPath}", context.RepoPath);
     }
 
-    public async Task DeleteRepoAsync(ProjectContext context)
+    public async Task DeleteRepoAsync()
     {
         await _deleteService.DeleteProjectAsync();
-        context.Logger?.Information("Repo deleted: {RepoId}", context.Project.ProjectId);
     }
 }

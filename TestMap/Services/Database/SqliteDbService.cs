@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using TestMap.Models;
 using TestMap.Models.Database;
 using TestMap.App;
 using TestMap.Services.Database.Repositories;
