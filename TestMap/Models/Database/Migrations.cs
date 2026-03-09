@@ -570,5 +570,154 @@ SELECT
         ELSE 'red'
     END AS ui_color
 FROM v_test_agg;
+
+CREATE VIEW IF NOT EXISTS v_lizard_test_metric_comparison AS
+SELECT
+    gt.id AS generated_test_id,
+    gt.test_run_id,
+
+    -- baseline test
+    gt.test_method_id              AS baseline_test_method_id,
+    bm.ncss                        AS baseline_ncss,
+    bm.ccn                         AS baseline_ccn,
+
+    -- generated test
+    gt.gen_test_method_id          AS generated_test_method_id,
+    gm.ncss                        AS generated_ncss,
+    gm.ccn                         AS generated_ccn,
+
+    -- deltas
+    (gm.ncss - bm.ncss)            AS ncss_delta,
+    (gm.ccn - bm.ccn)              AS ccn_delta,
+
+    -- relative ratios
+    CASE
+        WHEN bm.ncss > 0 THEN 1.0 * gm.ncss / bm.ncss
+        ELSE NULL
+    END AS ncss_ratio,
+
+    CASE
+        WHEN bm.ccn > 0 THEN 1.0 * gm.ccn / bm.ccn
+        ELSE NULL
+    END AS ccn_ratio
+
+FROM generated_tests gt
+
+LEFT JOIN lizard_function_code_metrics bm
+    ON bm.method_id = gt.test_method_id
+   AND bm.test_run_id = (
+        SELECT tr.run_id
+        FROM test_runs tr
+        WHERE tr.id = gt.test_run_id
+   )
+
+LEFT JOIN lizard_function_code_metrics gm
+    ON gm.method_id = gt.gen_test_method_id
+   AND gm.test_run_id = (
+        SELECT tr.run_id
+        FROM test_runs tr
+        WHERE tr.id = gt.test_run_id
+   );
+
+CREATE VIEW IF NOT EXISTS v_test_smell_ratio AS
+SELECT
+    method_id,
+    SUM(CASE WHEN status = 'Found' THEN 1 ELSE 0 END) AS smells_found,
+    SUM(CASE WHEN status = 'Not Found' THEN 1 ELSE 0 END) AS smells_not_found,
+    COUNT(*) AS total_smells,
+    CASE
+        WHEN COUNT(*) > 0
+        THEN 1.0 * SUM(CASE WHEN status = 'Found' THEN 1 ELSE 0 END) / COUNT(*)
+        ELSE NULL
+    END AS smell_ratio
+FROM method_test_smells
+GROUP BY method_id;
+
+CREATE VIEW IF NOT EXISTS v_generated_vs_baseline_smell_comparison AS
+SELECT
+    gt.id AS generated_test_id,
+    gt.test_run_id,
+
+    -- baseline
+    gt.test_method_id AS baseline_test_method_id,
+    bs.smells_found   AS baseline_smells_found,
+    bs.total_smells   AS baseline_total_smells,
+    bs.smell_ratio    AS baseline_smell_ratio,
+
+    -- generated
+    gt.gen_test_method_id AS generated_test_method_id,
+    gs.smells_found       AS generated_smells_found,
+    gs.total_smells       AS generated_total_smells,
+    gs.smell_ratio        AS generated_smell_ratio,
+
+    -- delta
+    (gs.smell_ratio - bs.smell_ratio) AS smell_ratio_delta
+
+FROM generated_tests gt
+
+LEFT JOIN v_test_smell_ratio bs
+    ON bs.method_id = gt.test_method_id
+
+LEFT JOIN v_test_smell_ratio gs
+    ON gs.method_id = gt.gen_test_method_id;
+
+CREATE VIEW IF NOT EXISTS v_project_baseline_coverage AS
+SELECT
+    cr.id                     AS coverage_report_id,
+    cr.test_run_id,
+    cr.line_rate              AS baseline_line_rate,
+    cr.branch_rate            AS baseline_branch_rate,
+    cr.lines_covered,
+    cr.lines_valid,
+    cr.branches_covered,
+    cr.branches_valid,
+    cr.complexity             AS baseline_complexity
+FROM coverage_reports cr
+JOIN v_baseline_report br
+    ON cr.id = br.id;
+
+CREATE VIEW IF NOT EXISTS v_project_generated_coverage AS
+SELECT
+    cr.id              AS coverage_report_id,
+    tr.id              AS test_run_db_id,
+    cr.test_run_id,
+    cr.line_rate       AS generated_line_rate,
+    cr.branch_rate     AS generated_branch_rate,
+    cr.lines_covered,
+    cr.lines_valid,
+    cr.branches_covered,
+    cr.branches_valid,
+    cr.complexity      AS generated_complexity
+FROM coverage_reports cr
+JOIN test_runs tr
+    ON tr.run_id = cr.test_run_id
+WHERE cr.test_run_id NOT LIKE '%baseline%';
+
+CREATE VIEW IF NOT EXISTS v_project_coverage_comparison AS
+SELECT
+    pg.test_run_db_id,
+    pg.coverage_report_id,
+
+    -- baseline
+    pb.baseline_line_rate,
+    pb.baseline_branch_rate,
+    pb.baseline_complexity,
+
+    -- generated
+    pg.generated_line_rate,
+    pg.generated_branch_rate,
+    pg.generated_complexity,
+
+    -- deltas
+    (pg.generated_line_rate - pb.baseline_line_rate)     AS line_rate_delta,
+    (pg.generated_branch_rate - pb.baseline_branch_rate) AS branch_rate_delta,
+    (pg.generated_complexity - pb.baseline_complexity)   AS complexity_delta,
+
+    -- absolute coverage improvement (more correct than averaging rates)
+    (pg.lines_covered - pb.lines_covered)               AS lines_covered_delta,
+    (pg.branches_covered - pb.branches_covered)         AS branches_covered_delta
+
+FROM v_project_generated_coverage pg
+CROSS JOIN v_project_baseline_coverage pb;
 ";
 }
