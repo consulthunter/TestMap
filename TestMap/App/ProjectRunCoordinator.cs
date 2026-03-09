@@ -1,10 +1,12 @@
 ﻿using Microsoft.Build.Locator;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using TestMap.Execution;
 using TestMap.Execution.Steps;
 using TestMap.Models;
 using TestMap.Models.Configuration;
+using TestMap.Persistence.Ef;
 using TestMap.Runs;
 using TestMap.Services.CollectInformation;
 using TestMap.Services.Configuration;
@@ -102,6 +104,14 @@ public class ProjectRunCoordinator
         
         services.AddScoped<SqliteDatabaseService>();
         services.AddScoped<ISqliteDatabaseService>(sp => sp.GetRequiredService<SqliteDatabaseService>());
+        services.AddDbContext<TestMapDbContext>((sp, options) =>
+        {
+            var dbPath = context.Project.DatabasePath;
+            options.UseSqlite($"Data Source={dbPath}");
+        });
+        services.AddScoped<EfSmokeTestService>();
+
+        services.AddScoped<IEfProjectQueryService, EfProjectQueryService>();
 
         services.AddScoped<BuildTestService>();
         services.AddScoped<IBuildTestService>(sp => sp.GetRequiredService<BuildTestService>());
@@ -127,6 +137,7 @@ public class ProjectRunCoordinator
         services.AddScoped<AnalyzeProjectStep>();
         services.AddScoped<BuildTestStep>();
         services.AddScoped<MapInfoStep>();
+        services.AddScoped<EfSmokeTestStep>();
 
         services.AddTransient<CollectTestsRun>();
 

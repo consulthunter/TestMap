@@ -12,7 +12,7 @@ public class CollectTestsRun : IPipelineRun
     private readonly AnalyzeProjectStep _analyzeProjectStep;
     private readonly BuildTestStep _buildTestStep;
     private readonly MapInfoStep _mapInfoStep;
-
+    private readonly EfSmokeTestStep _efSmokeTestStep;
     public CollectTestsRun(
         CloneRepoStep cloneRepoStep,
         LoadDatabaseStep loadDatabaseStep,
@@ -20,7 +20,9 @@ public class CollectTestsRun : IPipelineRun
         InsertProjectInfoStep insertProjectInfoStep,
         AnalyzeProjectStep analyzeProjectStep,
         BuildTestStep buildTestStep,
-        MapInfoStep mapInfoStep)
+        MapInfoStep mapInfoStep,
+        EfSmokeTestStep efSmokeTestStep
+        )
     {
         _cloneRepoStep = cloneRepoStep;
         _loadDatabaseStep = loadDatabaseStep;
@@ -29,6 +31,7 @@ public class CollectTestsRun : IPipelineRun
         _analyzeProjectStep = analyzeProjectStep;
         _buildTestStep = buildTestStep;
         _mapInfoStep = mapInfoStep;
+        _efSmokeTestStep = efSmokeTestStep;
     }
 
     public RunPipeline CreatePipeline()
@@ -40,7 +43,8 @@ public class CollectTestsRun : IPipelineRun
             _insertProjectInfoStep,
             _analyzeProjectStep,
             _buildTestStep,
-            _mapInfoStep
+            _mapInfoStep,
+            _efSmokeTestStep
         ]);
     }
 }
