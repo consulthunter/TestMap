@@ -22,16 +22,12 @@ RUN dotnet tool install -g dotnet-stryker
 RUN dotnet tool install -g dotnet-coverage
 RUN dotnet tool install --global dotnet-reportgenerator-globaltool
 ENV PATH="${PATH}:/root/.dotnet/tools"
+ENV PYTHONPATH="/app/runner/src"
 
-
-# Install Python + venv + Lizard
-RUN apt-get update && apt-get install -y python3 python3-venv python3-pip \
-    && python3 -m venv /opt/lizardenv \
-    && /opt/lizardenv/bin/pip install --upgrade pip \
-    && /opt/lizardenv/bin/pip install lizard \
-    && rm -rf /var/lib/apt/lists/* 
+# Install Python for the TestMap runner
+RUN apt-get update && apt-get install -y python3 \
+    && rm -rf /var/lib/apt/lists/*
     
-# Add scripts
-RUN mkdir -p /app/scripts
-COPY scripts/*.sh /app/scripts/
-RUN chmod +x /app/scripts/*.sh
+# Add runner
+RUN mkdir -p /app/runner/src
+COPY runner/src/testmap_runner /app/runner/src/testmap_runner

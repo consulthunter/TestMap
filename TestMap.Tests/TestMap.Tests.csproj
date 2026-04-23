@@ -11,33 +11,7 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="F23.StringSimilarity" Version="7.0.1" />
-        <PackageReference Include="Google.Apis.Auth" Version="1.73.0" />
         <PackageReference Include="JetBrains.Annotations" Version="2025.2.4" />
-        <PackageReference Include="LibGit2Sharp" Version="0.31.0"/>
-        <PackageReference Include="Microsoft.CodeAnalysis.Metrics" Version="4.14.0"/>
-        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.3" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.3" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.3">
-          <PrivateAssets>all</PrivateAssets>
-          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.3" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
-        <PackageReference Include="Microsoft.SemanticKernel" Version="1.73.0" />
-        <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.73.0" />
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Amazon" Version="1.64.0-alpha"/>
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Google" Version="1.64.0-alpha"/>
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.HuggingFace" Version="1.64.0-preview"/>
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.MistralAI" Version="1.64.0-alpha"/>
-        <PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama" Version="1.64.0-alpha"/>
-        <PackageReference Include="Moq" Version="4.20.72"/>
-        <PackageReference Include="Octokit" Version="14.0.0"/>
-        <PackageReference Include="System.Data.SQLite" Version="2.0.2" />
-        <PackageReference Include="System.Formats.Asn1" Version="10.0.3" />
-        <PackageReference Include="System.Text.Json" Version="10.0.3" />
         <PackageReference Include="xunit" Version="2.9.3"/>
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
             <PrivateAssets>all</PrivateAssets>

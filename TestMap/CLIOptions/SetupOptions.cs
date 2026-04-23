@@ -17,8 +17,8 @@ public class SetupOptions
     public RunMode Mode => RunMode.Setup;
 
     [Option('b', "base-path", SetName = "setup", Required = false, HelpText = "Base Path for the project.")]
-    public string BasePath { get; set; }
+    public string BasePath { get; set; } = string.Empty;
 
-    [Option('c', "config", SetName = "setup", Required = false, HelpText = "Overwrite Config File.")]
+    [Option('o', "overwrite", SetName = "setup", Required = false, HelpText = "Overwrite Config File.")]
     public bool OverwriteFile { get; set; }
 }

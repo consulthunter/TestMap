@@ -1,38 +1,27 @@
-﻿# Future Work
+# Future Work
 
-We have several ideas on how to extend this tool and ideas on how to improve the tool.
+This file tracks improvements that still make sense after reviewing the current implementation.
 
+## High-value code improvements
 
-## Extensions
+- Reduce nullable and dead-code warnings so build output is easier to trust.
+- Fix the test runtime dependency issue around `AWSSDK.BedrockRuntime.dll` so `dotnet test` is reliable.
+- Replace rollback-based experiment isolation with per-attempt worktrees or another cleaner sandbox.
 
-Possible extensions to the tool.
+## Test generation quality
 
-### Test Classification
+- Improve prompt construction with framework-specific scaffolds instead of defaulting to NUnit-style examples.
+- Make repair attempts preserve more context from previous failures.
+- Add clearer success criteria than pass/fail plus coverage delta alone.
 
-One idea is to do test classification on tests that are retrieved in the analysis. 
+## Experiment framework
 
-For instance:
-- Is it a unit test?
-- Is it a integration test?
-- Is it a system test?
+- Support resumable or incremental experiment runs.
+- Export richer reports, but keep CSV as the baseline format because it is easy to inspect and analyze.
+- Capture per-attempt metrics in a way that is easier to analyze without rehydrating multiple tables.
 
-Figuring out a method to determining the type of method would be particularly beneficial. We see this as being implemented as
-another service that could be added to the project model. It should be added during the ```AnalyzeProjectService```
+## Analysis and reporting
 
-A couple of directions to start exploring:
-- Traits for test methods
-- Syntax trees
-- Namespaces
-- Keywords
-
-Likely, all of these will need to be used when determining the type of test.
-
-### Test Smells
-
-Another idea is to detect test smells by integrating something like [xNose](https://github.com/tonoy30/xNose).
-
-xNose is a tool that can detect test smells for xUnit tests.
-
-Since xNose is written in C#, we could potentially use it as a library or integrate it into the tool as a service.
-
-We could also extend xNose to additional test frameworks or test smells.
+- Add repeatable analysis scripts or notebooks for experiment output.
+- Track cost, latency, and token efficiency more explicitly across providers.
+- Add mutation-testing-based quality signals if the project starts using those results consistently.

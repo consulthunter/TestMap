@@ -8,7 +8,5 @@ public record ProjectValidationResult(
     bool HasCoverage,
     bool HasPassingTests,
     bool HasCandidateMethods,
-    bool HasMutationReports,
-    bool HasFileCodeMetrics,
-    bool HasFunctionCodeMetrics
+    bool HasMutationReports
 );

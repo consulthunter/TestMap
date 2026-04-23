@@ -1,5 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Persistence.Ef.Entities;
+using TestMap.Persistence.Ef.Entities.Code;
+using TestMap.Persistence.Ef.Entities.Coverage;
+using TestMap.Persistence.Ef.Entities.Experiment;
+using TestMap.Persistence.Ef.Entities.FlakyTestDetection;
+using TestMap.Persistence.Ef.Entities.MutationTesting;
+using TestMap.Persistence.Ef.Entities.RiskScoring;
+using TestMap.Persistence.Ef.Entities.Testing;
 
 namespace TestMap.Persistence.Ef;
 
@@ -11,24 +18,37 @@ public class TestMapDbContext : DbContext
     }
 
     public DbSet<ProjectEntity> Projects => Set<ProjectEntity>();
+    public DbSet<CodeMetricEntity> CodeMetrics => Set<CodeMetricEntity>();
+    public DbSet<CSharpProjectEntity> CSharpProjects => Set<CSharpProjectEntity>();
+    public DbSet<CSharpSolutionEntity> CSharpSolutions => Set<CSharpSolutionEntity>();
+    public DbSet<FileEntity> Files => Set<FileEntity>();
+    public DbSet<InvocationEntity> Invocations => Set<InvocationEntity>();
+    public DbSet<MemberEntity> Members => Set<MemberEntity>();
+    public DbSet<MemberRelationshipEntity> MemberRelationships => Set<MemberRelationshipEntity>();
+    public DbSet<ObjectEntity> Objects => Set<ObjectEntity>();
+    public DbSet<ObjectRelationshipEntity> ObjectRelationships => Set<ObjectRelationshipEntity>();
+    public DbSet<CoverageReportEntity> CoverageReports => Set<CoverageReportEntity>();
+    public DbSet<CoverageGapEntity> CoverageGaps => Set<CoverageGapEntity>();
+    public DbSet<MemberCoverageEntity> MemberCoverages => Set<MemberCoverageEntity>();
+    public DbSet<ObjectCoverageEntity> ObjectCoverages => Set<ObjectCoverageEntity>();
+    public DbSet<MutationTestingReportEntity> MutationTestingReports => Set<MutationTestingReportEntity>();
+    public DbSet<MutantEntity> Mutants => Set<MutantEntity>();
+    public DbSet<MutantSurvivedTestEntity> MutantSurvivedTests => Set<MutantSurvivedTestEntity>();
+    public DbSet<CandidateMethodRiskScoreEntity> CandidateMethodRiskScores => Set<CandidateMethodRiskScoreEntity>();
+    public DbSet<TestExecutionResultEntity> TestExecutionResults => Set<TestExecutionResultEntity>();
+    public DbSet<FlakyTestScoreEntity> FlakyTestScores => Set<FlakyTestScoreEntity>();
+    public DbSet<FlakyTestRerunResultEntity> FlakyTestRerunResults => Set<FlakyTestRerunResultEntity>();
+    public DbSet<TestResultEntity> TestResults => Set<TestResultEntity>();
+    public DbSet<TestRunEntity> TestRuns => Set<TestRunEntity>();
+    public DbSet<TestSmellEntity> TestSmells => Set<TestSmellEntity>();
+    public DbSet<ExperimentRunEntity> ExperimentRuns => Set<ExperimentRunEntity>();
+    public DbSet<CandidateMethodEntity> CandidateMethods => Set<CandidateMethodEntity>();
+    public DbSet<GenerationAttemptEntity> GenerationAttempts => Set<GenerationAttemptEntity>();
+    public DbSet<GenerationStepEntity> GenerationSteps => Set<GenerationStepEntity>();
+    public DbSet<TestExecutionEntity> TestExecutions => Set<TestExecutionEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<ProjectEntity>(entity =>
-        {
-            entity.ToTable("projects");
-
-            entity.HasKey(x => x.Id);
-
-            entity.Property(x => x.Id).HasColumnName("id");
-            entity.Property(x => x.Owner).HasColumnName("owner");
-            entity.Property(x => x.RepoName).HasColumnName("repo_name");
-            entity.Property(x => x.DirectoryPath).HasColumnName("directory_path");
-            entity.Property(x => x.WebUrl).HasColumnName("web_url");
-            entity.Property(x => x.DatabasePath).HasColumnName("database_path");
-            entity.Property(x => x.LastAnalyzedCommit).HasColumnName("last_analyzed_commit");
-            entity.Property(x => x.ContentHash).HasColumnName("content_hash");
-            entity.Property(x => x.CreatedAt).HasColumnName("created_at");
-        });
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(TestMapDbContext).Assembly);
     }
 }

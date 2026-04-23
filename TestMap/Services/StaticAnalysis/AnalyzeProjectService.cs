@@ -1,538 +1,791 @@
-﻿/*
- * consulthunter
- * 2024-11-07
- * Looks at the syntaxTrees
- * for test methods and test classes
- *
- * Data is written from the code model
- * using JSONL format
- *
- * AnalyzeProjectService.cs
- */
-
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using TestMap.Models;
-using TestMap.Models.Code;
+using Microsoft.CodeAnalysis.MSBuild;
 using TestMap.App;
-using TestMap.Services.Database;
-using Location = TestMap.Models.Code.Location;
+using TestMap.Models.Code;
+using TestMap.Persistence.Ef.Repositories.Code;
 
 namespace TestMap.Services.StaticAnalysis;
+
+using CodeLocation = TestMap.Models.Code.Location;
+using RoslynProject = Microsoft.CodeAnalysis.Project;
 
 public class AnalyzeProjectService : IAnalyzeProjectService
 {
     private readonly ProjectContext _context;
-    private Dictionary<string, List<InvocationModel>> _invocations = new();
-    private Dictionary<string, MethodModel> _methods = new();
-    private SqliteDatabaseService _databaseService;
+    private readonly CSharpProjectRepository _cSharpProjectRepository;
+    private readonly CSharpSolutionRepository _cSharpSolutionRepository;
+    private readonly FileRepository _fileRepository;
+    private readonly ObjectRepository _objectRepository;
+    private readonly MemberRepository _memberRepository;
+    private readonly ObjectRelationshipRepository _objectRelationshipRepository;
+    private readonly MemberRelationshipRepository _memberRelationshipRepository;
+    private readonly InvocationRepository _invocationRepository;
+    private readonly IStaticAnalysisWorkspace _staticAnalysisWorkspace;
 
-
-    public AnalyzeProjectService(ProjectContext context, SqliteDatabaseService databaseService)
+    public AnalyzeProjectService(
+        ProjectContext context,
+        CSharpProjectRepository cSharpProjectRepository,
+        CSharpSolutionRepository cSharpSolutionRepository,
+        FileRepository fileRepository,
+        ObjectRepository objectRepository,
+        MemberRepository memberRepository,
+        ObjectRelationshipRepository objectRelationshipRepository,
+        MemberRelationshipRepository memberRelationshipRepository,
+        InvocationRepository invocationRepository,
+        IStaticAnalysisWorkspace staticAnalysisWorkspace)
     {
         _context = context;
-        _databaseService = databaseService;
+        _cSharpProjectRepository = cSharpProjectRepository;
+        _cSharpSolutionRepository = cSharpSolutionRepository;
+        _fileRepository = fileRepository;
+        _objectRepository = objectRepository;
+        _memberRepository = memberRepository;
+        _objectRelationshipRepository = objectRelationshipRepository;
+        _memberRelationshipRepository = memberRelationshipRepository;
+        _invocationRepository = invocationRepository;
+        _staticAnalysisWorkspace = staticAnalysisWorkspace;
     }
 
-    /// <summary>
-    ///     Uses the compilation to create the semantic model
-    ///     And gathers the necessary information for the code model
-    /// </summary>
-    /// <param name="analysisProject">Analysis project, project we are analyzing</param>
-    /// <param name="cSharpCompilation">Csharp compilation for the project</param>
-    public virtual async Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation)
+    public async Task AnalyzeProjectAsync(CSharpProjectModel analysisProject)
     {
-        _context.Logger?.Information($"Analyzing project {analysisProject.ProjectFilePath}");
-        var xnose = new XNoseNextService(_context, _databaseService);
-        // for every .cs file in the current project
-        if (cSharpCompilation != null)
+        await EnsureProjectPersistedAsync(analysisProject);
+
+        var project = await _staticAnalysisWorkspace.OpenProjectAsync(analysisProject.FilePath);
+        project = RemoveSourceGenerators(project);
+
+        var compilation = await project.GetCompilationAsync();
+        if (compilation == null)
         {
-            foreach (var document in cSharpCompilation.SyntaxTrees)
+            _context.Logger?.Warning("Compilation could not be created for {ProjectFilePath}", analysisProject.FilePath);
+            return;
+        }
+
+        var projectDocumentPaths = new HashSet<string>(
+            analysisProject.DocumentFilePaths.Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+
+        var state = new AnalysisState(projectDocumentPaths);
+
+        foreach (var document in project.Documents)
+        {
+            if (!ShouldAnalyzeDocument(document.FilePath))
             {
-                if (document.FilePath.EndsWith(".g.cs") || document.FilePath.EndsWith("AssemblyAttributes.cs") ||
-                    document.FilePath.EndsWith("AssemblyInfo.cs"))
-                    continue;
+                continue;
+            }
 
-                _context.Logger?.Information($"Analyzing {document.FilePath}");
-                // Necessary to analyze types and retrieve declarations
-                // for invocations
-                // var semanticModel = compilation.GetSemanticModel(document);
+            await AnalyzeDocumentAsync(document, compilation, analysisProject, state);
+        }
 
-                var root = await document.GetRootAsync();
+        await PersistRelationshipsAsync(state);
+    }
 
-                var namespaceDec = FindNamespace(root);
+    private static RoslynProject RemoveSourceGenerators(RoslynProject project)
+    {
+        var solution = project.Solution;
+        foreach (var solutionProject in solution.Projects)
+        {
+            if (solutionProject.AnalyzerReferences.Any())
+            {
+                solution = solution.WithProjectAnalyzerReferences(
+                    solutionProject.Id,
+                    []);
+            }
+        }
 
-                var usings = GetUsingStatements(root);
+        return solution.GetProject(project.Id) ?? project;
+    }
 
-                var stringUsings = usings.Select(u => u.FullString).ToList();
+    private async Task EnsureProjectPersistedAsync(CSharpProjectModel analysisProject)
+    {
+        var solutionModel = _context.Project.Solutions.FirstOrDefault(x => x.Projects.Contains(analysisProject.FilePath));
+        if (solutionModel == null)
+        {
+            throw new InvalidOperationException($"No solution mapping was found for {analysisProject.FilePath}.");
+        }
 
-                var testFramework = FindTestingFrameworkFromUsings(usings);
-                
+        solutionModel.ProjectId = _context.Project.DbId;
+        analysisProject.SolutionId = await _cSharpSolutionRepository.InsertOrUpdateAsync(solutionModel);
+        solutionModel.Id = analysisProject.SolutionId;
 
-                // check to insert file, get id
-                var file = new FileModel(stringUsings, analysisProject.Id, Guid.NewGuid().ToString(), namespaceDec,
-                    document.FilePath, cSharpCompilation.Language,
-                    analysisProject.SolutionFilePath, analysisProject.ProjectFilePath, document.FilePath);
-                await _databaseService.SourceFileRepository.InsertFileGetId(file);
+        analysisProject.Id = await _cSharpProjectRepository.InsertOrUpdateAsync(analysisProject);
+    }
 
-                // update usings
-                usings.ForEach(u => u.FileId = file.Id);
+    private async Task AnalyzeDocumentAsync(
+        Document document,
+        Compilation compilation,
+        CSharpProjectModel analysisProject,
+        AnalysisState state)
+    {
+        var root = await document.GetSyntaxRootAsync();
+        if (root == null || document.FilePath == null)
+        {
+            return;
+        }
 
+        var syntaxTree = root.SyntaxTree;
+        var semanticModel = compilation.GetSemanticModel(syntaxTree);
 
-                var classDeclarationSyntaxes = root.DescendantNodes().OfType<ClassDeclarationSyntax>().ToList();
-                _context.Logger?.Information($"Number of class declarations: {classDeclarationSyntaxes.Count}");
+        var fileId = await EnsureFilePersistedAsync(root, analysisProject.Id, document.FilePath);
+        var objectDeclarations = root.DescendantNodes()
+            .OfType<BaseTypeDeclarationSyntax>()
+            .Where(x => x.Parent is NamespaceDeclarationSyntax or FileScopedNamespaceDeclarationSyntax or CompilationUnitSyntax
+                        || x.Parent is TypeDeclarationSyntax or RecordDeclarationSyntax)
+            .ToList();
 
-                foreach (var classDeclaration in classDeclarationSyntaxes)
+        foreach (var objectDeclaration in objectDeclarations)
+        {
+            var objectSymbol = semanticModel.GetDeclaredSymbol(objectDeclaration) as INamedTypeSymbol;
+            if (objectSymbol == null)
+            {
+                continue;
+            }
+
+            var objectKey = GetSymbolKey(objectSymbol);
+            if (state.ObjectIds.ContainsKey(objectKey))
+            {
+                continue;
+            }
+
+            var objectModel = CreateObjectModel(objectDeclaration, objectSymbol, fileId);
+            var objectId = await _objectRepository.InsertOrUpdateAsync(objectModel);
+            state.ObjectIds[objectKey] = objectId;
+
+            CollectObjectRelationships(objectSymbol, objectKey, state);
+
+            foreach (var memberDeclaration in GetMemberDeclarations(objectDeclaration))
+            {
+                foreach (var pendingMember in CreateMembers(memberDeclaration, semanticModel, objectId))
                 {
-                    _context.Logger?.Information($"Class declaration: {classDeclaration.Identifier.ToString()}");
-                    var name = classDeclaration.Identifier.ToString();
-                    var modifiers = FindClassModifiers(classDeclaration);
-                    var attr = FindClassAttributes(classDeclaration);
-                    var methods = FindClassMethods(classDeclaration);
-                    var properties = FindClassFields(classDeclaration);
-                    var visibility = GetVisibility(modifiers);
-                    var fullString = classDeclaration.ToFullString().Trim();
-                    var docString = GetDocComment(classDeclaration);
-                    var isTestClass = methods.Any(m => m.IsTestMethod);
-                    var spec = classDeclaration.GetLocation().GetLineSpan();
-                    var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
-                        spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-
-                    // insert class get id
-                    var classModel = new ClassModel(file.Id, Guid.NewGuid().ToString(), name, visibility, attr,
-                        modifiers, fullString, docString, isTestClass, testFramework, location);
-                    await _databaseService.ClassRepository.InsertClassesGetId(classModel);
-
-                    methods.ForEach(method => method.ClassId = classModel.Id);
-                    foreach (var method in methods) await _databaseService.MethodRepository.InsertMethodsGetId(method);
-
-                    // Iterate over the _methods dictionary
-                    foreach (var methodKey in _methods.Keys)
+                    if (state.MemberIds.ContainsKey(pendingMember.SymbolKey))
                     {
-                        // Access the MethodModel for the current key
-                        var methodModel = _methods[methodKey];
-
-                        // Check if there are invocations associated with the current methodKey
-                        if (_invocations.ContainsKey(methodKey))
-                        {
-                            var invocationList = _invocations[methodKey];
-
-                            // Modify each invocation model in the list
-                            foreach (var invocationModel in invocationList)
-                                // You now have access to both the MethodModel and InvocationModel
-                                // Modify the invocationModel based on some condition involving methodModel
-                                invocationModel.TargetMethodId = methodModel.Id;
-                        }
+                        continue;
                     }
 
-                    foreach (var guid in _invocations.Keys)
-                    {
-                        var invocationList = _invocations[guid];
+                    var memberId = await _memberRepository.InsertOrUpdateAsync(pendingMember.Model);
+                    state.MemberIds[pendingMember.SymbolKey] = memberId;
 
-                        foreach (var invocationModel in invocationList)
-                            await _databaseService.InvocationRepository.InsertInvocationsGetId(invocationModel);
+                    CollectSignatureRelationships(objectKey, pendingMember.Symbol, pendingMember.SymbolKey, state);
+                    CollectBodyRelationships(
+                        objectKey,
+                        pendingMember.SymbolKey,
+                        memberDeclaration,
+                        pendingMember.Model.IsTestMember,
+                        semanticModel,
+                        state);
+                }
+            }
+        }
+    }
+
+    private async Task<int> EnsureFilePersistedAsync(SyntaxNode root, int analysisProjectId, string filePath)
+    {
+        var usingStatements = root.DescendantNodes()
+            .OfType<UsingDirectiveSyntax>()
+            .Select(x => x.ToString())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var fileModel = new FileModel(usingStatements, analysisProjectId, filePath);
+        return await _fileRepository.InsertOrUpdateAsync(fileModel);
+    }
+
+    private static IEnumerable<MemberDeclarationSyntax> GetMemberDeclarations(BaseTypeDeclarationSyntax objectDeclaration)
+    {
+        return objectDeclaration switch
+        {
+            TypeDeclarationSyntax typeDeclaration => typeDeclaration.Members.Where(IsSupportedMemberDeclaration),
+            EnumDeclarationSyntax enumDeclaration => enumDeclaration.Members,
+            _ => Enumerable.Empty<MemberDeclarationSyntax>()
+        };
+    }
+
+    private static bool IsSupportedMemberDeclaration(MemberDeclarationSyntax declaration)
+    {
+        return declaration is MethodDeclarationSyntax
+            or ConstructorDeclarationSyntax
+            or DestructorDeclarationSyntax
+            or PropertyDeclarationSyntax
+            or IndexerDeclarationSyntax
+            or FieldDeclarationSyntax
+            or EventDeclarationSyntax
+            or EventFieldDeclarationSyntax
+            or OperatorDeclarationSyntax
+            or ConversionOperatorDeclarationSyntax
+            or EnumMemberDeclarationSyntax;
+    }
+
+    private ObjectModel CreateObjectModel(BaseTypeDeclarationSyntax declaration, INamedTypeSymbol symbol, int fileId)
+    {
+        var members = GetMemberDeclarations(declaration).ToList();
+        var testFramework = members
+            .Select(ResolveTestFramework)
+            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty;
+
+        return new ObjectModel(
+            attributes: GetAttributeStrings(declaration.AttributeLists),
+            modifiers: GetModifierStrings(declaration.Modifiers),
+            location: CreateLocation(declaration),
+            fileId: fileId,
+            @namespace: symbol.ContainingNamespace?.ToDisplayString() ?? string.Empty,
+            name: symbol.Name,
+            kind: GetObjectKind(symbol),
+            docString: symbol.GetDocumentationCommentXml() ?? string.Empty,
+            fullString: declaration.ToFullString().Trim(),
+            isTestObject: members.Any(IsTestMember),
+            testFramework: testFramework);
+    }
+
+    private IEnumerable<PendingMember> CreateMembers(MemberDeclarationSyntax declaration, SemanticModel semanticModel, int objectId)
+    {
+        switch (declaration)
+        {
+            case FieldDeclarationSyntax fieldDeclaration:
+            {
+                foreach (var variable in fieldDeclaration.Declaration.Variables)
+                {
+                    var symbol = semanticModel.GetDeclaredSymbol(variable) as IFieldSymbol;
+                    if (symbol == null)
+                    {
+                        continue;
                     }
 
-                    properties.ForEach(property => property.ClassId = classModel.Id);
-
-                    foreach (var property in properties)
-                        await _databaseService.PropertyRepository.InsertPropertyGetId(property);
+                    yield return new PendingMember(
+                        GetSymbolKey(symbol),
+                        symbol,
+                        CreateMemberModel(fieldDeclaration, symbol, objectId, variable.Identifier.Text, "field"));
                 }
 
-                foreach (var import in usings) await _databaseService.ImportRepository.InsertImports(import);
+                yield break;
             }
-
-            await xnose.Analyze(analysisProject.SolutionFilePath);
-        }
-
-        _methods.Clear();
-        _invocations.Clear();
-    }
-
-    /// <summary>
-    ///     Looks for the namespace defined in the document
-    ///     using the root node
-    /// </summary>
-    /// <param name="rootNode">Root node of the document</param>
-    /// <returns>String, namespace identifier if found</returns>
-    private string FindNamespace(SyntaxNode rootNode)
-    {
-        _context.Logger?.Information("Looking for namespace.");
-        var namespaceDec = "";
-        var namespaceDeclaration = rootNode.DescendantNodes().OfType<NamespaceDeclarationSyntax>().FirstOrDefault();
-
-        // try the first syntax node
-        if (namespaceDeclaration != null)
-        {
-            namespaceDec = namespaceDeclaration.Name.ToFullString();
-        }
-        // try the second syntax node
-        else
-        {
-            var fileScopedNamespaceDeclarationDeclaration = rootNode.DescendantNodes()
-                .OfType<FileScopedNamespaceDeclarationSyntax>()
-                .FirstOrDefault();
-
-            if (fileScopedNamespaceDeclarationDeclaration != null)
-                namespaceDec = fileScopedNamespaceDeclarationDeclaration.Name.ToFullString();
-            // if it's not either of them, then the namespace may not be present in the file.
-            else
-                _context.Logger?.Warning("No namespace found.");
-        }
-
-        _context.Logger?.Information("Finished looking for namespace.");
-        return namespaceDec;
-    }
-
-    /// <summary>
-    ///     Looks for usings statements from the root node of the document
-    /// </summary>
-    /// <param name="rootNode">Root node of the document</param>
-    /// <returns>List of strings, using statements</returns>
-    private List<ImportModel> GetUsingStatements(SyntaxNode rootNode)
-    {
-        _context.Logger?.Information("Looking for using statements.");
-        List<ImportModel> usingStatements = new();
-
-        // Get all using directives
-        var usingDirectives = rootNode.DescendantNodes().OfType<UsingDirectiveSyntax>();
-        foreach (var usingDirective in usingDirectives)
-            if (usingDirective.Name != null)
+            case EventFieldDeclarationSyntax eventFieldDeclaration:
             {
-                var import = new ImportModel(0, Guid.NewGuid().ToString(), usingDirective.Name.ToString(),
-                    usingDirective.Name.ToString(), usingDirective.ToString());
-                usingStatements.Add(import);
+                foreach (var variable in eventFieldDeclaration.Declaration.Variables)
+                {
+                    var symbol = semanticModel.GetDeclaredSymbol(variable) as IEventSymbol;
+                    if (symbol == null)
+                    {
+                        continue;
+                    }
+
+                    yield return new PendingMember(
+                        GetSymbolKey(symbol),
+                        symbol,
+                        CreateMemberModel(eventFieldDeclaration, symbol, objectId, variable.Identifier.Text, "event"));
+                }
+
+                yield break;
             }
+            default:
+            {
+                var symbol = semanticModel.GetDeclaredSymbol(declaration);
+                if (symbol is not ISymbol memberSymbol)
+                {
+                    yield break;
+                }
 
-        _context.Logger?.Information($"Number of using statements found. {usingStatements.Count}");
-        _context.Logger?.Information("Finished looking for using statements.");
-        return usingStatements;
+                yield return new PendingMember(
+                    GetSymbolKey(memberSymbol),
+                    memberSymbol,
+                    CreateMemberModel(declaration, memberSymbol, objectId, memberSymbol.Name, GetMemberKind(memberSymbol)));
+                yield break;
+            }
+        }
     }
 
-    /// <summary>
-    ///     Searches the using statements for a testing framework
-    ///     that is defined within the config
-    /// </summary>
-    /// <param name="usings">List of usings statements</param>
-    /// <returns>Testing framework that matches from the config if present</returns>
-    private string FindTestingFrameworkFromUsings(List<ImportModel> usings)
+    private MemberModel CreateMemberModel(
+        MemberDeclarationSyntax declaration,
+        ISymbol symbol,
+        int objectId,
+        string name,
+        string kind)
     {
-        var testingFramework = "";
-        _context.Logger?.Information("Looking for testing framework.");
-        foreach (var usingStatement in usings)
-            if (_context.Project.TestingFrameworks != null)
-                foreach (var framework in _context.Project.TestingFrameworks.Keys)
-                    if (usingStatement.FullString.ToLower().Contains(framework.ToLower()))
-                        testingFramework = framework;
-
-        if (string.IsNullOrEmpty(testingFramework)) _context.Logger?.Warning("No testing framework found.");
-
-        _context.Logger?.Information("Finished looking for testing framework.");
-        return testingFramework;
+        return new MemberModel(
+            attributes: GetAttributeStrings(declaration.AttributeLists),
+            modifiers: GetModifierStrings(GetModifiers(declaration)),
+            testCategories: GetTestCategories(declaration),
+            location: CreateLocation(declaration),
+            objectEntityId: objectId,
+            name: name,
+            kind: kind,
+            docString: symbol.GetDocumentationCommentXml() ?? string.Empty,
+            fullString: declaration.ToFullString().Trim(),
+            isTestMember: IsTestMember(declaration),
+            testIntent: string.Empty,
+            isGenerated: false,
+            testMetadataSource: string.Empty,
+            testMetadataConfidence: null,
+            testMetadataPromptVersion: string.Empty);
     }
 
-    public string GetVisibility(List<string> modifiers)
+    private void CollectObjectRelationships(INamedTypeSymbol symbol, string objectKey, AnalysisState state)
     {
-        // If the list of modifiers is empty, assume it's internal (default visibility)
-        if (modifiers.Count == 0) return "internal";
-
-        // Iterate through the modifiers and check for known access modifiers
-        foreach (var modifier in modifiers)
+        if (symbol.ContainingType != null && state.IsProjectSymbol(symbol.ContainingType))
         {
-            var modifierText = modifier.ToLower().Trim();
-
-            if (modifierText == "public")
-                return "public";
-            else if (modifierText == "private")
-                return "private";
-            else if (modifierText == "protected")
-                return "protected";
-            else if (modifierText == "internal")
-                return "internal";
-            else if (modifierText == "protectedinternal")
-                return "protected internal";
-            else if (modifierText == "privateprotected") return "private protected";
+            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.ContainingType), "contained_by"));
         }
 
-        // If no access modifier found, return "internal" as a default
-        return "internal";
+        if (symbol.BaseType != null &&
+            symbol.BaseType.SpecialType != SpecialType.System_Object &&
+            state.IsProjectSymbol(symbol.BaseType))
+        {
+            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.BaseType), "inherits"));
+        }
+
+        foreach (var interfaceType in symbol.Interfaces.Where(state.IsProjectSymbol))
+        {
+            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(interfaceType), "implements"));
+        }
     }
 
-    public string GetDocComment(SyntaxNode node)
+    private void CollectSignatureRelationships(string objectKey, ISymbol memberSymbol, string memberKey, AnalysisState state)
     {
-        var trivia = node.GetLeadingTrivia();
-        var docComment = trivia.FirstOrDefault(t => t.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia));
-
-        if (docComment != default)
+        foreach (var typeSymbol in GetReferencedTypes(memberSymbol).Where(state.IsProjectSymbol))
         {
-            // Extract the XML documentation comment
-            var xmlDocComment = docComment.GetStructure()?.ToString();
-            return xmlDocComment ?? string.Empty;
+            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(typeSymbol), "uses"));
+        }
+
+        foreach (var relatedMember in GetReferencedMembersFromSignature(memberSymbol).Where(state.IsProjectSymbol))
+        {
+            state.MemberRelationships.Add(new PendingRelationship(memberKey, GetSymbolKey(relatedMember), "references"));
+            if (relatedMember.ContainingType != null && state.IsProjectSymbol(relatedMember.ContainingType))
+            {
+                state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(relatedMember.ContainingType), "uses"));
+            }
+        }
+    }
+
+    private void CollectBodyRelationships(
+        string objectKey,
+        string memberKey,
+        MemberDeclarationSyntax declaration,
+        bool isTestMember,
+        SemanticModel semanticModel,
+        AnalysisState state)
+    {
+        foreach (var node in declaration.DescendantNodes())
+        {
+            if (node is not InvocationExpressionSyntax
+                and not ObjectCreationExpressionSyntax
+                and not IdentifierNameSyntax
+                and not MemberAccessExpressionSyntax)
+            {
+                continue;
+            }
+
+            var symbol = ResolveReferencedSymbol(node, semanticModel);
+            if (node is InvocationExpressionSyntax assertionInvocation &&
+                isTestMember &&
+                (symbol == null || !state.IsProjectSymbol(symbol)) &&
+                IsAssertionInvocation(assertionInvocation, symbol))
+            {
+                state.Invocations.Add(new PendingInvocation(
+                    memberKey,
+                    null,
+                    node.ToFullString().Trim(),
+                    CreateLocation(node),
+                    true));
+                continue;
+            }
+
+            if (symbol == null || !state.IsProjectSymbol(symbol))
+            {
+                continue;
+            }
+
+            var relationshipType = GetMemberRelationshipType(node, symbol);
+            if (relationshipType != null)
+            {
+                var targetMemberKey = GetSymbolKey(symbol);
+                state.MemberRelationships.Add(new PendingRelationship(memberKey, targetMemberKey, relationshipType));
+
+                if (node is InvocationExpressionSyntax invocationExpression)
+                {
+                    state.Invocations.Add(new PendingInvocation(
+                        memberKey,
+                        targetMemberKey,
+                        node.ToFullString().Trim(),
+                        CreateLocation(node),
+                        isTestMember && IsAssertionInvocation(invocationExpression, symbol)));
+                }
+            }
+
+            if (symbol.ContainingType != null && state.IsProjectSymbol(symbol.ContainingType))
+            {
+                state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.ContainingType), "uses"));
+            }
+        }
+    }
+
+    private async Task PersistRelationshipsAsync(AnalysisState state)
+    {
+        foreach (var relationship in state.ObjectRelationships)
+        {
+            if (!state.ObjectIds.TryGetValue(relationship.SourceKey, out var sourceId) ||
+                !state.ObjectIds.TryGetValue(relationship.TargetKey, out var targetId) ||
+                sourceId == targetId && relationship.RelationshipType == "uses")
+            {
+                continue;
+            }
+
+            await _objectRelationshipRepository.InsertOrUpdateAsync(
+                new ObjectRelationshipModel(sourceId, targetId, relationship.RelationshipType));
+        }
+
+        foreach (var relationship in state.MemberRelationships)
+        {
+            if (!state.MemberIds.TryGetValue(relationship.SourceKey, out var sourceId) ||
+                !state.MemberIds.TryGetValue(relationship.TargetKey, out var targetId) ||
+                sourceId == targetId)
+            {
+                continue;
+            }
+
+            await _memberRelationshipRepository.InsertOrUpdateAsync(
+                new MemberRelationshipModel(sourceId, targetId, relationship.RelationshipType));
+        }
+
+        foreach (var invocation in state.Invocations)
+        {
+            if (!state.MemberIds.TryGetValue(invocation.SourceKey, out var memberId))
+            {
+                continue;
+            }
+
+            int? invokedMemberId = null;
+            if (invocation.TargetKey != null)
+            {
+                if (!state.MemberIds.TryGetValue(invocation.TargetKey, out var resolvedInvokedMemberId))
+                {
+                    continue;
+                }
+
+                invokedMemberId = resolvedInvokedMemberId;
+            }
+
+            await _invocationRepository.InsertOrUpdateAsync(
+                new InvocationModel(
+                    location: invocation.Location,
+                    memberId: memberId,
+                    invokedMemberId: invokedMemberId,
+                    isAssertion: invocation.IsAssertion,
+                    fullString: invocation.FullString));
+        }
+    }
+
+    private string ResolveTestFramework(MemberDeclarationSyntax declaration)
+    {
+        foreach (var framework in _context.Project.Config.RuntimeConfig.Frameworks ?? new Dictionary<string, List<string>>())
+        {
+            if (declaration.AttributeLists
+                .SelectMany(x => x.Attributes)
+                .Any(attribute => framework.Value.Contains(attribute.Name.ToString())))
+            {
+                return framework.Key;
+            }
         }
 
         return string.Empty;
     }
 
-    /// <summary>
-    ///     Collects attributes for a class declaration
-    ///     i.e the [] before the declaration
-    /// </summary>
-    /// <param name="classDeclaration"></param>
-    /// <returns>List of attributes</returns>
-    private List<string> FindClassAttributes(ClassDeclarationSyntax classDeclaration)
+    private bool IsTestMember(MemberDeclarationSyntax declaration)
     {
-        _context.Logger?.Information("Looking for class attributes.");
-        List<string> attributes = new();
-
-        foreach (var attribute in classDeclaration.AttributeLists) attributes.Add(attribute.ToFullString());
-        return attributes;
+        return !string.IsNullOrWhiteSpace(ResolveTestFramework(declaration));
     }
 
-    /// <summary>
-    ///     Collects modifiers for a class declaration
-    ///     such as public, private, static, partial, etc.
-    /// </summary>
-    /// <param name="classDeclaration"></param>
-    /// <returns>List of modifiers</returns>
-    private List<string> FindClassModifiers(ClassDeclarationSyntax classDeclaration)
+    private static List<string> GetTestCategories(MemberDeclarationSyntax declaration)
     {
-        _context.Logger?.Information("Looking for class modifiers.");
-        List<string> modifiers = new();
-
-        foreach (var modifier in classDeclaration.Modifiers) modifiers.Add(modifier.ToFullString());
-        return modifiers;
+        return declaration.AttributeLists
+            .SelectMany(x => x.Attributes)
+            .Select(x => x.Name.ToString())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
-    /// <summary>
-    ///     Looks for fields in the class
-    /// </summary>
-    /// <param name="classNode">Class node</param>
-    /// <returns>List of strings, fields and properties defined in the class</returns>
-    private List<PropertyModel> FindClassFields(SyntaxNode classNode)
+    private static IEnumerable<ITypeSymbol> GetReferencedTypes(ISymbol symbol)
     {
-        List<PropertyModel> results = new();
-        _context.Logger?.Information("Looking for fields.");
-        var properties = classNode.DescendantNodes().OfType<PropertyDeclarationSyntax>().ToList();
-        var fields = classNode.DescendantNodes().OfType<FieldDeclarationSyntax>().ToList();
-        foreach (var property in properties)
+        var types = new List<ITypeSymbol>();
+
+        switch (symbol)
         {
-            var name = property.Identifier.ToFullString().Trim();
-            var modifiers = FindPropertyModifiers(property);
-            var attr = FindPropertyAttributes(property);
-            var visibility = GetVisibility(modifiers);
-            var fullString = property.ToFullString().Trim();
-            var spec = property.GetLocation().GetLineSpan();
-            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
-                spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-            var propertModel = new PropertyModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers,
-                fullString, location);
-            results.Add(propertModel);
+            case IMethodSymbol methodSymbol:
+                AddType(types, methodSymbol.ReturnType);
+                foreach (var parameter in methodSymbol.Parameters)
+                {
+                    AddType(types, parameter.Type);
+                }
+
+                break;
+            case IPropertySymbol propertySymbol:
+                AddType(types, propertySymbol.Type);
+                foreach (var parameter in propertySymbol.Parameters)
+                {
+                    AddType(types, parameter.Type);
+                }
+
+                break;
+            case IFieldSymbol fieldSymbol:
+                AddType(types, fieldSymbol.Type);
+                break;
+            case IEventSymbol eventSymbol:
+                AddType(types, eventSymbol.Type);
+                break;
         }
 
-        foreach (var field in fields)
-        {
-            var name = field.Declaration.Variables[0].Identifier.ToFullString().Trim();
-            var modifiers = FindFieldModifiers(field);
-            var attr = FindFieldAttributes(field);
-            var visibility = GetVisibility(modifiers);
-            var fullString = field.ToFullString().Trim();
-            var spec = field.GetLocation().GetLineSpan();
-            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
-                spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-            var propertModel = new PropertyModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers,
-                fullString, location);
-            results.Add(propertModel);
-        }
-
-        _context.Logger?.Information($"Number of field declarations: {results.Count}.");
-        _context.Logger?.Information("Finished looking for fields.");
-        return results;
+        return types;
     }
 
-    /// <summary>
-    ///     Looks for method declaration syntax in the document
-    /// </summary>
-    /// <param name="classNode">Class node</param>
-    /// <returns>List of Methods)</returns>
-    private List<MethodModel> FindClassMethods(SyntaxNode classNode)
+    private static IEnumerable<ISymbol> GetReferencedMembersFromSignature(ISymbol symbol)
     {
-        List<MethodModel> methods = new();
-        _context.Logger?.Information("Looking for method declarations.");
-        var methodDeclarationSyntaxes = classNode.DescendantNodes().OfType<MethodDeclarationSyntax>().ToList();
-
-        foreach (var methodDeclarationSyntax in methodDeclarationSyntaxes)
+        if (symbol is IPropertySymbol propertySymbol)
         {
-            var name = methodDeclarationSyntax.Identifier.ToFullString().Trim();
-            var modifiers = FindMethodModifiers(methodDeclarationSyntax);
-            var attr = FindMethodAttributes(methodDeclarationSyntax);
-            var visibility = GetVisibility(modifiers);
-            var fullString = methodDeclarationSyntax.ToFullString().Trim();
-            var docstring = GetDocComment(methodDeclarationSyntax);
-            var (isTest, framework) = IsTestMethod(methodDeclarationSyntax);
-            var spec = methodDeclarationSyntax.GetLocation().GetLineSpan();
-            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
-                spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-            var method = new MethodModel(0, Guid.NewGuid().ToString(), name, visibility, attr, modifiers, fullString,
-                docstring, isTest, false, framework, location);
-            // only capture invocations if the method is a test method
-            // otherwise, we get a major slowdown on capturing every invocation
-            if (isTest)
+            if (propertySymbol.GetMethod != null)
             {
-                FindInvocations(methodDeclarationSyntax, method.Guid);
-            }
-            methods.Add(method);
-
-            // Use the methodGuid or another key to store the method in the dictionary
-            var key = method.Guid;
-
-            _methods.TryAdd(key, method);
-        }
-
-        _context.Logger?.Information("Finished looking for test method declarations.");
-        return methods;
-    }
-
-    /// <summary>
-    ///     Finds a list of method attributes such as [Test]
-    /// </summary>
-    /// <param name="method">MethodDeclarationSyntax, representation of the method</param>
-    /// <returns>List of string attributes</returns>
-    private List<string> FindMethodAttributes(MethodDeclarationSyntax method)
-    {
-        List<string> attributes = new();
-        _context.Logger?.Information("Looking for method attributes.");
-
-        foreach (var attribute in method.AttributeLists) attributes.Add(attribute.ToFullString());
-        return attributes;
-    }
-
-    /// <summary>
-    ///     Determines if the method is a test method using the attributes defined in the config file.
-    /// </summary>
-    /// <param name="methodDeclarationSyntax">Method defined in the document.</param>
-    /// <returns>Tuple: (boolean if the attribute is in the defined list, testingFramework or empty string).</returns>
-    private (bool, string) IsTestMethod(MethodDeclarationSyntax methodDeclarationSyntax)
-    {
-        // Iterate through all testing frameworks in the project model
-        if (_context.Project.TestingFrameworks != null)
-            foreach (var framework in _context.Project.TestingFrameworks)
-            {
-                var frameworkName = framework.Key; // Framework name (e.g., "NUnit", "xUnit")
-                var frameworkAttributes = framework.Value; // List of attributes for the framework
-
-                // Check if the method has any attributes from the current framework
-                var hasAttribute = methodDeclarationSyntax.AttributeLists
-                    .SelectMany(al => al.Attributes)
-                    .Any(attr => frameworkAttributes.Contains(attr.Name.ToString()));
-
-                if (hasAttribute) return (true, frameworkName); // Return true and the framework name
+                yield return propertySymbol.GetMethod;
             }
 
-        return (false, string.Empty); // Return false if no matching attribute is found
-    }
-
-    /// <summary>
-    ///     Finds a list of method modifiers such as public, void, static, etc.
-    /// </summary>
-    /// <param name="method">MethodDeclarationSyntax, representation of the method</param>
-    /// <returns>List of string modifiers</returns>
-    private List<string> FindMethodModifiers(MethodDeclarationSyntax method)
-    {
-        List<string> modifiers = new();
-        _context.Logger?.Information("Looking for method modifiers.");
-
-        foreach (var variableModifier in method.Modifiers) modifiers.Add(variableModifier.ToFullString());
-        return modifiers;
-    }
-
-    /// <summary>
-    ///     Finds a list of method modifiers such as public, void, static, etc.
-    /// </summary>
-    /// <param name="method">MethodDeclarationSyntax, representation of the method</param>
-    /// <returns>List of string modifiers</returns>
-    private List<string> FindPropertyModifiers(PropertyDeclarationSyntax property)
-    {
-        List<string> modifiers = new();
-        _context.Logger?.Information("Looking for property modifiers.");
-
-        foreach (var variableModifier in property.Modifiers) modifiers.Add(variableModifier.ToFullString());
-        return modifiers;
-    }
-
-    /// <summary>
-    ///     Finds a list of method modifiers such as public, void, static, etc.
-    /// </summary>
-    /// <param name="method">MethodDeclarationSyntax, representation of the method</param>
-    /// <returns>List of string modifiers</returns>
-    private List<string> FindPropertyAttributes(PropertyDeclarationSyntax property)
-    {
-        List<string> attributes = new();
-        _context.Logger?.Information("Looking for property attributes.");
-
-        foreach (var attribute in property.AttributeLists) attributes.Add(attribute.ToFullString());
-        return attributes;
-    }
-
-    /// <summary>
-    ///     Finds a list of method modifiers such as public, void, static, etc.
-    /// </summary>
-    /// <param name="method">MethodDeclarationSyntax, representation of the method</param>
-    /// <returns>List of string modifiers</returns>
-    private List<string> FindFieldModifiers(FieldDeclarationSyntax field)
-    {
-        List<string> modifiers = new();
-        _context.Logger?.Information("Looking for field modifiers.");
-
-        foreach (var variableModifier in field.Modifiers) modifiers.Add(variableModifier.ToFullString());
-        return modifiers;
-    }
-
-    /// <summary>
-    ///     Finds a list of method modifiers such as public, void, static, etc.
-    /// </summary>
-    /// <param name="method">MethodDeclarationSyntax, representation of the method</param>
-    /// <returns>List of string modifiers</returns>
-    private List<string> FindFieldAttributes(FieldDeclarationSyntax field)
-    {
-        List<string> attributes = new();
-        _context.Logger?.Information("Looking for field attributes.");
-
-        foreach (var attribute in field.AttributeLists) attributes.Add(attribute.ToFullString());
-        return attributes;
-    }
-
-    /// <summary>
-    ///     Looks for method invocations within the test method
-    /// </summary>
-    /// <param name="methodDeclarationSyntax">Test method</param>
-    /// <returns>List of tuples, (method invocation, method definition)</returns>
-    private void FindInvocations(MethodDeclarationSyntax methodDeclarationSyntax, string methodGuid = "")
-    {
-        _context.Logger?.Information("Looking for method invocations.");
-
-        // Find the invocations
-        var invocations = methodDeclarationSyntax.DescendantNodes().OfType<InvocationExpressionSyntax>();
-
-        foreach (var invocation in invocations)
-        {
-            var spec = invocation.GetLocation().GetLineSpan();
-            var location = new Location(spec.StartLinePosition.Line, spec.StartLinePosition.Character,
-                spec.EndLinePosition.Line, spec.EndLinePosition.Character);
-
-            // Create the invocation model
-            var invocationModel = new InvocationModel(0, 0, Guid.NewGuid().ToString(),
-                invocation.ToFullString().Contains("Assert"), invocation.ToFullString().Trim(), location);
-
-            // Use the methodGuid or another key to store the invocation in the dictionary
-            var key = methodGuid;
-
-            // Check if the key already exists in the dictionary
-            if (!_invocations.ContainsKey(key))
-                _invocations[key] = new List<InvocationModel>(); // Create a new list if the key doesn't exist
-
-            // Add the invocation model to the list under the given key
-            _invocations[key].Add(invocationModel);
+            if (propertySymbol.SetMethod != null)
+            {
+                yield return propertySymbol.SetMethod;
+            }
         }
     }
+
+    private static void AddType(List<ITypeSymbol> types, ITypeSymbol? typeSymbol)
+    {
+        if (typeSymbol == null)
+        {
+            return;
+        }
+
+        types.Add(typeSymbol);
+
+        if (typeSymbol is INamedTypeSymbol namedType)
+        {
+            foreach (var argument in namedType.TypeArguments.OfType<ITypeSymbol>())
+            {
+                types.Add(argument);
+            }
+        }
+    }
+
+    private static ISymbol? ResolveReferencedSymbol(SyntaxNode node, SemanticModel semanticModel)
+    {
+        var info = semanticModel.GetSymbolInfo(node);
+        var symbol = info.Symbol ?? info.CandidateSymbols.FirstOrDefault();
+
+        return symbol switch
+        {
+            IMethodSymbol methodSymbol => methodSymbol.OriginalDefinition,
+            IPropertySymbol propertySymbol => propertySymbol,
+            IFieldSymbol fieldSymbol => fieldSymbol,
+            IEventSymbol eventSymbol => eventSymbol,
+            _ => null
+        };
+    }
+
+    private static string? GetMemberRelationshipType(SyntaxNode node, ISymbol symbol)
+    {
+        return node switch
+        {
+            InvocationExpressionSyntax when symbol is IMethodSymbol => "calls",
+            ObjectCreationExpressionSyntax when symbol is IMethodSymbol => "creates",
+            IdentifierNameSyntax when symbol is IFieldSymbol or IPropertySymbol or IEventSymbol => "references",
+            MemberAccessExpressionSyntax when symbol is IFieldSymbol or IPropertySymbol or IEventSymbol => "references",
+            _ => null
+        };
+    }
+
+    private static bool IsAssertionInvocation(InvocationExpressionSyntax invocation, ISymbol? symbol)
+    {
+        var methodSymbol = symbol as IMethodSymbol;
+        var containingTypeName = methodSymbol?.ContainingType?.Name ?? string.Empty;
+        var containingNamespace = methodSymbol?.ContainingNamespace?.ToDisplayString() ?? string.Empty;
+        var methodName = methodSymbol?.Name ?? ExtractInvocationMethodName(invocation);
+
+        if (containingTypeName.Contains("Assert", StringComparison.OrdinalIgnoreCase) ||
+            containingTypeName.Contains("Assertion", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (containingNamespace.Contains("FluentAssertions", StringComparison.OrdinalIgnoreCase) ||
+            containingNamespace.Contains("Shouldly", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return methodName switch
+        {
+            "True" or
+            "False" or
+            "Equal" or
+            "NotEqual" or
+            "Same" or
+            "NotSame" or
+            "Null" or
+            "NotNull" or
+            "Empty" or
+            "NotEmpty" or
+            "Contains" or
+            "DoesNotContain" or
+            "StartsWith" or
+            "EndsWith" or
+            "Matches" or
+            "Throws" or
+            "ThrowsAsync" or
+            "Throw" or
+            "ThrowAsync" or
+            "Fail" or
+            "That" or
+            "ShouldBe" or
+            "ShouldNotBe" or
+            "ShouldContain" or
+            "ShouldNotContain" or
+            "Be" or
+            "BeTrue" or
+            "BeFalse" or
+            "BeNull" or
+            "NotBeNull" or
+            "BeEquivalentTo" or
+            "ContainSingle" => true,
+            _ => invocation.ToFullString().Contains("Assert.", StringComparison.Ordinal)
+        };
+    }
+
+    private static string ExtractInvocationMethodName(InvocationExpressionSyntax invocation)
+    {
+        return invocation.Expression switch
+        {
+            IdentifierNameSyntax identifierName => identifierName.Identifier.Text,
+            MemberAccessExpressionSyntax memberAccessExpression => memberAccessExpression.Name.Identifier.Text,
+            _ => string.Empty
+        };
+    }
+
+    private static string GetObjectKind(INamedTypeSymbol symbol)
+    {
+        if (symbol.IsRecord)
+        {
+            return symbol.TypeKind == TypeKind.Struct ? "record_struct" : "record";
+        }
+
+        return symbol.TypeKind switch
+        {
+            TypeKind.Class => "class",
+            TypeKind.Struct => "struct",
+            TypeKind.Interface => "interface",
+            TypeKind.Enum => "enum",
+            TypeKind.Delegate => "delegate",
+            _ => symbol.TypeKind.ToString().ToLowerInvariant()
+        };
+    }
+
+    private static string GetMemberKind(ISymbol symbol)
+    {
+        return symbol switch
+        {
+            IMethodSymbol methodSymbol => methodSymbol.MethodKind switch
+            {
+                MethodKind.Constructor => "constructor",
+                MethodKind.StaticConstructor => "static_constructor",
+                MethodKind.Destructor => "destructor",
+                MethodKind.PropertyGet => "property_getter",
+                MethodKind.PropertySet => "property_setter",
+                MethodKind.EventAdd => "event_adder",
+                MethodKind.EventRemove => "event_remover",
+                MethodKind.UserDefinedOperator => "operator",
+                MethodKind.Conversion => "conversion_operator",
+                _ => "method"
+            },
+            IPropertySymbol => "property",
+            IFieldSymbol => "field",
+            IEventSymbol => "event",
+            _ => symbol.Kind.ToString().ToLowerInvariant()
+        };
+    }
+
+    private static SyntaxTokenList GetModifiers(MemberDeclarationSyntax declaration)
+    {
+        return declaration switch
+        {
+            BaseTypeDeclarationSyntax baseTypeDeclaration => baseTypeDeclaration.Modifiers,
+            BaseMethodDeclarationSyntax baseMethodDeclaration => baseMethodDeclaration.Modifiers,
+            BasePropertyDeclarationSyntax basePropertyDeclaration => basePropertyDeclaration.Modifiers,
+            BaseFieldDeclarationSyntax baseFieldDeclaration => baseFieldDeclaration.Modifiers,
+            EnumMemberDeclarationSyntax => default,
+            _ => default
+        };
+    }
+
+    private static List<string> GetModifierStrings(SyntaxTokenList modifiers)
+    {
+        return modifiers.Select(x => x.Text).ToList();
+    }
+
+    private static List<string> GetAttributeStrings(SyntaxList<AttributeListSyntax> attributeLists)
+    {
+        return attributeLists.Select(x => x.ToString()).ToList();
+    }
+
+    private static CodeLocation CreateLocation(SyntaxNode node)
+    {
+        var span = node.GetLocation().GetLineSpan();
+        return new CodeLocation(
+            span.StartLinePosition.Line,
+            span.StartLinePosition.Character,
+            span.EndLinePosition.Line,
+            span.EndLinePosition.Character);
+    }
+
+    private static string GetSymbolKey(ISymbol symbol)
+    {
+        return symbol.GetDocumentationCommentId()
+               ?? $"{symbol.Kind}:{symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}";
+    }
+
+    private static bool ShouldAnalyzeDocument(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !filePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !filePath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)
+               && !filePath.EndsWith("AssemblyInfo.cs", StringComparison.OrdinalIgnoreCase)
+               && !filePath.EndsWith("AssemblyAttributes.cs", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class AnalysisState
+    {
+        private readonly HashSet<string> _projectDocumentPaths;
+
+        public AnalysisState(HashSet<string> projectDocumentPaths)
+        {
+            _projectDocumentPaths = projectDocumentPaths;
+        }
+
+        public Dictionary<string, int> ObjectIds { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, int> MemberIds { get; } = new(StringComparer.Ordinal);
+        public HashSet<PendingRelationship> ObjectRelationships { get; } = new();
+        public HashSet<PendingRelationship> MemberRelationships { get; } = new();
+        public HashSet<PendingInvocation> Invocations { get; } = new();
+
+        public bool IsProjectSymbol(ISymbol symbol)
+        {
+            return symbol.Locations.Any(location =>
+                location.IsInSource &&
+                location.SourceTree?.FilePath != null &&
+                _projectDocumentPaths.Contains(location.SourceTree.FilePath));
+        }
+    }
+
+    private sealed record PendingMember(string SymbolKey, ISymbol Symbol, MemberModel Model);
+    private sealed record PendingRelationship(string SourceKey, string TargetKey, string RelationshipType);
+    private sealed record PendingInvocation(
+        string SourceKey,
+        string? TargetKey,
+        string FullString,
+        CodeLocation Location,
+        bool IsAssertion);
 }

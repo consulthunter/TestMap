@@ -24,12 +24,12 @@ public class CheckProjectsService : ICheckProjectsService
 
     public async Task ProcessRepositoryAsync()
     {
-        if (!File.Exists(_config.FilePaths.TargetFilePath))
-            throw new FileNotFoundException("Repo list file not found", _config.FilePaths.TargetFilePath);
+        if (!File.Exists(_config.RuntimeConfig.FilePaths.TargetFilePath))
+            throw new FileNotFoundException("Repo list file not found", _config.RuntimeConfig.FilePaths.TargetFilePath);
 
-        var baseDir = Path.GetDirectoryName(_config.FilePaths.TargetFilePath) ?? throw new InvalidOperationException();
+        var baseDir = Path.GetDirectoryName(_config.RuntimeConfig.FilePaths.TargetFilePath) ?? throw new InvalidOperationException();
 
-        Console.WriteLine($"Checking {_context.Project.Owner}/{_context.Project.RepoName} ...");
+        _context.Project.Logger?.Information("Checking {Owner}/{RepoName} ...", _context.Project.Owner, _context.Project.RepoName);
 
         var hasTests = await RepoLikelyHasTests(_context.Project.Owner, _context.Project.RepoName);
 
@@ -50,7 +50,7 @@ public class CheckProjectsService : ICheckProjectsService
             _fileWriteGate.Release();
         }
 
-        Console.WriteLine("Done.");
+        _context.Project.Logger?.Information("Done.");
     }
 
     private async Task<bool> RepoLikelyHasTests(string owner, string repo)
@@ -86,7 +86,7 @@ public class CheckProjectsService : ICheckProjectsService
         }
         catch (ApiException apiEx)
         {
-            Console.WriteLine(apiEx.Message);
+            _context.Project.Logger?.Warning("GitHub API check failed: {Message}", apiEx.Message);
             return false;
         }
     }

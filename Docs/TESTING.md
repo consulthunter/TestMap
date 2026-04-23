@@ -1,32 +1,28 @@
 # Testing
 
-Testing for TestMap is pretty simple currently.
+## Solution tests
 
-We have one testing project, ```TestMap.Tests```
+The solution contains one test project: `TestMap.Tests`.
 
-```TestMap.Tests``` has ```UnitTests``` and ```IntegrationTests```
+Run tests from the repository root:
 
-Most of the unit tests are run through GitHub Actions,
+```sh
+dotnet test TestMap.sln
+```
 
-The integration tests should be run locally, though eventually could be modified to run through CI.
+Build only:
 
-Testing Frameworks used:
-- ```xUnit```
-- ```Moq```
+```sh
+dotnet build TestMap.sln
+```
 
-## Unit Tests
+## Current status
 
-Unit tests cover most of the program and we used mocking here.
+- `dotnet build TestMap.sln` succeeds.
+- `dotnet test TestMap.sln` currently fails because the test host cannot load `AWSSDK.BedrockRuntime.dll`.
+- The solution also reports an existing `AWSSDK.Core` vulnerability warning.
 
-Most of these tests can be run through the CI and are labeled with:
-- ```[Trait("Category", "CI")]```
+## Gaps
 
-
-## Integration Tests
-
-Integration tests actually do a full run of the program using the example repository, [TestMap-Example](https://github.com/consulthunter/TestMap-Example)
-
-Since we currently use filepaths and other information, we suggest running these locally as they will likely fail in GitHub Actions.
-
-Integration tests and other tests that need to be run locally are labeled:
-- ```[Trait("Category", "Local")]```
+- Experiment orchestration needs more automated coverage.
+- A large number of nullable warnings still make build output noisy.

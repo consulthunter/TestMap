@@ -1,0 +1,20 @@
+{
+  "ExperimentConfig": {
+    "IncludeProviders": [
+      "CustomOpenAi"
+    ],
+    "PreferredProvider": "CustomOpenAi",
+    "CandidateLimit": 3,
+    "Strategies": [
+      "Pass1",
+      "Pass5",
+      "Repair5"
+    ],
+    "MinCoverageThreshold": 0.0,
+    "MaxCoverageThreshold": 0.99,
+    "StepErrorRetries": 3,
+    "StepRetryDelayMs": 2000,
+    "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output\\experiment-results.csv",
+    "IncludeDetailedErrors": true
+  }
+}

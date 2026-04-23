@@ -1,20 +1,25 @@
 using TestMap.App;
-using TestMap.Services.CollectInformation;
-using TestMap.Services.Database;
+
+using TestMap.Persistence.Ef.Repositories;
 
 namespace TestMap.Execution.Steps;
 
 public class InsertProjectInfoStep : IPipelineStep
 {
-    private readonly ISqliteDatabaseService _sqliteDatabaseService;
+    private readonly ProjectRepository _projectRepository;
     
-    public InsertProjectInfoStep(ISqliteDatabaseService sqliteDatabaseService)
+    public InsertProjectInfoStep(ProjectRepository projectRepository)
     {
-        _sqliteDatabaseService = sqliteDatabaseService;
+        _projectRepository = projectRepository;
     }
 
     public async Task ExecuteAsync(ProjectContext? context = null)
     {
-        await _sqliteDatabaseService.InsertProjectInformation();
+        if (context == null)
+        {
+            return;
+        }
+        
+        await _projectRepository.InsertOrUpdateAsync(context.Project);
     }
 }

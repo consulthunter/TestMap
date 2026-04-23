@@ -1,58 +1,163 @@
 {
-  "FilePaths": {
-    "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
-    "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
-    "TempDirPath": "D:\\Projects\\TestMap\\Temp",
-    "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
-  },
-  "Settings": {
+  "RuntimeConfig": {
+    "Project": {
+      "KeepProjectFiles": false,
+      "AnalyzeLatestCommit": false
+    },
+    "FilePaths": {
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+      "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
+      "TempDirPath": "D:\\Projects\\TestMap\\Temp",
+      "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output",
+      "MigrationsFilePath": null
+    },
+    "Docker": {
+      "Image": "net-sdk-all",
+      "Context": "desktop-linux"
+    },
+    "Frameworks": {
+      "NUnit": [
+        "Test",
+        "TestCase",
+        "TestCaseSource",
+        "Theory"
+      ],
+      "xUnit": [
+        "Fact",
+        "Theory"
+      ],
+      "MSTest": [
+        "TestMethod",
+        "DataSource"
+      ],
+      "Microsoft.VisualStudio.TestTools.UnitTesting": [
+        "TestMethod",
+        "DataSource"
+      ]
+    },
+    "Persistence": {
+      "KeepProjectFiles": true
+    },
     "MaxConcurrency": 5,
     "RunDateFormat": "yyyy-MM-dd"
   },
-  "Docker": {
-    "Context": "desktop-linux",
-    "Image": "net-sdk-all"
-  },
-  "Frameworks": {
-    "NUnit": [
-      "Test",
-      "TestCase",
-      "TestCaseSource",
-      "Theory"
-    ],
-    "xUnit": [
-      "Fact",
-      "Theory"
-    ],
-    "MSTest": [
-      "TestMethod",
-      "DataSource"
-    ],
-    "Microsoft.VisualStudio.TestTools.UnitTesting": [
-      "TestMethod",
-      "DataSource"
+  "TestingConfig": {
+    "GenerationConfig": {
+      "Provider": 5,
+      "Mode": 0,
+      "MaxRetries": 1,
+      "EnableHistoryChaining": true
+    },
+    "MetadataEnrichmentConfig": {
+      "Enabled": true,
+      "UseModel": true,
+      "Provider": 5,
+      "Mode": 0,
+      "Temperature": 0,
+      "MaxCategories": 3,
+      "PromptVersion": "test-metadata-v1"
+    },
+    "TestingFrameworks": [
+      {
+        "patterns": [
+          "Test",
+          "TestCase",
+          "TestCaseSource",
+          "Theory"
+        ]
+      },
+      {
+        "patterns": [
+          "Fact",
+          "Theory"
+        ]
+      },
+      {
+        "patterns": [
+          "TestMethod",
+          "DataSource"
+        ]
+      }
     ]
   },
-  "Persistence": {
-    "KeepProjectFiles": true
+  "AiProviderConfig": {
+    "OpenAi": {
+      "Model": "gpt-3.5-turbo",
+      "OrgId": "",
+      "ApiKey": "",
+      "Provider": 5
+    },
+    "Amazon": {
+      "Model": "",
+      "AwsAccessKey": "",
+      "ApiKey": "",
+      "Provider": 0,
+      "AwsRegion": "us-east-1"
+    },
+    "GoogleGemini": {
+      "Model": "gemini-1.5-flash",
+      "ProjectId": "",
+      "ApiKey": "",
+      "Endpoint": "",
+      "Location": "",
+      "TokenPath": "",
+      "Provider": 1
+    },
+    "GoogleCloud": {
+      "Model": "gemini-1.5-flash",
+      "ProjectId": "",
+      "ApiKey": "",
+      "AccessToken": "",
+      "Endpoint": "",
+      "Location": "us-central1",
+      "TokenPath": "",
+      "Provider": 2
+    },
+    "CustomOpenAi": {
+      "Model": "gpt-oss-120b",
+      "OrgId": "",
+      "ApiKey": "",
+      "Endpoint": "http://localhost:8080/",
+      "Provider": 3
+    },
+    "Ollama": {
+      "Model": "",
+      "ApiKey": "",
+      "Endpoint": "http://localhost:10000/",
+      "Provider": 4
+    },
+    "ProviderConfigs": [
+      {
+        "Model": "gpt-3.5-turbo",
+        "ApiKey": "",
+        "Provider": 5
+      },
+      {
+        "Model": "",
+        "ApiKey": "",
+        "Provider": 0
+      },
+      {
+        "Model": "gemini-1.5-flash",
+        "ApiKey": "",
+        "Provider": 1
+      },
+      {
+        "Model": "gemini-1.5-flash",
+        "ApiKey": "",
+        "Provider": 2
+      },
+      {
+        "Model": "",
+        "ApiKey": "",
+        "Provider": 3
+      },
+      {
+        "Model": "",
+        "ApiKey": "",
+        "Provider": 4
+      }
+    ]
   },
-  "Generation": {
-    "Provider": "custom",
-    "Model": "GLM-4.7-Flash",
-    "MaxRetries": 5
-  },
-  "Amazon": {
-    "AwsRegion": "us-east-1"
-  },
-  "Ollama": {
-    "Endpoint": "http://localhost:11434/"
-  },
-  "Google":{
-    "ProjectId": "testmap-489018",
-    "Location": "us-east1",
-    "TokenPath": "C:\\SomePath\\token.json"
-  },
-  "Custom": {
-    "Endpoint": "http://localhost:8080/v1"
-  }
+  "ExperimentConfig": null
 }

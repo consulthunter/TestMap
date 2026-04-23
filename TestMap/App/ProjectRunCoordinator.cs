@@ -1,24 +1,14 @@
-﻿using Microsoft.Build.Locator;
+using Microsoft.Build.Locator;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using TestMap.Execution;
-using TestMap.Execution.Steps;
 using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Persistence.Ef;
 using TestMap.Runs;
-using TestMap.Services.CollectInformation;
+using TestMap.Services;
 using TestMap.Services.Configuration;
-using TestMap.Services.Database;
-using TestMap.Services.Evaluation;
-using TestMap.Services.Mapping;
-using TestMap.Services.ProjectOperations;
-using TestMap.Services.RepoOperations;
-using TestMap.Services.RepoOperations.Clone;
-using TestMap.Services.RepoOperations.Delete;
-using TestMap.Services.StaticAnalysis;
-using TestMap.Services.Testing;
 
 namespace TestMap.App;
 
@@ -40,11 +30,11 @@ public class ProjectRunCoordinator
 
         _config = configurationService.Config;
         _projects = configurationService.ProjectModels;
-        _maxConcurrency = _config.Settings.MaxConcurrency;
+        _maxConcurrency = _config.RuntimeConfig.MaxConcurrency;
         _runMode = configurationService.RunMode;
 
-        // setup logger
-        var logPath = Path.Combine(_config.FilePaths.LogsDirPath ?? string.Empty,
+        var logPath = Path.Combine(
+            _config.RuntimeConfig.FilePaths.LogsDirPath ?? string.Empty,
             configurationService.RunDate,
             $"{_runMode}_{configurationService.RunDate}.log");
 
@@ -84,6 +74,14 @@ public class ProjectRunCoordinator
         var context = new ProjectContext(project);
         using var provider = BuildProjectServiceProvider(context);
 
+        using (var scope = provider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TestMapDbContext>();
+            var schemaCompatibility = scope.ServiceProvider.GetRequiredService<SqliteSchemaCompatibilityService>();
+            db.Database.Migrate();
+            await schemaCompatibility.EnsureCompatibleAsync(db);
+        }
+
         var runFactory = provider.GetRequiredService<IPipelineRunFactory>();
         var run = runFactory.Create(_runMode);
 
@@ -96,51 +94,7 @@ public class ProjectRunCoordinator
     private ServiceProvider BuildProjectServiceProvider(ProjectContext context)
     {
         var services = new ServiceCollection();
-
-        services.AddSingleton(ConfigurationService);
-        services.AddSingleton(_config);
-        services.AddScoped<ProjectContext>(_ => context);
-
-        
-        services.AddScoped<SqliteDatabaseService>();
-        services.AddScoped<ISqliteDatabaseService>(sp => sp.GetRequiredService<SqliteDatabaseService>());
-        services.AddDbContext<TestMapDbContext>((sp, options) =>
-        {
-            var dbPath = context.Project.DatabasePath;
-            options.UseSqlite($"Data Source={dbPath}");
-        });
-        services.AddScoped<EfSmokeTestService>();
-
-        services.AddScoped<IEfProjectQueryService, EfProjectQueryService>();
-
-        services.AddScoped<BuildTestService>();
-        services.AddScoped<IBuildTestService>(sp => sp.GetRequiredService<BuildTestService>());
-
-        services.AddScoped<IRepoOperations, RepoOperations>();
-        services.AddScoped<IAnalyzeProjectService, AnalyzeProjectService>();
-        services.AddScoped<IExtractInformationService, ExtractInformationService>();
-        services.AddScoped<IMapUnresolvedService, MapUnresolvedService>();
-        services.AddScoped<IGenerateTestService, GenerateTestService>();
-        services.AddScoped<ICheckProjectsService, CheckProjectsService>();
-        services.AddScoped<IValidateProjectsService, ValidateProjectsService>();
-        services.AddScoped<IWindowsCheckService, WindowsCheckService>();
-        services.AddScoped<IFullAnalysisService, FullAnalysisService>();
-        services.AddScoped<ICloneRepoService, CloneRepoService>();
-        services.AddScoped<IDeleteProjectService, DeleteProjectService>();
-
-        services.AddTransient<IPipelineRunFactory, PipelineRunFactory>();
-        
-        services.AddScoped<CloneRepoStep>();
-        services.AddScoped<LoadDatabaseStep>();
-        services.AddScoped<ExtractInfoStep>();
-        services.AddScoped<InsertProjectInfoStep>();
-        services.AddScoped<AnalyzeProjectStep>();
-        services.AddScoped<BuildTestStep>();
-        services.AddScoped<MapInfoStep>();
-        services.AddScoped<EfSmokeTestStep>();
-
-        services.AddTransient<CollectTestsRun>();
-
+        services.AddTestMapServices(ConfigurationService, _config, context);
         return services.BuildServiceProvider();
     }
 }

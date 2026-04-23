@@ -1,9 +1,8 @@
-﻿using Microsoft.CodeAnalysis.CSharp;
-using TestMap.Models;
+using TestMap.Models.Code;
 
 namespace TestMap.Services.StaticAnalysis;
 
 public interface IAnalyzeProjectService
 {
-    Task AnalyzeProjectAsync(AnalysisProject analysisProject, CSharpCompilation? cSharpCompilation);
+    Task AnalyzeProjectAsync(CSharpProjectModel analysisProject);
 }

@@ -1,19 +1,18 @@
 using TestMap.App;
-using TestMap.Services.Database;
-
+using TestMap.Persistence.Ef.Repositories;
 namespace TestMap.Execution.Steps;
 
 public class LoadDatabaseStep : IPipelineStep
 {
-    private readonly ISqliteDatabaseService _sqliteDatabaseService;
-    public LoadDatabaseStep(ISqliteDatabaseService sqliteDatabaseService)
+    private readonly ProjectRepository _projectRepository;
+    public LoadDatabaseStep(ProjectRepository projectRepository)
     {
-        _sqliteDatabaseService = sqliteDatabaseService;
+        _projectRepository = projectRepository;     
     }
     
     public async Task ExecuteAsync(ProjectContext? context = null)
     {
-        await _sqliteDatabaseService.InitializeAsync();
+        await _projectRepository.GetAllAsync();
     }
     
 }

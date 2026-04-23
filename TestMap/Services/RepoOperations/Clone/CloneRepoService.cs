@@ -33,10 +33,8 @@ public class CloneRepoService(ProjectContext context) : ICloneRepoService
         {
             if (Repository.IsValid(context.Project.DirectoryPath))
             {
-                // Ensure no file handles are left open
-                using (var repo = new Repository(context.Project.DirectoryPath))
-                {
-                }
+                using var existingRepo = new Repository(context.Project.DirectoryPath);
+                CaptureRepositoryMetadata(existingRepo);
 
                 context.Project.Logger?.Information(
                     $"Repository already exists at {context.Project.DirectoryPath}, skipping clone.");
@@ -50,10 +48,8 @@ public class CloneRepoService(ProjectContext context) : ICloneRepoService
 
                 Repository.Clone(context.Project.GitHubUrl, context.Project.DirectoryPath);
 
-                // Immediately dispose to release file locks
-                using (var repo = new Repository(context.Project.DirectoryPath))
-                {
-                }
+                using var repo = new Repository(context.Project.DirectoryPath);
+                CaptureRepositoryMetadata(repo);
 
                 context.Project.Logger?.Information($"Finished cloning repository: {context.Project.GitHubUrl}");
             }
@@ -68,5 +64,21 @@ public class CloneRepoService(ProjectContext context) : ICloneRepoService
         }
 
         return Task.CompletedTask;
+    }
+
+    private void CaptureRepositoryMetadata(Repository repo)
+    {
+        var branch = repo.Head.FriendlyName;
+        var commitSha = repo.Head.Tip?.Sha;
+
+        context.Project.Branch = branch;
+        context.Project.Commit = commitSha;
+        context.Project.LastAnalyzedCommit = commitSha;
+        context.CurrentCommit = commitSha;
+
+        context.Project.Logger?.Information(
+            "Repository metadata captured. Branch: {Branch}, Commit: {Commit}",
+            branch,
+            commitSha);
     }
 }

@@ -1,38 +1,55 @@
-﻿# Use Windows .NET SDK base image
+# escape=`
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0-windowsservercore-ltsc2022
 
-SHELL ["powershell", "-Command"]
+SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-Command"]
 
 WORKDIR /app
 
-# Allow roll-forward
 ENV DOTNET_ROLL_FORWARD=latestMajor
+ENV PATH="C:\\Git\\cmd;C:\\Program Files\\dotnet;C:\\Python312;C:\\Python312\\Scripts;C:\\Users\\ContainerAdministrator\\.dotnet\\tools;C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\WindowsPowerShell\\v1.0"
+ENV PYTHONPATH="C:\\app\\runner\\src"
 
-# Install multiple .NET SDKs using dotnet-install.ps1
-# Download installer
 RUN Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
 
-# Install multiple SDKs
 RUN Set-ExecutionPolicy Bypass -Scope Process -Force
 RUN ./dotnet-install.ps1 -Channel 9.0 -InstallDir 'C:\Program Files\dotnet'
 RUN ./dotnet-install.ps1 -Channel 8.0 -InstallDir 'C:\Program Files\dotnet'
 RUN ./dotnet-install.ps1 -Channel 7.0 -InstallDir 'C:\Program Files\dotnet'
 RUN ./dotnet-install.ps1 -Channel 6.0 -InstallDir 'C:\Program Files\dotnet'
 
-# Install global dotnet tools
-RUN dotnet tool install -g dotnet-stryker
-RUN dotnet tool install -g dotnet-coverage
+RUN & 'C:\Program Files\dotnet\dotnet.exe' tool install -g dotnet-stryker
+RUN & 'C:\Program Files\dotnet\dotnet.exe' tool install -g dotnet-coverage
+RUN & 'C:\Program Files\dotnet\dotnet.exe' tool install -g dotnet-reportgenerator-globaltool
 
-# Install Python (Windows)
-RUN Invoke-WebRequest "https://www.python.org/ftp/python/3.12.2/python-3.12.2-amd64.exe" -OutFile python-installer.exe ; \
-    Start-Process python-installer.exe -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1' -Wait ; \
+RUN Invoke-WebRequest "https://www.python.org/ftp/python/3.12.2/python-3.12.2-amd64.exe" -OutFile python-installer.exe ; `
+    Start-Process python-installer.exe -ArgumentList '/quiet InstallAllUsers=1 TargetDir=C:\Python312 PrependPath=1' -Wait ; `
     Remove-Item python-installer.exe
 
-# Create venv + install Lizard
-RUN python -m venv C:\lizardenv ; \
-    C:\lizardenv\Scripts\pip install --upgrade pip ; \
-    C:\lizardenv\Scripts\pip install lizard
+RUN Invoke-WebRequest "https://github.com/git-for-windows/git/releases/download/v2.53.0.windows.1/PortableGit-2.53.0-64-bit.7z.exe" -OutFile portablegit.exe ; `
+    Start-Process .\portablegit.exe -ArgumentList '-y', '-oC:\Git' -Wait ; `
+    Remove-Item portablegit.exe ; `
+    & 'C:\Git\cmd\git.exe' --version
 
-# Add scripts
-RUN New-Item -ItemType Directory -Path C:\app\scripts -Force
-COPY scripts/*.ps1 C:/app/scripts/
+SHELL ["cmd", "/S", "/C"]
+
+RUN `
+    curl -SL --output vs_buildtools.exe https://aka.ms/vs/stable/vs_buildtools.exe `
+    && (start /w vs_buildtools.exe --quiet --wait --norestart --nocache `
+        --installPath "%ProgramFiles(x86)%\Microsoft Visual Studio\BuildTools" `
+        --add Microsoft.VisualStudio.Workload.AzureBuildTools `
+        --remove Microsoft.VisualStudio.Component.Windows10SDK.10240 `
+        --remove Microsoft.VisualStudio.Component.Windows10SDK.10586 `
+        --remove Microsoft.VisualStudio.Component.Windows10SDK.14393 `
+        --remove Microsoft.VisualStudio.Component.Windows81SDK `
+        || IF "%ERRORLEVEL%"=="3010" EXIT 0) `
+    && del /q vs_buildtools.exe
+
+SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-Command"]
+
+RUN git --version
+
+RUN New-Item -ItemType Directory -Path C:\app\runner\src -Force
+COPY runner/src/testmap_runner C:/app/runner/src/testmap_runner/
+
+ENTRYPOINT ["C:\\Program Files (x86)\\Microsoft Visual Studio\\BuildTools\\Common7\\Tools\\VsDevCmd.bat", "&&", "powershell.exe", "-NoLogo", "-ExecutionPolicy", "Bypass"]

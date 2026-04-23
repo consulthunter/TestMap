@@ -15,9 +15,10 @@ public class BuildTestStep : IPipelineStep
     public async Task ExecuteAsync(ProjectContext? context = null)
     {
         var sols = context?.Project.Solutions
-            .Select(x => x.SolutionFilePath)
+            .Select(x => x.FilePath)
             .ToList();
         
-        await _buildTestService.BuildTestAsync(sols, true);
+        await _buildTestService.BuildTestAsync(
+            BuildTestRunRequest.CreateBaseline(sols ?? []));
     }
 }

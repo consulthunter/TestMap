@@ -15,27 +15,32 @@ public class AnalyzeProjectStep : IPipelineStep
     
     public async Task ExecuteAsync(ProjectContext? context = null)
     {
-        try
+        if (context == null)
         {
-            context?.Logger?.Information(
-                $"Number of projects in {context?.Project.ProjectId}: {context?.Project.Projects.Count}");
+            return;
+        }
 
-            foreach (var project in context?.Project.Projects)
+        context.Logger.Information(
+            $"Number of projects in {context.Project.ProjectId}: {context.Project.Projects.Count}");
+
+        foreach (var project in context.Project.Projects)
+        {
+            try
             {
-                if (!_analyzedProjectIds.Add(project.ProjectFilePath))
+                if (!_analyzedProjectIds.Add(project.FilePath))
                 {
-                    context?.Logger?.Information($"Skipping already analyzed project: {project.ProjectFilePath}");
+                    context.Logger.Information($"Skipping already analyzed project: {project.FilePath}");
                     continue;
                 }
 
                 // Mark as analyzed before or after to avoid double work in concurrency
 
-                await _analyzeProjectService.AnalyzeProjectAsync(project, project.Compilation);
+                await _analyzeProjectService.AnalyzeProjectAsync(project);
             }
-        }
-        catch (Exception e)
-        {
-            context?.Logger?.Error(e.Message);
+            catch (Exception e)
+            {
+                context.Logger.Error(e, "Project analysis failed for {ProjectFilePath}", project.FilePath);
+            }
         }
     }
 }

@@ -8,6 +8,14 @@
  */
 
 using System.Text.Json;
+using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.AiProviders.Amazon;
+using TestMap.Models.Configuration.AiProviders.Custom;
+using TestMap.Models.Configuration.AiProviders.Google;
+using TestMap.Models.Configuration.AiProviders.Ollama;
+using TestMap.Models.Configuration.AiProviders.OpenAI;
+using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Testing.Framework;
 
 namespace TestMap.Services.Configuration;
 
@@ -15,54 +23,75 @@ public class GenerateConfigurationService(string configurationFilePath, string b
 {
     public void GenerateConfiguration()
     {
-        var config = new Dictionary<string, object>
+        var config = new TestMapConfig();
+
+        // Runtime Configuration
+        config.RuntimeConfig.FilePaths.TargetFilePath = Path.Combine(basePath, "Data", "example_project.txt");
+        config.RuntimeConfig.FilePaths.LogsDirPath = Path.Combine(basePath, "Logs");
+        config.RuntimeConfig.FilePaths.TempDirPath = Path.Combine(basePathParent, "Temp");
+        config.RuntimeConfig.FilePaths.OutputDirPath = Path.Combine(basePath, "Output");
+
+        config.RuntimeConfig.MaxConcurrency = 5;
+        config.RuntimeConfig.RunDateFormat = "yyyy-MM-dd";
+
+        config.RuntimeConfig.Docker.Context = "desktop-linux";
+        config.RuntimeConfig.Docker.Image = "net-sdk-all";
+
+        config.RuntimeConfig.Frameworks = new Dictionary<string, List<string>>
         {
-            ["FilePaths"] = new Dictionary<string, string>
-            {
-                ["TargetFilePath"] = Path.Combine(basePath, "Data", "example_project.txt"),
-                ["LogsDirPath"] = Path.Combine(basePath, "Logs"),
-                ["TempDirPath"] = Path.Combine(basePathParent, "Temp"),
-                ["OutputDirPath"] = Path.Combine(basePath, "Output")
-            },
-            ["Settings"] = new Dictionary<string, object>
-            {
-                ["MaxConcurrency"] = 5,
-                ["RunDateFormat"] = "yyyy-MM-dd"
-            },
-            ["Docker"] = new Dictionary<string, string>
-            {
-                ["Context"] = "desktop-linux",
-                ["Image"] = "net-sdk-all"
-            },
-            ["Frameworks"] = new Dictionary<string, List<string>>
-            {
-                ["NUnit"] = new() { "Test", "TestCase", "TestCaseSource", "Theory" },
-                ["xUnit"] = new() { "Fact", "Theory" },
-                ["MSTest"] = new() { "TestMethod", "DataSource" },
-                ["Microsoft.VisualStudio.TestTools.UnitTesting"] = new() { "TestMethod", "DataSource" }
-            },
-            ["Persistence"] = new Dictionary<string, object>
-            {
-                ["KeepProjectFiles"] = true
-            },
-            ["Generation"] = new Dictionary<string, object>
-            {
-                ["Provider"] = "openai",
-                ["Model"] = "gpt-3.5-turbo",
-                ["MaxRetries"] = 1
-            },
-            ["Amazon"] = new Dictionary<string, string>
-            {
-                ["AwsRegion"] = "us-east-1"
-            },
-            ["Ollama"] = new Dictionary<string, string>
-            {
-                ["Endpoint"] = "http://localhost:10000/"
-            },
-            ["Custom"] = new Dictionary<string, string>
-            {
-                ["Endpoint"] = "http://localhost:11434/"
-            }
+            ["NUnit"] = new() { "Test", "TestCase", "TestCaseSource", "Theory" },
+            ["xUnit"] = new() { "Fact", "Theory" },
+            ["MSTest"] = new() { "TestMethod", "DataSource" },
+            ["Microsoft.VisualStudio.TestTools.UnitTesting"] = new() { "TestMethod", "DataSource" }
+        };
+
+        config.RuntimeConfig.Persistence.KeepProjectFiles = true;
+
+        // Testing Configuration
+        config.TestingConfig.GenerationConfig.Provider = AiProvider.OpenAi;
+        config.TestingConfig.GenerationConfig.Mode = Services.Testing.Providers.Abstractions.AiProviderMode.Chat;
+        config.TestingConfig.GenerationConfig.MaxRetries = 1;
+
+        config.TestingConfig.TestingFrameworks.Add(new NunitConfig { patterns = new() { "Test", "TestCase", "TestCaseSource", "Theory" } });
+        config.TestingConfig.TestingFrameworks.Add(new XunitConfig { patterns = new() { "Fact", "Theory" } });
+        config.TestingConfig.TestingFrameworks.Add(new MsTestConfig { patterns = new() { "TestMethod", "DataSource" } });
+
+        // AI Provider Configuration
+        config.AiProviderConfig.OpenAi = new OpenAiConfig
+        {
+            Provider = AiProvider.OpenAi,
+            Model = "gpt-3.5-turbo"
+        };
+
+        config.AiProviderConfig.Amazon = new AmazonConfig
+        {
+            Provider = AiProvider.Amazon,
+            AwsRegion = "us-east-1"
+        };
+
+        config.AiProviderConfig.Ollama = new OllamaConfig
+        {
+            Provider = AiProvider.Ollama,
+            Endpoint = "http://localhost:10000/"
+        };
+
+        config.AiProviderConfig.CustomOpenAi = new CustomOpenAiConfig
+        {
+            Provider = AiProvider.CustomOpenAi,
+            Endpoint = "http://localhost:11434/"
+        };
+
+        config.AiProviderConfig.GoogleGemini = new GoogleGeminiConfig
+        {
+            Provider = AiProvider.GoogleGemini,
+            Model = "gemini-1.5-flash"
+        };
+
+        config.AiProviderConfig.GoogleCloud = new GoogleCloudConfig
+        {
+            Provider = AiProvider.GoogleCloud,
+            Model = "gemini-1.5-flash",
+            Location = "us-central1"
         };
 
         // Use System.Text.Json for serialization

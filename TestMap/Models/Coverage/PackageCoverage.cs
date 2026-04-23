@@ -32,5 +32,5 @@ public class PackageCoverage
 
     [XmlArray("classes")]
     [XmlArrayItem("class")]
-    public List<ClassCoverage> Classes { get; set; } = new();
+    public List<ObjectCoverageModel> Classes { get; set; } = new();
 }
