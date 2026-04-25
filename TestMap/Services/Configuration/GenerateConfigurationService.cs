@@ -46,7 +46,7 @@ public class GenerateConfigurationService(string configurationFilePath, string b
             ["Microsoft.VisualStudio.TestTools.UnitTesting"] = new() { "TestMethod", "DataSource" }
         };
 
-        config.RuntimeConfig.Persistence.KeepProjectFiles = true;
+        config.RuntimeConfig.Project.KeepProjectFiles = true;
 
         // Testing Configuration
         config.TestingConfig.GenerationConfig.Provider = AiProvider.OpenAi;

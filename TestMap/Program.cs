@@ -8,7 +8,6 @@
 
 using System.CommandLine;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using TestMap.App;
 using TestMap.CLIOptions;
 using TestMap.Models;
@@ -89,20 +88,13 @@ public class Program
     private static Command CreateExperimentCommand()
     {
         var configOption = CreateConfigOption("Path to the main TestMap configuration JSON file.");
-        var experimentConfigOption = new Option<string>("--experiment-config", "-e")
-        {
-            Description =
-                "Optional path to a separate experiment configuration JSON file. Can be either an ExperimentConfig object or a full object containing an ExperimentConfig section."
-        };
         var command = new Command("experiment", "Run AI provider comparison experiments for test generation.");
         command.Options.Add(configOption);
-        command.Options.Add(experimentConfigOption);
         command.SetAction(async parseResult =>
         {
             await Run(new ExperimentOptions
             {
-                ConfigFilePath = parseResult.GetValue(configOption) ?? string.Empty,
-                ExperimentConfigFilePath = parseResult.GetValue(experimentConfigOption) ?? string.Empty
+                ConfigFilePath = parseResult.GetValue(configOption) ?? string.Empty
             });
         });
 
@@ -196,9 +188,6 @@ public class Program
 
         var configObj = LoadMainConfiguration(options.ConfigFilePath);
 
-        if (!string.IsNullOrWhiteSpace(options.ExperimentConfigFilePath))
-            configObj.ExperimentConfig = LoadExperimentConfiguration(options.ExperimentConfigFilePath);
-
         var configurationService = new ConfigurationService(configObj)
         {
             RunMode = options.Mode
@@ -226,25 +215,6 @@ public class Program
         return path;
     }
 
-    private static Models.Experiment.ExperimentConfiguration LoadExperimentConfiguration(string path)
-    {
-        var json = File.ReadAllText(ConfigurationLocation(path));
-        var serializerOptions = ConfigJsonSerializer.CreateOptions();
-
-        var wrapper = JsonSerializer.Deserialize<ExperimentConfigWrapper>(json, serializerOptions);
-
-        if (wrapper?.ExperimentConfig != null) return wrapper.ExperimentConfig;
-
-        var directConfig =
-            JsonSerializer.Deserialize<Models.Experiment.ExperimentConfiguration>(json, serializerOptions);
-
-        if (directConfig == null)
-            throw new InvalidOperationException(
-                $"Experiment config file '{path}' could not be parsed as either an ExperimentConfig section or an experiment config object.");
-
-        return directConfig;
-    }
-
     private static TestMapConfig LoadMainConfiguration(string path)
     {
         var json = File.ReadAllText(ConfigurationLocation(path));
@@ -253,10 +223,5 @@ public class Program
         return configObj
                ?? throw new InvalidOperationException(
                    $"Config file '{ConfigurationLocation(path)}' could not be parsed.");
-    }
-
-    private sealed class ExperimentConfigWrapper
-    {
-        public Models.Experiment.ExperimentConfiguration? ExperimentConfig { get; set; }
     }
 }

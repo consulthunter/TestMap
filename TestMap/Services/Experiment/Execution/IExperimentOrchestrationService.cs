@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration;
 using TestMap.Models.Experiment;
 using TestMap.Services.TestGeneration.TargetSelection;
 
@@ -7,7 +8,7 @@ namespace TestMap.Services.Experiment.Execution;
 public interface IExperimentOrchestrationService
 {
     Task<ExperimentRun> RunExperimentAsync(
-        ExperimentConfiguration config,
+        ExperimentConfig config,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<GenerationAttempt>> ExecuteGenerationAttemptAsync(

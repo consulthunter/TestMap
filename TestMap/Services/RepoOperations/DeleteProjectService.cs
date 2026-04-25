@@ -18,6 +18,13 @@ public class DeleteProjectService(ProjectContext context) : IDeleteProjectServic
     /// </summary>
     public Task DeleteProjectAsync()
     {
+        if (ShouldKeepProjectFiles())
+        {
+            context.Project.Logger?.Information(
+                "Skipping repository deletion because KeepProjectFiles is enabled.");
+            return Task.CompletedTask;
+        }
+
         if (!Directory.Exists(context.Project.DirectoryPath))
         {
             context.Project.Logger?.Warning($"Directory {context.Project.DirectoryPath} does not exist.");
@@ -42,6 +49,11 @@ public class DeleteProjectService(ProjectContext context) : IDeleteProjectServic
         }
 
         return Task.CompletedTask;
+    }
+
+    private bool ShouldKeepProjectFiles()
+    {
+        return context.Project.Config.RuntimeConfig.Project.KeepProjectFiles;
     }
 
     /// <summary>

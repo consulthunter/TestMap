@@ -1,7 +1,7 @@
 using TestMap.App;
+using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders.Google;
 using TestMap.Models.Configuration.AiProviders;
-using TestMap.Models.Experiment;
 using TestMap.Services.Configuration;
 using TestMap.Services.Experiment.Execution;
 using TestMap.Services.Experiment.Reporting;
@@ -31,10 +31,6 @@ public class RunExperimentStep : IPipelineStep
     {
         var experimentConfig = _configurationService.Config.ExperimentConfig;
 
-        if (experimentConfig == null)
-            throw new InvalidOperationException(
-                "ExperimentConfig is not configured. Please add an ExperimentConfig section to your configuration file.");
-
         ValidateExperimentConfiguration(experimentConfig);
 
         var experimentRun = await _orchestrationService.RunExperimentAsync(experimentConfig);
@@ -48,7 +44,7 @@ public class RunExperimentStep : IPipelineStep
         }
     }
 
-    private void ValidateExperimentConfiguration(ExperimentConfiguration experimentConfig)
+    private void ValidateExperimentConfiguration(ExperimentConfig experimentConfig)
     {
         if (experimentConfig.CandidateLimit <= 0)
             throw new InvalidOperationException("ExperimentConfig.CandidateLimit must be greater than 0.");

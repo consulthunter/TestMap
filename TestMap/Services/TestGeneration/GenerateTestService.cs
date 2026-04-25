@@ -291,7 +291,7 @@ public class GenerateTestService : IGenerateTestService
         return false;
     }
 
-    private ExperimentConfiguration CreateSelectionConfiguration()
+    private ExperimentConfig CreateSelectionConfiguration()
     {
         var generationConfig = _config.TestingConfig.GenerationConfig;
         var experimentConfig = _config.ExperimentConfig;
@@ -303,11 +303,11 @@ public class GenerateTestService : IGenerateTestService
                 ? Math.Min(candidateLimit, bootstrapLimit)
                 : bootstrapLimit;
 
-        return new ExperimentConfiguration
+        return new ExperimentConfig
         {
             CandidateLimit = candidateLimit,
-            MinCoverageThreshold = experimentConfig?.MinCoverageThreshold ?? 0.0,
-            MaxCoverageThreshold = experimentConfig?.MaxCoverageThreshold ?? 0.99,
+            MinCoverageThreshold = experimentConfig.MinCoverageThreshold,
+            MaxCoverageThreshold = experimentConfig.MaxCoverageThreshold,
             CandidateSelectionStrategy = generationConfig.TargetSelection.Strategy,
             GenerationApproach = generationConfig.Strategy
         };

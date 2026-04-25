@@ -28,7 +28,7 @@ public sealed class CandidateMethodSelector
     }
 
     public async Task<List<CandidateMethod>> SelectAsync(
-        ExperimentConfiguration config,
+        ExperimentConfig config,
         CancellationToken cancellationToken = default)
     {
         _context.Project.Logger?.Information(
@@ -70,7 +70,7 @@ public sealed class CandidateMethodSelector
         return candidateMethods.ToList();
     }
 
-    private TargetSelectionConfig ResolveTargetSelectionConfig(ExperimentConfiguration config)
+    private TargetSelectionConfig ResolveTargetSelectionConfig(ExperimentConfig config)
     {
         var configuredSelection = _config.TestingConfig.GenerationConfig.TargetSelection;
         var strategy = config.CandidateSelectionStrategy ?? configuredSelection.Strategy;

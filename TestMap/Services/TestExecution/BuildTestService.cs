@@ -174,7 +174,7 @@ public class BuildTestService : IBuildTestService
                 await _projectRepository.InsertOrUpdateAsync(_context.Project);
             }
 
-            _artifactCleanupService.CleanupProjectDirectory(!LatestSuccess);
+            _artifactCleanupService.CleanupProjectDirectory(ShouldPreserveArtifactsAfterRun());
         }
 
         return result;
@@ -234,6 +234,11 @@ public class BuildTestService : IBuildTestService
                 await ReadLatestLogAsync(cancellationToken) ?? ex.ToString(),
                 LatestStructuredErrors);
         }
+    }
+
+    private bool ShouldPreserveArtifactsAfterRun()
+    {
+        return !LatestSuccess || _context.Project.Config.RuntimeConfig.Project.KeepProjectFiles;
     }
 
     public async Task RunDockerContainerAsync(string solutions)

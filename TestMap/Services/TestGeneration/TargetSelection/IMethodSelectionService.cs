@@ -1,3 +1,4 @@
+using TestMap.Models.Configuration;
 using TestMap.Models.Experiment;
 
 namespace TestMap.Services.TestGeneration.TargetSelection;
@@ -14,7 +15,7 @@ public interface IMethodSelectionService
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of candidate methods ready for test generation</returns>
     Task<List<CandidateMethod>> SelectCandidateMethodsAsync(
-        ExperimentConfiguration config,
+        ExperimentConfig config,
         CancellationToken cancellationToken = default);
 
     /// <summary>

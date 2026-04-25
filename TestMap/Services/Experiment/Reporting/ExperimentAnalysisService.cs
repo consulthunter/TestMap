@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TestMap.App;
+using TestMap.Models.Configuration;
 using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.Experiment;
@@ -100,7 +101,7 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
         var experimentRun = await _experimentRunRepo.GetByIdAsync(experimentRunId);
         if (experimentRun == null) throw new ArgumentException($"Experiment run {experimentRunId} not found");
 
-        var config = JsonSerializer.Deserialize<ExperimentConfiguration>(experimentRun.ConfigurationJson);
+        var config = JsonSerializer.Deserialize<ExperimentConfig>(experimentRun.ConfigurationJson);
         var includeDetailedErrors = config?.IncludeDetailedErrors ?? true;
         var candidateMethods = await _candidateMethodRepo.GetByExperimentAsync(experimentRunId);
 

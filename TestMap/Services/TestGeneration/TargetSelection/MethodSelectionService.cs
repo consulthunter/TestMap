@@ -30,7 +30,7 @@ public class MethodSelectionService : IMethodSelectionService
     }
 
     public async Task<List<CandidateMethod>> SelectCandidateMethodsAsync(
-        ExperimentConfiguration config,
+        ExperimentConfig config,
         CancellationToken cancellationToken = default)
     {
         var candidates = await _candidateMethodSelector.SelectAsync(config, cancellationToken);

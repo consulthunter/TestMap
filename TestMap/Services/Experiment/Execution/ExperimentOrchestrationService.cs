@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TestMap.App;
+using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders.Google;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Experiment;
@@ -51,7 +52,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _actionExecutors;
 
     private readonly RollbackWorkspaceService _workspace;
-    private ExperimentConfiguration? _activeExperimentConfig;
+    private ExperimentConfig? _activeExperimentConfig;
     private ITestGenerationApproach? _activeGenerationApproach;
     private ITestActionExecutor? _activeActionExecutor;
 
@@ -96,7 +97,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     }
 
     public async Task<ExperimentRun> RunExperimentAsync(
-        ExperimentConfiguration config,
+        ExperimentConfig config,
         CancellationToken cancellationToken = default)
     {
         _activeExperimentConfig = config;
@@ -663,7 +664,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private List<AiProvider> GetProvidersToTest(ExperimentConfiguration config)
+    private List<AiProvider> GetProvidersToTest(ExperimentConfig config)
     {
         var providers = config.IncludeProviders.Any()
             ? config.IncludeProviders.Select(ParseConfiguredProvider).Distinct().ToList()
