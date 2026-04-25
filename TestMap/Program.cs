@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2024-11-07
  * Initial entry point for the tool
@@ -6,18 +6,17 @@
  * Program.cs
  */
 
-using System.Reflection;
+using System.CommandLine;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CommandLine;
-using Microsoft.Extensions.Configuration;
 using TestMap.App;
 using TestMap.CLIOptions;
 using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Services;
 using TestMap.Services.Configuration;
-using TestMap.Services.ProjectOperations;
+using TestMap.Services.ProjectDiscovery;
+
 namespace TestMap;
 
 public class Program
@@ -26,24 +25,122 @@ public class Program
     ///     Main
     /// </summary>
     /// <param name="args">Arguments passed from the CLI</param>
-    public static async Task Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
-        var types = LoadVerbs();
-
-        await Parser.Default.ParseArguments(args, types)
-            .WithParsedAsync(Run);
+        var rootCommand = BuildRootCommand();
+        return await rootCommand.Parse(args).InvokeAsync();
     }
 
-    /// <summary>
-    ///     Gets the commandline verbs defined for the program.
-    /// </summary>
-    /// <returns>Array of commandline objects</returns>
-    private static Type[] LoadVerbs()
+    private static RootCommand BuildRootCommand()
     {
-        return Assembly.GetExecutingAssembly().GetTypes()
-            .Where(t => t.GetCustomAttribute<VerbAttribute>() != null).ToArray();
+        var rootCommand = new RootCommand("TestMap");
+
+        rootCommand.Subcommands.Add(CreateSetupCommand());
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "check-projects",
+            "Checks projects in the target file to likely contain tests.",
+            configPath => new CheckProjectsOptions
+            {
+                CheckProjectsConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "collect-tests",
+            "Collect tests from source code.",
+            configPath => new CollectTestOptions
+            {
+                CollectConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "static-analysis",
+            "Run static project analysis, code metrics, test metadata enrichment, and test smell collection.",
+            configPath => new StaticAnalysisOptions
+            {
+                StaticAnalysisConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "generate-tests",
+            "Generates tests for the repository.",
+            configPath => new GenerateTestsOptions
+            {
+                GenTestsConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreateExperimentCommand());
+
+        return rootCommand;
     }
 
+    private static Command CreatePipelineCommand(
+        string name,
+        string description,
+        Func<string, IPipelineOptions> createOptions)
+    {
+        var configOption = CreateConfigOption("Config File path.");
+        var command = new Command(name, description);
+        command.Options.Add(configOption);
+        command.SetAction(async parseResult =>
+        {
+            var configPath = parseResult.GetValue(configOption) ?? string.Empty;
+            await Run(createOptions(configPath));
+        });
+
+        return command;
+    }
+
+    private static Command CreateExperimentCommand()
+    {
+        var configOption = CreateConfigOption("Path to the main TestMap configuration JSON file.");
+        var experimentConfigOption = new Option<string>("--experiment-config", "-e")
+        {
+            Description =
+                "Optional path to a separate experiment configuration JSON file. Can be either an ExperimentConfig object or a full object containing an ExperimentConfig section."
+        };
+        var command = new Command("experiment", "Run AI provider comparison experiments for test generation.");
+        command.Options.Add(configOption);
+        command.Options.Add(experimentConfigOption);
+        command.SetAction(async parseResult =>
+        {
+            await Run(new ExperimentOptions
+            {
+                ConfigFilePath = parseResult.GetValue(configOption) ?? string.Empty,
+                ExperimentConfigFilePath = parseResult.GetValue(experimentConfigOption) ?? string.Empty
+            });
+        });
+
+        return command;
+    }
+
+    private static Command CreateSetupCommand()
+    {
+        var basePathOption = new Option<string>("--base-path", "-b")
+        {
+            Description = "Base Path for the project."
+        };
+        var overwriteOption = new Option<bool>("--overwrite", "-o")
+        {
+            Description = "Overwrite Config File."
+        };
+        var command = new Command("setup", "Generates the config file.");
+        command.Options.Add(basePathOption);
+        command.Options.Add(overwriteOption);
+        command.SetAction(async parseResult =>
+        {
+            await Run(new SetupOptions
+            {
+                BasePath = parseResult.GetValue(basePathOption) ?? string.Empty,
+                OverwriteFile = parseResult.GetValue(overwriteOption)
+            });
+        });
+
+        return command;
+    }
+
+    private static Option<string> CreateConfigOption(string description)
+    {
+        return new Option<string>("--config", "-c")
+        {
+            Description = description
+        };
+    }
 
     /// <summary>
     /// Routes command-line arguments to the appropriate execution handler.
@@ -79,12 +176,7 @@ public class Program
         Utilities.Utilities.Load();
 
         // Load and bind configuration
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(options.ConfigFilePath), optional: false, reloadOnChange: true)
-            .Build();
-
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
+        var configObj = LoadMainConfiguration(options.ConfigFilePath);
 
         // Configure service with run mode and secrets
         var configurationService = new ConfigurationService(configObj)
@@ -102,17 +194,10 @@ public class Program
     {
         Utilities.Utilities.Load();
 
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(options.ConfigFilePath), optional: false, reloadOnChange: true)
-            .Build();
-
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
+        var configObj = LoadMainConfiguration(options.ConfigFilePath);
 
         if (!string.IsNullOrWhiteSpace(options.ExperimentConfigFilePath))
-        {
             configObj.ExperimentConfig = LoadExperimentConfiguration(options.ExperimentConfigFilePath);
-        }
 
         var configurationService = new ConfigurationService(configObj)
         {
@@ -144,28 +229,30 @@ public class Program
     private static Models.Experiment.ExperimentConfiguration LoadExperimentConfiguration(string path)
     {
         var json = File.ReadAllText(ConfigurationLocation(path));
-        var serializerOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
-        serializerOptions.Converters.Add(new JsonStringEnumConverter());
+        var serializerOptions = ConfigJsonSerializer.CreateOptions();
 
         var wrapper = JsonSerializer.Deserialize<ExperimentConfigWrapper>(json, serializerOptions);
 
-        if (wrapper?.ExperimentConfig != null)
-        {
-            return wrapper.ExperimentConfig;
-        }
+        if (wrapper?.ExperimentConfig != null) return wrapper.ExperimentConfig;
 
-        var directConfig = JsonSerializer.Deserialize<Models.Experiment.ExperimentConfiguration>(json, serializerOptions);
+        var directConfig =
+            JsonSerializer.Deserialize<Models.Experiment.ExperimentConfiguration>(json, serializerOptions);
 
         if (directConfig == null)
-        {
             throw new InvalidOperationException(
                 $"Experiment config file '{path}' could not be parsed as either an ExperimentConfig section or an experiment config object.");
-        }
 
         return directConfig;
+    }
+
+    private static TestMapConfig LoadMainConfiguration(string path)
+    {
+        var json = File.ReadAllText(ConfigurationLocation(path));
+        var configObj = JsonSerializer.Deserialize<TestMapConfig>(json, ConfigJsonSerializer.CreateOptions());
+
+        return configObj
+               ?? throw new InvalidOperationException(
+                   $"Config file '{ConfigurationLocation(path)}' could not be parsed.");
     }
 
     private sealed class ExperimentConfigWrapper

@@ -18,9 +18,9 @@ public static class MemberRelationshipMappingExtensions
     public static MemberRelationshipModel ToDomain(this MemberRelationshipEntity entity)
     {
         return new MemberRelationshipModel(
-            sourceId: entity.SourceId,
-            targetId: entity.TargetId,
-            relationshipType: entity.RelationshipType,
-            id: entity.Id);
+            entity.SourceId,
+            entity.TargetId,
+            entity.RelationshipType,
+            entity.Id);
     }
 }

@@ -12,17 +12,11 @@ public static class Utilities
     {
         var path = Path.Combine(Directory.GetCurrentDirectory(), ".env");
 
-        if (!File.Exists(path))
-        {
-            return;
-        }
+        if (!File.Exists(path)) return;
 
         foreach (var line in File.ReadLines(path))
         {
-            if (!TryParseEnvironmentVariable(line, out var key, out var value))
-            {
-                continue;
-            }
+            if (!TryParseEnvironmentVariable(line, out var key, out var value)) continue;
 
             Environment.SetEnvironmentVariable(key, value);
         }
@@ -32,9 +26,8 @@ public static class Utilities
     {
         var uri = new Uri(url);
         if (uri.Segments.Length < 3)
-        {
-            throw new InvalidOperationException($"Repository URL '{url}' does not include owner and repository segments.");
-        }
+            throw new InvalidOperationException(
+                $"Repository URL '{url}' does not include owner and repository segments.");
 
         var owner = uri.Segments[1].Trim('/');
         var repo = uri.Segments[2].Trim('/').Replace(".git", "", StringComparison.OrdinalIgnoreCase);
@@ -91,10 +84,7 @@ public static class Utilities
                 .Select(x => x.Identifier.Text)
                 .FirstOrDefault();
 
-            if (!string.IsNullOrWhiteSpace(methodName))
-            {
-                return true;
-            }
+            if (!string.IsNullOrWhiteSpace(methodName)) return true;
 
             methodName = root.DescendantNodes()
                 .OfType<LocalFunctionStatementSyntax>()
@@ -112,10 +102,7 @@ public static class Utilities
 
     public static bool InsertTestIntoFile(string className, string filePath, string testMethodCode)
     {
-        if (!File.Exists(filePath))
-        {
-            return false;
-        }
+        if (!File.Exists(filePath)) return false;
 
         var sourceText = File.ReadAllText(filePath);
         var tree = CSharpSyntaxTree.ParseText(sourceText);
@@ -125,15 +112,9 @@ public static class Utilities
             .OfType<ClassDeclarationSyntax>()
             .FirstOrDefault(c => c.Identifier.Text == className);
 
-        if (classNode == null)
-        {
-            return false;
-        }
+        if (classNode == null) return false;
 
-        if (SyntaxFactory.ParseMemberDeclaration(testMethodCode) is not MethodDeclarationSyntax method)
-        {
-            return false;
-        }
+        if (SyntaxFactory.ParseMemberDeclaration(testMethodCode) is not MethodDeclarationSyntax method) return false;
 
         var updatedClassNode = classNode.AddMembers(method);
         var updatedRoot = root.ReplaceNode(classNode, updatedClassNode);
@@ -147,22 +128,13 @@ public static class Utilities
         key = string.Empty;
         value = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(line))
-        {
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(line)) return false;
 
         var trimmed = line.Trim();
-        if (trimmed.StartsWith("#", StringComparison.Ordinal))
-        {
-            return false;
-        }
+        if (trimmed.StartsWith("#", StringComparison.Ordinal)) return false;
 
         var parts = trimmed.Split('=', 2, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 2)
-        {
-            return false;
-        }
+        if (parts.Length != 2) return false;
 
         key = parts[0].Trim();
         value = parts[1].Trim().Trim('"');
@@ -178,17 +150,12 @@ public static class Utilities
 
     private static string TryExtractMemberSignatureFingerprint(string fullString)
     {
-        if (string.IsNullOrWhiteSpace(fullString))
-        {
-            return string.Empty;
-        }
+        if (string.IsNullOrWhiteSpace(fullString)) return string.Empty;
 
         try
         {
             if (SyntaxFactory.ParseMemberDeclaration(fullString) is not MemberDeclarationSyntax declaration)
-            {
                 return NormalizeIdentityPart(fullString);
-            }
 
             return declaration switch
             {
@@ -212,11 +179,16 @@ public static class Utilities
                     conversion.Type.ToString(),
                     string.Empty,
                     conversion.ParameterList.ToFullString()),
-                PropertyDeclarationSyntax property => $"{property.Identifier.Text}|{NormalizeIdentityPart(property.Type.ToString())}",
-                IndexerDeclarationSyntax indexer => $"this|{NormalizeIdentityPart(indexer.Type.ToString())}|{NormalizeIdentityPart(indexer.ParameterList.ToFullString())}",
-                FieldDeclarationSyntax field => $"{NormalizeIdentityPart(field.Declaration.Type.ToString())}|{NormalizeIdentityPart(string.Join(",", field.Declaration.Variables.Select(x => x.Identifier.Text)))}",
-                EventFieldDeclarationSyntax eventField => $"{NormalizeIdentityPart(eventField.Declaration.Type.ToString())}|{NormalizeIdentityPart(string.Join(",", eventField.Declaration.Variables.Select(x => x.Identifier.Text)))}",
-                EventDeclarationSyntax eventDeclaration => $"{NormalizeIdentityPart(eventDeclaration.Type.ToString())}|{NormalizeIdentityPart(eventDeclaration.Identifier.Text)}",
+                PropertyDeclarationSyntax property =>
+                    $"{property.Identifier.Text}|{NormalizeIdentityPart(property.Type.ToString())}",
+                IndexerDeclarationSyntax indexer =>
+                    $"this|{NormalizeIdentityPart(indexer.Type.ToString())}|{NormalizeIdentityPart(indexer.ParameterList.ToFullString())}",
+                FieldDeclarationSyntax field =>
+                    $"{NormalizeIdentityPart(field.Declaration.Type.ToString())}|{NormalizeIdentityPart(string.Join(",", field.Declaration.Variables.Select(x => x.Identifier.Text)))}",
+                EventFieldDeclarationSyntax eventField =>
+                    $"{NormalizeIdentityPart(eventField.Declaration.Type.ToString())}|{NormalizeIdentityPart(string.Join(",", eventField.Declaration.Variables.Select(x => x.Identifier.Text)))}",
+                EventDeclarationSyntax eventDeclaration =>
+                    $"{NormalizeIdentityPart(eventDeclaration.Type.ToString())}|{NormalizeIdentityPart(eventDeclaration.Identifier.Text)}",
                 EnumMemberDeclarationSyntax enumMember => NormalizeIdentityPart(enumMember.Identifier.Text),
                 _ => NormalizeIdentityPart(declaration.ToString())
             };

@@ -21,7 +21,7 @@ public class InvocationDetails
     public string FileName { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
     public string FileGuid { get; set; } = string.Empty;
-    
+
     public int AnalysisProjectId { get; set; }
     public string PackageGuid { get; set; } = string.Empty;
 

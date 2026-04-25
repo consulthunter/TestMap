@@ -11,7 +11,7 @@ public class MemberModel(
     string kind = "",
     string docString = "",
     string fullString = "",
-    bool isTestMember= false,
+    bool isTestMember = false,
     string testIntent = "",
     bool isGenerated = false,
     string testMetadataSource = "",

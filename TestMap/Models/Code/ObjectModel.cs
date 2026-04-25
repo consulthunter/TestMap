@@ -23,7 +23,7 @@ public class ObjectModel(
     public List<string> Attributes { get; set; } = attributes;
     public string DocString { get; set; } = docString;
     public string FullString { get; set; } = fullString;
-    public bool IsTestObject{ get; set; } = isTestObject;
+    public bool IsTestObject { get; set; } = isTestObject;
     public string TestFramework { get; set; } = testFramework;
     public Location Location { get; set; } = location;
     public string ContentHash => Utilities.Utilities.ComputeObjectIdentityHash(FileId, Namespace, Name, Kind);

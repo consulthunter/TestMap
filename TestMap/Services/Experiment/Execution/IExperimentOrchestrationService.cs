@@ -1,0 +1,19 @@
+using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Experiment;
+using TestMap.Services.TestGeneration.TargetSelection;
+
+namespace TestMap.Services.Experiment.Execution;
+
+public interface IExperimentOrchestrationService
+{
+    Task<ExperimentRun> RunExperimentAsync(
+        ExperimentConfiguration config,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<GenerationAttempt>> ExecuteGenerationAttemptAsync(
+        CandidateMethod candidateMethod,
+        CandidateMethodContext context,
+        AiProvider provider,
+        GenerationStrategy strategy,
+        CancellationToken cancellationToken = default);
+}

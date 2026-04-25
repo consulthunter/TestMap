@@ -17,7 +17,7 @@ public class CodeMetricsModel(
     public int MaintainabilityIndex { get; set; } = maintainabilityIndex;
     public int CyclomaticComplexity { get; set; } = cyclomaticComplexity;
     public int ClassCoupling { get; set; } = classCoupling;
-    public int DepthOfInheritance { get; set; } = depthOfInheritance;   
+    public int DepthOfInheritance { get; set; } = depthOfInheritance;
     public int SourceLinesOfCode { get; set; } = sourceLinesOfCode;
     public int ExecutableLinesOfCode { get; set; } = executableLinesOfCode;
 }

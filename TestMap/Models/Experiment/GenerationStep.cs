@@ -20,6 +20,6 @@ public class GenerationStep
     public string? StructuredResponseJson { get; set; }
     public string? PromptVersion { get; set; }
     public string? ValidationStatus { get; set; }
-    
+
     public virtual GenerationAttempt? GenerationAttempt { get; set; }
 }

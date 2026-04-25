@@ -1,5 +1,5 @@
 using TestMap.App;
-using TestMap.Services.StaticAnalysis;
+using TestMap.Services.StaticAnalysis.Enrichment;
 
 namespace TestMap.Execution.Steps;
 

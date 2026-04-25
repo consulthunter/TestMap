@@ -13,6 +13,6 @@ public class ExperimentRun
     public string ConfigurationJson { get; set; } = string.Empty;
     public int CandidateLimit { get; set; }
     public string Status { get; set; } = string.Empty;
-    
+
     public virtual ICollection<CandidateMethod> CandidateMethods { get; set; } = new List<CandidateMethod>();
 }

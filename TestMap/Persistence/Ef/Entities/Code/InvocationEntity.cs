@@ -9,6 +9,6 @@ public class InvocationEntity
     public int? InvokedMemberId { get; set; }
     public bool IsAssertion { get; set; }
     public string FullString { get; set; } = string.Empty;
-    public Location Location { get; set; } = new Location(0, 0, 0, 0);
+    public Location Location { get; set; } = new(0, 0, 0, 0);
     public string ContentHash { get; set; } = string.Empty;
 }

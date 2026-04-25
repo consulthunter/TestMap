@@ -3,5 +3,7 @@ namespace TestMap.Models.Configuration.Testing.Generation;
 public enum TargetSelectionStrategy
 {
     Existing,
-    RiskWeighted
+    RiskWeighted,
+    MetricDrivenImprovement,
+    TestSuiteImprovements
 }

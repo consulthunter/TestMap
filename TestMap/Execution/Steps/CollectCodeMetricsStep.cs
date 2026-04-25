@@ -15,10 +15,7 @@ public class CollectCodeMetricsStep : IPipelineStep
 
     public async Task ExecuteAsync(ProjectContext? context = null)
     {
-        if (context == null)
-        {
-            return;
-        }
+        if (context == null) return;
 
         foreach (var solution in context.Project.Solutions)
         {

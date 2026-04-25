@@ -9,9 +9,10 @@ public static class TestExecutionMappingExtensions
     public static TestExecution ToDomain(this TestExecutionEntity entity)
     {
         var structured = ParseStructuredErrors(entity.StructuredErrors);
-        var classification = Enum.TryParse<TestClassification>(entity.TestClassification, true, out var parsedClassification)
-            ? parsedClassification
-            : TestClassification.Failed;
+        var classification =
+            Enum.TryParse<TestClassification>(entity.TestClassification, true, out var parsedClassification)
+                ? parsedClassification
+                : TestClassification.Failed;
         var failureKind = structured?.FailureKind is { } kindText &&
                           Enum.TryParse<TestFailureKind>(kindText, true, out var parsedFailureKind)
             ? parsedFailureKind
@@ -59,7 +60,6 @@ public static class TestExecutionMappingExtensions
             string.IsNullOrWhiteSpace(runtimeErrors) &&
             string.IsNullOrWhiteSpace(assertionErrors) &&
             !string.IsNullOrWhiteSpace(execution.ErrorLogs))
-        {
             switch (execution.FailureKind)
             {
                 case TestFailureKind.Compilation:
@@ -75,7 +75,6 @@ public static class TestExecutionMappingExtensions
                     runtimeErrors = execution.ErrorLogs;
                     break;
             }
-        }
 
         return new TestExecutionEntity
         {
@@ -106,29 +105,18 @@ public static class TestExecutionMappingExtensions
     private static TestClassification ResolveClassification(TestExecution execution)
     {
         if (execution.TestPassed)
-        {
             return execution.CoverageImprovement > 0 ? TestClassification.Approved : TestClassification.Benign;
-        }
 
         return execution.CoverageImprovement > 0 ? TestClassification.Candidate : TestClassification.Failed;
     }
 
     private static TestFailureKind InferFailureKind(TestExecutionEntity entity)
     {
-        if (!string.IsNullOrWhiteSpace(entity.CompilationErrors))
-        {
-            return TestFailureKind.Compilation;
-        }
+        if (!string.IsNullOrWhiteSpace(entity.CompilationErrors)) return TestFailureKind.Compilation;
 
-        if (!string.IsNullOrWhiteSpace(entity.AssertionErrors))
-        {
-            return TestFailureKind.Assertion;
-        }
+        if (!string.IsNullOrWhiteSpace(entity.AssertionErrors)) return TestFailureKind.Assertion;
 
-        if (!string.IsNullOrWhiteSpace(entity.RuntimeErrors))
-        {
-            return TestFailureKind.Runtime;
-        }
+        if (!string.IsNullOrWhiteSpace(entity.RuntimeErrors)) return TestFailureKind.Runtime;
 
         return entity.TestPassed ? TestFailureKind.None : TestFailureKind.Unknown;
     }
@@ -139,9 +127,7 @@ public static class TestExecutionMappingExtensions
             string.IsNullOrWhiteSpace(execution.FailureCategory) &&
             string.IsNullOrWhiteSpace(execution.FailureSummary) &&
             execution.FailureKind == TestFailureKind.None)
-        {
             return execution.StructuredErrors ?? string.Empty;
-        }
 
         return JsonSerializer.Serialize(new StructuredFailurePayload(
             execution.FailureKind.ToString(),
@@ -152,10 +138,7 @@ public static class TestExecutionMappingExtensions
 
     private static StructuredFailurePayload? ParseStructuredErrors(string? structuredErrors)
     {
-        if (string.IsNullOrWhiteSpace(structuredErrors))
-        {
-            return null;
-        }
+        if (string.IsNullOrWhiteSpace(structuredErrors)) return null;
 
         try
         {

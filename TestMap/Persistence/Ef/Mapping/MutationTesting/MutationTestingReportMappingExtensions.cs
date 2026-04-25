@@ -17,7 +17,8 @@ public static class MutationTestingReportMappingExtensions
         };
     }
 
-    public static MutationTestingReportEntity ToEntity(this StrykerMutationResults model, int projectId, double mutationScore)
+    public static MutationTestingReportEntity ToEntity(this StrykerMutationResults model, int projectId,
+        double mutationScore)
     {
         return new MutationTestingReportEntity
         {

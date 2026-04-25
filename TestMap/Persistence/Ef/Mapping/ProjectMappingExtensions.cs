@@ -5,7 +5,6 @@ namespace TestMap.Persistence.Ef.Mapping;
 
 public static class ProjectMappingExtensions
 {
-    
     public static ProjectEntity ToEntity(this ProjectModel project)
     {
         return new ProjectEntity
@@ -17,7 +16,7 @@ public static class ProjectMappingExtensions
             LastAnalyzedCommit = project.LastAnalyzedCommit,
             DatabasePath = project.DatabasePath,
             ContentHash = project.ContentHash,
-            DirectoryPath = project.DirectoryPath,
+            DirectoryPath = project.DirectoryPath
         };
     }
 
@@ -25,7 +24,7 @@ public static class ProjectMappingExtensions
     {
         return new ProjectModel
         {
-            GitHubUrl = project.WebUrl ?? string.Empty,
+            GitHubUrl = project.WebUrl ?? string.Empty
         };
     }
 }

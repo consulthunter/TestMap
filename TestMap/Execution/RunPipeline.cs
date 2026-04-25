@@ -13,9 +13,6 @@ public class RunPipeline
 
     public async Task RunAsync(ProjectContext context)
     {
-        foreach (var step in _steps)
-        {
-            await step.ExecuteAsync(context);
-        }
+        foreach (var step in _steps) await step.ExecuteAsync(context);
     }
 }

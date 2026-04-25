@@ -1,5 +1,5 @@
 using TestMap.App;
-using TestMap.Services.CollectInformation;
+using TestMap.Services.TestExecution.Collection;
 
 namespace TestMap.Execution.Steps;
 

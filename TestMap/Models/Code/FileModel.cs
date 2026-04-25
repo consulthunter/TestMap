@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2025-03-26
  *
@@ -6,6 +6,7 @@
  *
  * CodeModel.cs
  */
+
 namespace TestMap.Models.Code;
 
 /// <summary>

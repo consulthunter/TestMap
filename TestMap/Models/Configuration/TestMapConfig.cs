@@ -7,8 +7,8 @@ namespace TestMap.Models.Configuration;
 
 public class TestMapConfig
 {
-    public RuntimeConfig RuntimeConfig { get; set; } = new RuntimeConfig();
-    public TestingConfig TestingConfig { get; set; } = new TestingConfig();
-    public AiProviderConfig AiProviderConfig { get; set; } = new AiProviderConfig();
+    public RuntimeConfig RuntimeConfig { get; set; } = new();
+    public TestingConfig TestingConfig { get; set; } = new();
+    public AiProviderConfig AiProviderConfig { get; set; } = new();
     public ExperimentConfiguration? ExperimentConfig { get; set; }
 }

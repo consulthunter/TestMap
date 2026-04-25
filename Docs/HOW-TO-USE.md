@@ -41,7 +41,6 @@ Use the JSON config as the source of truth. The CLI does not provide experiment-
 ```sh
 dotnet run --project ./TestMap/TestMap.csproj -- collect-tests --config ./TestMap/Config/default-config.json
 dotnet run --project ./TestMap/TestMap.csproj -- generate-tests --config ./TestMap/Config/default-config.json
-dotnet run --project ./TestMap/TestMap.csproj -- full-analysis --config ./TestMap/Config/default-config.json
 dotnet run --project ./TestMap/TestMap.csproj -- experiment --config ./TestMap/Config/default-config.json
 dotnet run --project ./TestMap/TestMap.csproj -- experiment --config ./TestMap/Config/default-config.json --experiment-config ./TestMap/Config/experiment-config.json
 ```
@@ -50,8 +49,6 @@ Supporting commands:
 
 ```sh
 dotnet run --project ./TestMap/TestMap.csproj -- check-projects --config ./TestMap/Config/default-config.json
-dotnet run --project ./TestMap/TestMap.csproj -- validate-projects --config ./TestMap/Config/default-config.json
-dotnet run --project ./TestMap/TestMap.csproj -- windows-check --config ./TestMap/Config/default-config.json
 ```
 
 ## Supported AI providers

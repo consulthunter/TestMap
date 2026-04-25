@@ -7,18 +7,18 @@ namespace TestMap.Persistence.Ef.Repositories.Code;
 public class FileRepository
 {
     private readonly TestMapDbContext _context;
-    
+
     public FileRepository(TestMapDbContext context)
     {
         _context = context;
     }
-    
+
     public async Task<List<FileModel>> GetAllAsync()
     {
         var entities = await _context.Files.ToListAsync();
         return entities.Select(e => e.ToDomain()).ToList();
     }
-    
+
     public async Task<FileModel?> GetByIdAsync(int id)
     {
         var entity = await _context.Files.FindAsync(id);
@@ -28,7 +28,7 @@ public class FileRepository
     public async Task<FileModel?> GetByContentHashAsync(string contentHash)
     {
         var entity = await _context.Files.FirstOrDefaultAsync(p => p.ContentHash == contentHash);
-        return entity?.ToDomain();   
+        return entity?.ToDomain();
     }
 
     public async Task<int> InsertOrUpdateAsync(FileModel model)
@@ -43,6 +43,7 @@ public class FileRepository
                 existing.ContentHash = model.ContentHash;
                 await _context.SaveChangesAsync();
             }
+
             return existing.Id;
         }
 
@@ -51,7 +52,7 @@ public class FileRepository
         await _context.SaveChangesAsync();
         return entity.Id;
     }
-    
+
     private bool HasChanged(Entities.Code.FileEntity entity, FileModel model)
     {
         return model.AnalysisProjectId != entity.CSharpProjectId ||

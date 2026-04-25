@@ -21,7 +21,8 @@ public class CandidateMethodRepository
         return entity?.ToDomain();
     }
 
-    public async Task<List<CandidateMethod>> GetByExperimentRunIdAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<List<CandidateMethod>> GetByExperimentRunIdAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.CandidateMethods
             .Where(c => c.ExperimentRunId == experimentRunId)
@@ -31,12 +32,14 @@ public class CandidateMethodRepository
         return entities.Select(x => x.ToDomain()).ToList();
     }
 
-    public Task<List<CandidateMethod>> GetByExperimentAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public Task<List<CandidateMethod>> GetByExperimentAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         return GetByExperimentRunIdAsync(experimentRunId, cancellationToken);
     }
 
-    public async Task<List<CandidateMethod>> GetUnprocessedAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<List<CandidateMethod>> GetUnprocessedAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.CandidateMethods
             .Where(c => c.ExperimentRunId == experimentRunId)
@@ -54,7 +57,8 @@ public class CandidateMethodRepository
         return entity.Id;
     }
 
-    public async Task BulkInsertAsync(List<CandidateMethod> candidateMethods, CancellationToken cancellationToken = default)
+    public async Task BulkInsertAsync(List<CandidateMethod> candidateMethods,
+        CancellationToken cancellationToken = default)
     {
         var entities = candidateMethods.Select(x => x.ToEntity()).ToList();
         _context.CandidateMethods.AddRange(entities);

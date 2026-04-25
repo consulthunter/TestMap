@@ -12,9 +12,13 @@ public static class GenerationAttemptMappingExtensions
         {
             Id = entity.Id,
             CandidateMethodId = entity.CandidateMethodId,
-            Provider = Enum.TryParse<AiProvider>(entity.ProviderName, true, out var provider) ? provider : AiProvider.OpenAi,
+            Provider = Enum.TryParse<AiProvider>(entity.ProviderName, true, out var provider)
+                ? provider
+                : AiProvider.OpenAi,
             ModelName = entity.ModelName,
-            Strategy = Enum.TryParse<GenerationStrategy>(entity.Strategy, true, out var strategy) ? strategy : GenerationStrategy.Pass1,
+            Strategy = Enum.TryParse<GenerationStrategy>(entity.Strategy, true, out var strategy)
+                ? strategy
+                : GenerationStrategy.Pass1,
             AttemptNumber = entity.AttemptNumber,
             StartedAt = entity.StartTime,
             CompletedAt = entity.EndTime,
@@ -59,10 +63,7 @@ public static class GenerationAttemptMappingExtensions
         if (entity.TestExecution != null)
         {
             var execution = entity.TestExecution.ToDomain();
-            if (!string.IsNullOrWhiteSpace(execution.ErrorLogs))
-            {
-                return execution.ErrorLogs;
-            }
+            if (!string.IsNullOrWhiteSpace(execution.ErrorLogs)) return execution.ErrorLogs;
         }
 
         return entity.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase)
@@ -73,7 +74,6 @@ public static class GenerationAttemptMappingExtensions
     private static string ResolveStatus(GenerationAttempt attempt)
     {
         if (attempt.TestExecution != null)
-        {
             return attempt.TestExecution.FailureKind switch
             {
                 TestFailureKind.None => "Completed",
@@ -84,19 +84,17 @@ public static class GenerationAttemptMappingExtensions
                 TestFailureKind.Infrastructure => "InfrastructureFailed",
                 _ => "Failed"
             };
-        }
 
         return string.IsNullOrWhiteSpace(attempt.ErrorMessage) ? "Completed" : "Failed";
     }
 
     private static TestFailureKind ResolveFailureKind(GenerationAttempt attempt)
     {
-        if (attempt.FailureKind != TestFailureKind.None)
-        {
-            return attempt.FailureKind;
-        }
+        if (attempt.FailureKind != TestFailureKind.None) return attempt.FailureKind;
 
-        return attempt.TestExecution?.FailureKind ?? (string.IsNullOrWhiteSpace(attempt.ErrorMessage) ? TestFailureKind.None : TestFailureKind.Unknown);
+        return attempt.TestExecution?.FailureKind ?? (string.IsNullOrWhiteSpace(attempt.ErrorMessage)
+            ? TestFailureKind.None
+            : TestFailureKind.Unknown);
     }
 
     private static string? ResolveFailureStage(GenerationAttempt attempt)

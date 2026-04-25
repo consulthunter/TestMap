@@ -3,12 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using TestMap.App;
 using TestMap.Models.Code;
 using TestMap.Persistence.Ef;
+using TestMap.Persistence.Ef.Entities.Code;
 using TestMap.Persistence.Ef.Mapping.Code;
 using TestMap.Persistence.Ef.Repositories.Code;
 
 namespace TestMap.Services.StaticAnalysis;
 
-using CodeLocation = TestMap.Models.Code.Location;
+using CodeLocation = Location;
 
 public class CodeMetricsService : ICodeMetricsService
 {
@@ -47,7 +48,8 @@ public class CodeMetricsService : ICodeMetricsService
     {
         if (string.IsNullOrWhiteSpace(analysisSolution.FilePath) || !File.Exists(analysisSolution.FilePath))
         {
-            _context.Logger.Warning("Skipping code metrics. Solution file was not found: {SolutionFilePath}", analysisSolution.FilePath);
+            _context.Logger.Warning("Skipping code metrics. Solution file was not found: {SolutionFilePath}",
+                analysisSolution.FilePath);
             return;
         }
 
@@ -74,7 +76,8 @@ public class CodeMetricsService : ICodeMetricsService
     {
         if (string.IsNullOrWhiteSpace(analysisProject.FilePath) || !File.Exists(analysisProject.FilePath))
         {
-            _context.Logger.Warning("Skipping code metrics. Project file was not found: {ProjectFilePath}", analysisProject.FilePath);
+            _context.Logger.Warning("Skipping code metrics. Project file was not found: {ProjectFilePath}",
+                analysisProject.FilePath);
             return;
         }
 
@@ -105,7 +108,8 @@ public class CodeMetricsService : ICodeMetricsService
 
         if (projectIds.Count == 0)
         {
-            _context.Logger.Warning("Skipping code metrics persistence. No persisted project IDs were found for {TargetPath}", targetPath);
+            _context.Logger.Warning(
+                "Skipping code metrics persistence. No persisted project IDs were found for {TargetPath}", targetPath);
             return;
         }
 
@@ -139,6 +143,13 @@ public class CodeMetricsService : ICodeMetricsService
         var membersByObjectId = memberModels
             .GroupBy(item => item.ObjectEntityId)
             .ToDictionary(group => group.Key, group => group.ToList());
+        var memberIds = members.Select(member => member.Id).ToList();
+        var existingMetrics = await _dbContext.CodeMetrics
+            .Where(x =>
+                (x.EntityType == ObjectEntityType && objectIds.Contains(x.EntityId)) ||
+                (x.EntityType == MemberEntityType && memberIds.Contains(x.EntityId)))
+            .ToListAsync(cancellationToken);
+        var metricsByKey = existingMetrics.ToDictionary(x => CreateMetricKey(x.EntityType, x.EntityId));
 
         var persistedCount = 0;
         var skippedCount = 0;
@@ -166,14 +177,18 @@ public class CodeMetricsService : ICodeMetricsService
             {
                 if (TryFindObject(metricResult, fileId, objectsByFile, out var objectModel))
                 {
-                    await _codeMetricRepository.InsertOrUpdateAsync(CreateMetricModel(metricResult, objectModel.Id, ObjectEntityType));
+                    UpsertMetric(
+                        CreateMetricModel(metricResult, objectModel.Id, ObjectEntityType),
+                        metricsByKey);
                     persistedCount++;
                     continue;
                 }
             }
             else if (TryFindMember(metricResult, fileId, objectsByFile, membersByObjectId, out var memberModel))
             {
-                await _codeMetricRepository.InsertOrUpdateAsync(CreateMetricModel(metricResult, memberModel.Id, MemberEntityType));
+                UpsertMetric(
+                    CreateMetricModel(metricResult, memberModel.Id, MemberEntityType),
+                    metricsByKey);
                 persistedCount++;
                 continue;
             }
@@ -189,13 +204,14 @@ public class CodeMetricsService : ICodeMetricsService
             skippedCount);
 
         foreach (var skippedSample in skippedSamples)
-        {
             _context.Logger.Warning("Unmatched code metric sample: {SkippedMetric}", skippedSample);
-        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private static CodeMetricsOptions CreateMetricOptions()
-        => new()
+    {
+        return new CodeMetricsOptions
         {
             Quiet = true,
             TargetKinds =
@@ -207,6 +223,7 @@ public class CodeMetricsService : ICodeMetricsService
                 CodeMetricTargetKind.Event
             ]
         };
+    }
 
     private static bool TryFindObject(
         CodeMetricResult metricResult,
@@ -216,29 +233,25 @@ public class CodeMetricsService : ICodeMetricsService
     {
         objectModel = null!;
 
-        if (!objectsByFile.TryGetValue(fileId, out var candidates) || metricResult.Location == null)
-        {
-            return false;
-        }
+        if (!objectsByFile.TryGetValue(fileId, out var candidates) || metricResult.Location == null) return false;
 
         var metricLine = ToZeroBasedLine(metricResult.Location.StartLine);
         var metricEndLine = ToZeroBasedLine(metricResult.Location.EndLine);
         var metricName = GetSimpleName(metricResult);
 
         var match = candidates
-            .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
-            .OrderByDescending(candidate => NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
-            .ThenBy(candidate => GetLineSpan(candidate.Location))
-            .FirstOrDefault(candidate => NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
-            ?? candidates
-                .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
-                .OrderBy(candidate => GetLineSpan(candidate.Location))
-                .FirstOrDefault();
+                        .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
+                        .OrderByDescending(candidate =>
+                            NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
+                        .ThenBy(candidate => GetLineSpan(candidate.Location))
+                        .FirstOrDefault(candidate =>
+                            NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
+                    ?? candidates
+                        .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
+                        .OrderBy(candidate => GetLineSpan(candidate.Location))
+                        .FirstOrDefault();
 
-        if (match == null)
-        {
-            return false;
-        }
+        if (match == null) return false;
 
         objectModel = match;
         return true;
@@ -253,10 +266,7 @@ public class CodeMetricsService : ICodeMetricsService
     {
         memberModel = null!;
 
-        if (!objectsByFile.TryGetValue(fileId, out var objectsInFile) || metricResult.Location == null)
-        {
-            return false;
-        }
+        if (!objectsByFile.TryGetValue(fileId, out var objectsInFile) || metricResult.Location == null) return false;
 
         var metricLine = ToZeroBasedLine(metricResult.Location.StartLine);
         var metricEndLine = ToZeroBasedLine(metricResult.Location.EndLine);
@@ -268,20 +278,19 @@ public class CodeMetricsService : ICodeMetricsService
 
         foreach (var containingObject in containingObjects)
         {
-            if (!membersByObjectId.TryGetValue(containingObject.Id, out var members))
-            {
-                continue;
-            }
+            if (!membersByObjectId.TryGetValue(containingObject.Id, out var members)) continue;
 
             var match = members
-                .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
-                .OrderByDescending(candidate => NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
-                .ThenBy(candidate => GetLineSpan(candidate.Location))
-                .FirstOrDefault(candidate => NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
-                ?? members
-                    .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
-                    .OrderBy(candidate => GetLineSpan(candidate.Location))
-                    .FirstOrDefault();
+                            .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
+                            .OrderByDescending(candidate =>
+                                NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
+                            .ThenBy(candidate => GetLineSpan(candidate.Location))
+                            .FirstOrDefault(candidate =>
+                                NamesMatch(candidate.Name, metricName, metricResult.FullyQualifiedName))
+                        ?? members
+                            .Where(candidate => Overlaps(candidate.Location, metricLine, metricEndLine))
+                            .OrderBy(candidate => GetLineSpan(candidate.Location))
+                            .FirstOrDefault();
 
             if (match != null)
             {
@@ -294,8 +303,9 @@ public class CodeMetricsService : ICodeMetricsService
     }
 
     private static CodeMetricsModel CreateMetricModel(CodeMetricResult metricResult, int entityId, string entityType)
-        => new(
-            entityType: entityType,
+    {
+        return new CodeMetricsModel(
+            entityType,
             entityId: entityId,
             maintainabilityIndex: metricResult.MaintainabilityIndex,
             cyclomaticComplexity: metricResult.CyclomaticComplexity,
@@ -303,55 +313,55 @@ public class CodeMetricsService : ICodeMetricsService
             depthOfInheritance: metricResult.DepthOfInheritance ?? 0,
             sourceLinesOfCode: ToInt32(metricResult.SourceLines),
             executableLinesOfCode: ToInt32(metricResult.ExecutableLines));
+    }
 
     private static bool IsAccessorMetric(CodeMetricResult metricResult)
-        => metricResult.Kind == CodeMetricTargetKind.Method &&
-           (metricResult.FullyQualifiedName.EndsWith(".get", StringComparison.Ordinal) ||
-            metricResult.FullyQualifiedName.EndsWith(".set", StringComparison.Ordinal) ||
-            metricResult.FullyQualifiedName.EndsWith(".add", StringComparison.Ordinal) ||
-            metricResult.FullyQualifiedName.EndsWith(".remove", StringComparison.Ordinal));
+    {
+        return metricResult.Kind == CodeMetricTargetKind.Method &&
+               (metricResult.FullyQualifiedName.EndsWith(".get", StringComparison.Ordinal) ||
+                metricResult.FullyQualifiedName.EndsWith(".set", StringComparison.Ordinal) ||
+                metricResult.FullyQualifiedName.EndsWith(".add", StringComparison.Ordinal) ||
+                metricResult.FullyQualifiedName.EndsWith(".remove", StringComparison.Ordinal));
+    }
 
     private static bool ContainsLine(CodeLocation location, int zeroBasedLine)
-        => location.StartLineNumber <= zeroBasedLine && zeroBasedLine <= location.EndLineNumber;
+    {
+        return location.StartLineNumber <= zeroBasedLine && zeroBasedLine <= location.EndLineNumber;
+    }
 
     private static bool Overlaps(CodeLocation location, int zeroBasedStartLine, int zeroBasedEndLine)
-        => ContainsLine(location, zeroBasedStartLine)
-           || ContainsLine(location, zeroBasedEndLine)
-           || zeroBasedStartLine <= location.StartLineNumber && location.EndLineNumber <= zeroBasedEndLine;
+    {
+        return ContainsLine(location, zeroBasedStartLine)
+               || ContainsLine(location, zeroBasedEndLine)
+               || zeroBasedStartLine <= location.StartLineNumber && location.EndLineNumber <= zeroBasedEndLine;
+    }
 
     private static int GetLineSpan(CodeLocation location)
-        => Math.Max(0, location.EndLineNumber - location.StartLineNumber);
+    {
+        return Math.Max(0, location.EndLineNumber - location.StartLineNumber);
+    }
 
     private static int ToZeroBasedLine(int oneBasedLine)
-        => Math.Max(0, oneBasedLine - 1);
+    {
+        return Math.Max(0, oneBasedLine - 1);
+    }
 
     private static int ToInt32(long value)
     {
-        if (value > int.MaxValue)
-        {
-            return int.MaxValue;
-        }
+        if (value > int.MaxValue) return int.MaxValue;
 
-        if (value < int.MinValue)
-        {
-            return int.MinValue;
-        }
+        if (value < int.MinValue) return int.MinValue;
 
         return (int)value;
     }
 
     private static bool NamesMatch(string modelName, string metricName, string fullyQualifiedName)
     {
-        if (string.Equals(modelName, metricName, StringComparison.Ordinal))
-        {
-            return true;
-        }
+        if (string.Equals(modelName, metricName, StringComparison.Ordinal)) return true;
 
-        if ((metricName is ".ctor" or "#ctor" or "ctor" or ".cctor" or "#cctor" or "cctor") &&
+        if (metricName is ".ctor" or "#ctor" or "ctor" or ".cctor" or "#cctor" or "cctor" &&
             fullyQualifiedName.EndsWith("." + modelName, StringComparison.Ordinal))
-        {
             return true;
-        }
 
         return fullyQualifiedName.EndsWith("." + modelName, StringComparison.Ordinal)
                || fullyQualifiedName.Contains("." + modelName + "(", StringComparison.Ordinal)
@@ -364,37 +374,49 @@ public class CodeMetricsService : ICodeMetricsService
     {
         var name = metricResult.Name;
         var parenIndex = name.IndexOf('(');
-        if (parenIndex >= 0)
-        {
-            name = name[..parenIndex];
-        }
+        if (parenIndex >= 0) name = name[..parenIndex];
 
         var lastDotIndex = name.LastIndexOf('.');
-        if (lastDotIndex >= 0 && lastDotIndex < name.Length - 1)
-        {
-            name = name[(lastDotIndex + 1)..];
-        }
+        if (lastDotIndex >= 0 && lastDotIndex < name.Length - 1) name = name[(lastDotIndex + 1)..];
 
         var genericIndex = name.IndexOf('<');
-        if (genericIndex >= 0)
-        {
-            name = name[..genericIndex];
-        }
+        if (genericIndex >= 0) name = name[..genericIndex];
 
         return name;
     }
 
     private static string NormalizePath(string path)
-        => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
 
     private static void AddSkippedSample(List<string> skippedSamples, CodeMetricResult metricResult, string reason)
     {
-        if (skippedSamples.Count >= 10)
-        {
-            return;
-        }
+        if (skippedSamples.Count >= 10) return;
 
         skippedSamples.Add(
             $"{reason}: {metricResult.Kind} {metricResult.FullyQualifiedName} @ {metricResult.Location?.FilePath}:{metricResult.Location?.StartLine}");
+    }
+
+    private void UpsertMetric(
+        CodeMetricsModel model,
+        IDictionary<string, CodeMetricEntity> metricsByKey)
+    {
+        var key = CreateMetricKey(model.EntityType, model.EntityId);
+        if (metricsByKey.TryGetValue(key, out var existing))
+        {
+            if (CodeMetricRepository.HasChanged(existing, model)) CodeMetricRepository.Apply(existing, model);
+
+            return;
+        }
+
+        var entity = model.ToEntity(model.EntityId, model.EntityType);
+        _dbContext.CodeMetrics.Add(entity);
+        metricsByKey[key] = entity;
+    }
+
+    private static string CreateMetricKey(string entityType, int entityId)
+    {
+        return entityType + ":" + entityId;
     }
 }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2024-11-07
  * Uses the config file
@@ -117,18 +117,12 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
 
     private static string GetConfiguredValue(string currentValue, params string[] environmentVariables)
     {
-        if (!string.IsNullOrWhiteSpace(currentValue))
-        {
-            return currentValue;
-        }
+        if (!string.IsNullOrWhiteSpace(currentValue)) return currentValue;
 
         foreach (var variable in environmentVariables)
         {
             var value = Environment.GetEnvironmentVariable(variable);
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
+            if (!string.IsNullOrWhiteSpace(value)) return value;
         }
 
         return currentValue;

@@ -12,25 +12,33 @@ using TestMap.Persistence.Ef.Repositories.MutationTesting;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
 using TestMap.Persistence.Ef.Repositories.Testing;
 using TestMap.Runs;
-using TestMap.Services.CollectInformation;
+using TestMap.Services.ProjectDiscovery;
 using TestMap.Services.Configuration;
-using TestMap.Services.Mapping;
-using TestMap.Services.ProjectOperations;
+using TestMap.Services.TestExecution.Mapping;
 using TestMap.Services.RepoOperations;
-using TestMap.Services.RepoOperations.Clone;
-using TestMap.Services.RepoOperations.Delete;
 using TestMap.Services.FlakyTestDetection;
 using TestMap.Services.RiskScoring;
 using TestMap.Services.StaticAnalysis;
-using TestMap.Services.Testing;
-using TestMap.Services.Testing.Providers;
-using TestMap.Services.Testing.Providers.Abstractions;
-using TestMap.Services.Testing.Providers.Amazon;
-using TestMap.Services.Testing.Providers.Custom;
-using TestMap.Services.Testing.Providers.Google;
-using TestMap.Services.Testing.Providers.Ollama;
-using TestMap.Services.Testing.Providers.OpenAI;
-using TestMap.Services.Experiment;
+using TestMap.Services.StaticAnalysis.Enrichment;
+using TestMap.Services.TestExecution;
+using TestMap.Services.TestExecution.Collection;
+using TestMap.Services.TestGeneration;
+using TestMap.Services.TestGeneration.Bootstrap;
+using TestMap.Services.TestGeneration.Providers;
+using TestMap.Services.TestGeneration.Providers.Abstractions;
+using TestMap.Services.TestGeneration.Providers.Amazon;
+using TestMap.Services.TestGeneration.Providers.Custom;
+using TestMap.Services.TestGeneration.Providers.Google;
+using TestMap.Services.TestGeneration.Providers.Ollama;
+using TestMap.Services.TestGeneration.Providers.OpenAI;
+using TestMap.Services.TestGeneration.Editing;
+using TestMap.Services.TestGeneration.Execution;
+using TestMap.Services.TestGeneration.Strategies;
+using TestMap.Services.TestGeneration.Workspace;
+using TestMap.Services.Experiment.Execution;
+using TestMap.Services.Experiment.Reporting;
+using TestMap.Services.TestGeneration.TargetSelection;
+using TestMap.Services.TestGeneration.TargetSelection.Strategies;
 
 namespace TestMap.Services;
 
@@ -49,8 +57,22 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CallFailureService>();
         services.AddScoped<ProjectArtifactCleanupService>();
         services.AddScoped<DockerRuntimePathMapper>();
+        services.AddScoped<DockerCommandRunner>();
+        services.AddScoped<BuildTestResultCollector>();
         services.AddScoped<TestGenerator>();
+        services.AddScoped<ITestBootstrapDetectionService, TestBootstrapDetectionService>();
+        services.AddScoped<ITestProjectBootstrapService, TestProjectBootstrapService>();
+        services.AddScoped<ITestProjectScaffoldingService, TestProjectScaffoldingService>();
+        services.AddScoped<ITestTypeClassificationService, TestTypeClassificationService>();
+        services.AddScoped<ITestBootstrapService, TestBootstrapService>();
         services.AddScoped<ITestGenerationPipelineService, TestGenerationPipelineService>();
+        services.AddScoped<ITestGenerationApproach, DefaultCoverageExtensionGenerationApproach>();
+        services.AddScoped<ITestGenerationApproach, ActionAwareGenerationApproach>();
+        services.AddScoped<ITestCodeEditService, TestCodeEditService>();
+        services.AddScoped<ITestActionExecutor, BasicCoverageExtensionTestActionExecutor>();
+        services.AddScoped<ITestActionExecutor, ActionAwareTestActionExecutor>();
+        services.AddScoped<RollbackWorkspaceService>();
+        services.AddScoped<BranchWorkspaceService>();
         services.AddScoped<CollectCoverageResultsService>();
         services.AddScoped<CollectMutationTestingResultsService>();
         services.AddScoped<CollectTestResultsService>();
@@ -192,6 +214,11 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddExperimentServices(this IServiceCollection services)
     {
+        services.AddScoped<ICandidateSelectionStrategy, ExistingCandidateSelectionStrategy>();
+        services.AddScoped<ICandidateSelectionStrategy, RiskWeightedCandidateSelectionStrategy>();
+        services.AddScoped<ICandidateSelectionStrategy, MetricDrivenCandidateSelectionStrategy>();
+        services.AddScoped<ICandidateSelectionStrategy, TestSuiteImprovementCandidateSelectionStrategy>();
+        services.AddScoped<CandidateMethodSelector>();
         services.AddScoped<IMethodSelectionService, MethodSelectionService>();
         services.AddScoped<IExperimentOrchestrationService, ExperimentOrchestrationService>();
         services.AddScoped<IExperimentAnalysisService, ExperimentAnalysisService>();
@@ -284,10 +311,10 @@ public static class ServiceCollectionExtensions
         services.AddTestMapCore();
         services.AddAiProviders();
         services.AddProjectServices();
-        
+
         var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
         services.AddProjectOperations(config, token, context);
-        
+
         services.AddTestMapRepositories();
         services.AddExperimentRepositories();
         services.AddExperimentServices();

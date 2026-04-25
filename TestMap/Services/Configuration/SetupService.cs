@@ -50,7 +50,7 @@ public class SetupService
         if (!IsCommandAvailable("git")) throw new InvalidOperationException("Git is not installed or not on the PATH.");
         _output.WriteLine("Git found.");
     }
-    
+
     private bool DockerContextExists(string contextName)
     {
         var startInfo = new ProcessStartInfo
@@ -71,7 +71,7 @@ public class SetupService
                output.Split('\n')
                    .Any(line => line.StartsWith(contextName + " ", StringComparison.Ordinal));
     }
-    
+
     private bool IsWindowsDaemon(string contextName)
     {
         return IsDockerDaemon(contextName, "windows");
@@ -93,16 +93,17 @@ public class SetupService
         return true;
     }
 
-    
+
     private string GetDockerfile(string os)
     {
         return os switch
         {
-            "linux"   => Path.Combine(_dockerRoot, "linux", "Dockerfile"),
+            "linux" => Path.Combine(_dockerRoot, "linux", "Dockerfile"),
             "windows" => Path.Combine(_dockerRoot, "windows", "Dockerfile"),
             _ => throw new InvalidOperationException($"Unknown OS: {os}")
         };
     }
+
     private void BuildForContext(string contextName, string dockerfilePath, string imageName)
     {
         var contextDir = _dockerRoot;
@@ -124,7 +125,7 @@ public class SetupService
 
         using var process = new Process { StartInfo = startInfo };
         process.OutputDataReceived += (_, args) => _output.WriteLine(args.Data);
-        process.ErrorDataReceived  += (_, args) => _error.WriteLine(args.Data);
+        process.ErrorDataReceived += (_, args) => _error.WriteLine(args.Data);
 
         process.Start();
         process.BeginOutputReadLine();
@@ -136,20 +137,18 @@ public class SetupService
 
         _output.WriteLine($"Image '{imageName}' built successfully for context '{contextName}'.");
     }
-    
+
     public void BuildAllImages()
     {
         _output.WriteLine("=== Building Linux Image ===");
         if (!EnsureDockerContextReady("desktop-linux", "linux"))
-        {
             throw new InvalidOperationException("Docker Linux context is not available.");
-        }
 
         var linuxDockerfile = GetDockerfile("linux");
         BuildForContext(
-            contextName: "desktop-linux",
-            dockerfilePath: linuxDockerfile,
-            imageName: "net-sdk-all:latest"
+            "desktop-linux",
+            linuxDockerfile,
+            "net-sdk-all:latest"
         );
 
         _output.WriteLine("=== Building Windows Image ===");
@@ -161,23 +160,17 @@ public class SetupService
         }
 
         BuildForContext(
-            contextName: "desktop-windows",
-            dockerfilePath: GetDockerfile("windows"),
-            imageName: "net-sdk-all:latest"
+            "desktop-windows",
+            GetDockerfile("windows"),
+            "net-sdk-all:latest"
         );
     }
 
     private void EnsureDockerDesktopStarted()
     {
-        if (IsDockerResponsive())
-        {
-            return;
-        }
+        if (IsDockerResponsive()) return;
 
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
+        if (!OperatingSystem.IsWindows()) return;
 
         var dockerDesktopPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -185,10 +178,7 @@ public class SetupService
             "Docker",
             "Docker Desktop.exe");
 
-        if (!File.Exists(dockerDesktopPath))
-        {
-            return;
-        }
+        if (!File.Exists(dockerDesktopPath)) return;
 
         _output.WriteLine("Starting Docker Desktop...");
         Process.Start(new ProcessStartInfo
@@ -202,20 +192,11 @@ public class SetupService
 
     private bool EnsureDockerContextReady(string contextName, string expectedOs)
     {
-        if (!DockerContextExists(contextName))
-        {
-            return false;
-        }
+        if (!DockerContextExists(contextName)) return false;
 
-        if (IsDockerDaemon(contextName, expectedOs))
-        {
-            return true;
-        }
+        if (IsDockerDaemon(contextName, expectedOs)) return true;
 
-        if (!OperatingSystem.IsWindows())
-        {
-            return false;
-        }
+        if (!OperatingSystem.IsWindows()) return false;
 
         var dockerCliPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -223,24 +204,21 @@ public class SetupService
             "Docker",
             "DockerCli.exe");
 
-        if (!File.Exists(dockerCliPath))
-        {
-            return false;
-        }
+        if (!File.Exists(dockerCliPath)) return false;
 
         var switchArgument = expectedOs.Equals("windows", StringComparison.OrdinalIgnoreCase)
             ? "-SwitchWindowsEngine"
             : "-SwitchLinuxEngine";
 
         _output.WriteLine($"Switching Docker Desktop to {expectedOs} containers...");
-        RunProcess(dockerCliPath, switchArgument, throwOnFailure: false);
+        RunProcess(dockerCliPath, switchArgument, false);
 
         return WaitForDockerDaemon(contextName, expectedOs, TimeSpan.FromMinutes(2));
     }
 
     private bool IsDockerResponsive()
     {
-        var result = RunProcess("docker", "info --format \"{{{{.ServerVersion}}}}\"", throwOnFailure: false);
+        var result = RunProcess("docker", "info --format \"{{{{.ServerVersion}}}}\"", false);
         return result.ExitCode == 0;
     }
 
@@ -249,7 +227,7 @@ public class SetupService
         var result = RunProcess(
             "docker",
             $"--context {contextName} info --format \"{{{{.OSType}}}}\"",
-            throwOnFailure: false);
+            false);
 
         return result.ExitCode == 0 &&
                result.StdOut.Contains(expectedOs, StringComparison.OrdinalIgnoreCase);
@@ -260,10 +238,7 @@ public class SetupService
         var deadline = DateTimeOffset.Now.Add(timeout);
         while (DateTimeOffset.Now < deadline)
         {
-            if (IsDockerResponsive())
-            {
-                return;
-            }
+            if (IsDockerResponsive()) return;
 
             Thread.Sleep(TimeSpan.FromSeconds(3));
         }
@@ -274,10 +249,7 @@ public class SetupService
         var deadline = DateTimeOffset.Now.Add(timeout);
         while (DateTimeOffset.Now < deadline)
         {
-            if (IsDockerDaemon(contextName, expectedOs))
-            {
-                return true;
-            }
+            if (IsDockerDaemon(contextName, expectedOs)) return true;
 
             Thread.Sleep(TimeSpan.FromSeconds(3));
         }
@@ -303,10 +275,8 @@ public class SetupService
         process.WaitForExit();
 
         if (throwOnFailure && process.ExitCode != 0)
-        {
             throw new InvalidOperationException(
                 $"Command failed: {fileName} {arguments}{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
-        }
 
         return new ProcessResult(process.ExitCode, stdout, stderr);
     }
@@ -325,10 +295,7 @@ public class SetupService
                 CreateNoWindow = true
             };
             using var process = Process.Start(psi);
-            if (process == null)
-            {
-                return false;
-            }
+            if (process == null) return false;
 
             process.WaitForExit();
             return process.ExitCode == 0;
@@ -361,7 +328,7 @@ public class SetupService
         Directory.CreateDirectory(path);
         _output.WriteLine($"Database directory created at: {path}");
     }
-    
+
     private void CreateExampleProject()
     {
         var filePath = Path.Combine(_basePath, "Data", "example_project.txt");
@@ -451,13 +418,9 @@ public class SetupService
         };
 
         foreach (var candidate in candidates)
-        {
             if (Directory.Exists(candidate) &&
                 File.Exists(Path.Combine(candidate, "linux", "Dockerfile")))
-            {
                 return candidate;
-            }
-        }
 
         throw new InvalidOperationException(
             $"Could not locate the Docker build context from base path '{basePath}'.");

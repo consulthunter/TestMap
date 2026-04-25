@@ -38,11 +38,9 @@ public class PipelineRunFactory : IPipelineRunFactory
     public IPipelineRun Create(RunMode runMode)
     {
         if (!RunTypeMap.TryGetValue(runMode, out var runType))
-        {
             throw new InvalidOperationException(
                 $"No pipeline run registered for mode: {runMode}. " +
                 $"Available modes: {string.Join(", ", RunTypeMap.Keys)}");
-        }
 
         return (IPipelineRun)_provider.GetRequiredService(runType);
     }

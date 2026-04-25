@@ -1,5 +1,3 @@
-
-
 namespace TestMap.Models.Configuration.AiProviders.Google;
 
 public class GoogleGeminiConfig : IAiProviderConfig

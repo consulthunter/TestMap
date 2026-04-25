@@ -43,16 +43,16 @@
   },
   "TestingConfig": {
     "GenerationConfig": {
-      "Provider": 5,
-      "Mode": 0,
+      "Provider": "openai",
+      "Mode": "chat",
       "MaxRetries": 1,
       "EnableHistoryChaining": true
     },
     "MetadataEnrichmentConfig": {
       "Enabled": true,
-      "UseModel": true,
-      "Provider": 5,
-      "Mode": 0,
+      "UseModel": false,
+      "Provider": "openai",
+      "Mode": "chat",
       "Temperature": 0,
       "MaxCategories": 3,
       "PromptVersion": "test-metadata-v1"
@@ -85,13 +85,13 @@
       "Model": "gpt-3.5-turbo",
       "OrgId": "",
       "ApiKey": "",
-      "Provider": 5
+      "Provider": "openai"
     },
     "Amazon": {
       "Model": "",
       "AwsAccessKey": "",
       "ApiKey": "",
-      "Provider": 0,
+      "Provider": "amazon",
       "AwsRegion": "us-east-1"
     },
     "GoogleGemini": {
@@ -101,7 +101,7 @@
       "Endpoint": "",
       "Location": "",
       "TokenPath": "",
-      "Provider": 1
+      "Provider": "google-gemini"
     },
     "GoogleCloud": {
       "Model": "gemini-1.5-flash",
@@ -111,51 +111,51 @@
       "Endpoint": "",
       "Location": "us-central1",
       "TokenPath": "",
-      "Provider": 2
+      "Provider": "google-cloud"
     },
     "CustomOpenAi": {
       "Model": "gpt-oss-120b",
       "OrgId": "",
       "ApiKey": "",
       "Endpoint": "http://localhost:8080/",
-      "Provider": 3
+      "Provider": "custom-openai"
     },
     "Ollama": {
       "Model": "",
       "ApiKey": "",
       "Endpoint": "http://localhost:10000/",
-      "Provider": 4
+      "Provider": "ollama"
     },
     "ProviderConfigs": [
       {
         "Model": "gpt-3.5-turbo",
         "ApiKey": "",
-        "Provider": 5
+        "Provider": "openai"
       },
       {
         "Model": "",
         "ApiKey": "",
-        "Provider": 0
+        "Provider": "amazon"
       },
       {
         "Model": "gemini-1.5-flash",
         "ApiKey": "",
-        "Provider": 1
+        "Provider": "google-gemini"
       },
       {
         "Model": "gemini-1.5-flash",
         "ApiKey": "",
-        "Provider": 2
+        "Provider": "google-cloud"
       },
       {
         "Model": "",
         "ApiKey": "",
-        "Provider": 3
+        "Provider": "custom-openai"
       },
       {
         "Model": "",
         "ApiKey": "",
-        "Provider": 4
+        "Provider": "ollama"
       }
     ]
   },

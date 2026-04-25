@@ -23,7 +23,7 @@ public class GenerationAttempt
     public string? FailureStage { get; set; }
     public string? FailureCategory { get; set; }
     public string? ErrorMessage { get; set; }
-    
+
     public virtual CandidateMethod? CandidateMethod { get; set; }
     public virtual ICollection<GenerationStep> GenerationSteps { get; set; } = new List<GenerationStep>();
     public virtual TestExecution? TestExecution { get; set; }

@@ -8,25 +8,25 @@ namespace TestMap.Persistence.Ef.Repositories.Code;
 public class CodeMetricRepository
 {
     private readonly TestMapDbContext _context;
-    
+
     public CodeMetricRepository(TestMapDbContext context)
     {
         _context = context;
     }
-    
+
     public async Task<List<CodeMetricsModel>> GetAllAsync()
     {
         return await _context.CodeMetrics
             .Select(x => x.ToDomain())
             .ToListAsync();
     }
-    
+
     public async Task<CodeMetricsModel?> GetByIdAsync(int id)
     {
         var entity = await _context.CodeMetrics.FindAsync(id);
         return entity?.ToDomain();
     }
-    
+
     // public async Task<CodeMetricsModel?> GetByContentHashAsync(string contentHash)
     // {
     //     var entity = await _context.CodeMetrics.FirstOrDefaultAsync(x => x.ContentHash == contentHash);
@@ -50,8 +50,10 @@ public class CodeMetricRepository
                 existing.ExecutableLinesOfCode = model.ExecutableLinesOfCode;
                 await _context.SaveChangesAsync();
             }
+
             return existing.Id;
         }
+
         var entityId = model.EntityId;
         var entityType = model.EntityType;
         var entity = model.ToEntity(entityId, entityType);
@@ -60,7 +62,7 @@ public class CodeMetricRepository
         return entity.Id;
     }
 
-    private bool HasChanged(CodeMetricEntity existing, CodeMetricsModel model)
+    public static bool HasChanged(CodeMetricEntity existing, CodeMetricsModel model)
     {
         return existing.ClassCoupling != model.ClassCoupling ||
                existing.SourceLinesOfCode != model.SourceLinesOfCode ||
@@ -68,5 +70,15 @@ public class CodeMetricRepository
                existing.CyclomaticComplexity != model.CyclomaticComplexity ||
                existing.DepthOfInheritance != model.DepthOfInheritance ||
                existing.MaintainabilityIndex != model.MaintainabilityIndex;
+    }
+
+    public static void Apply(CodeMetricEntity existing, CodeMetricsModel model)
+    {
+        existing.ClassCoupling = model.ClassCoupling;
+        existing.SourceLinesOfCode = model.SourceLinesOfCode;
+        existing.CyclomaticComplexity = model.CyclomaticComplexity;
+        existing.DepthOfInheritance = model.DepthOfInheritance;
+        existing.MaintainabilityIndex = model.MaintainabilityIndex;
+        existing.ExecutableLinesOfCode = model.ExecutableLinesOfCode;
     }
 }

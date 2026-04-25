@@ -9,12 +9,12 @@ public class ObjectEntity
     public string Namespace { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Kind { get; set; } = string.Empty;
-    public List<string> Modifiers { get; set; } = new List<string>();
-    public List<string> Attributes { get; set; } = new List<string>();
+    public List<string> Modifiers { get; set; } = new();
+    public List<string> Attributes { get; set; } = new();
     public string DocString { get; set; } = string.Empty;
     public string FullString { get; set; } = string.Empty;
     public bool IsTestObject { get; set; }
     public string TestFramework { get; set; } = string.Empty;
-    public Location Location { get; set; } = new Location(0, 0, 0, 0);
+    public Location Location { get; set; } = new(0, 0, 0, 0);
     public string ContentHash { get; set; } = string.Empty;
 }

@@ -26,5 +26,5 @@ public class InvocationEntityConfiguration : IEntityTypeConfiguration<Invocation
                 v => JsonSerializer.Deserialize<Location>(v, (JsonSerializerOptions?)null) ?? new Location(0, 0, 0, 0))
             .IsRequired();
         builder.Property(x => x.ContentHash).HasColumnName("content_hash");
-    }   
+    }
 }

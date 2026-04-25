@@ -33,7 +33,8 @@ public class TestExecutionRepository
         return GetByAttemptIdAsync(attemptId, cancellationToken);
     }
 
-    public async Task<List<TestExecution>> GetPassedExecutionsAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<List<TestExecution>> GetPassedExecutionsAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.TestExecutions
             .Where(t => t.GenerationAttempt != null &&
@@ -60,7 +61,8 @@ public class TestExecutionRepository
         return entities.Select(x => x.ToDomain()).ToList();
     }
 
-    public async Task<ExecutionStatistics> GetExecutionStatisticsAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<ExecutionStatistics> GetExecutionStatisticsAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.TestExecutions
             .Where(t => t.GenerationAttempt != null &&
@@ -73,7 +75,8 @@ public class TestExecutionRepository
         var total = executions.Count;
         var passed = executions.Count(e => e.TestPassed);
         var compilationErrors = executions.Count(e => e.FailureKind == TestFailureKind.Compilation);
-        var runtimeErrors = executions.Count(e => e.FailureKind is TestFailureKind.Runtime or TestFailureKind.Assertion or TestFailureKind.Infrastructure);
+        var runtimeErrors = executions.Count(e =>
+            e.FailureKind is TestFailureKind.Runtime or TestFailureKind.Assertion or TestFailureKind.Infrastructure);
         var coverageImprovements = executions.Count(e => e.Classification == TestClassification.Approved);
 
         return new ExecutionStatistics
@@ -89,7 +92,8 @@ public class TestExecutionRepository
         };
     }
 
-    public async Task<Dictionary<TestClassification, int>> GetClassificationDistributionAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<TestClassification, int>> GetClassificationDistributionAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.TestExecutions
             .Where(t => t.GenerationAttempt != null &&

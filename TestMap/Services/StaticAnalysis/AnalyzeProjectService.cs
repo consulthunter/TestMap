@@ -7,8 +7,8 @@ using TestMap.Persistence.Ef.Repositories.Code;
 
 namespace TestMap.Services.StaticAnalysis;
 
-using CodeLocation = TestMap.Models.Code.Location;
-using RoslynProject = Microsoft.CodeAnalysis.Project;
+using CodeLocation = Models.Code.Location;
+using RoslynProject = Project;
 
 public class AnalyzeProjectService : IAnalyzeProjectService
 {
@@ -57,7 +57,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         var compilation = await project.GetCompilationAsync();
         if (compilation == null)
         {
-            _context.Logger?.Warning("Compilation could not be created for {ProjectFilePath}", analysisProject.FilePath);
+            _context.Logger?.Warning("Compilation could not be created for {ProjectFilePath}",
+                analysisProject.FilePath);
             return;
         }
 
@@ -69,10 +70,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
         foreach (var document in project.Documents)
         {
-            if (!ShouldAnalyzeDocument(document.FilePath))
-            {
-                continue;
-            }
+            if (!ShouldAnalyzeDocument(document.FilePath)) continue;
 
             await AnalyzeDocumentAsync(document, compilation, analysisProject, state);
         }
@@ -84,25 +82,20 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     {
         var solution = project.Solution;
         foreach (var solutionProject in solution.Projects)
-        {
             if (solutionProject.AnalyzerReferences.Any())
-            {
                 solution = solution.WithProjectAnalyzerReferences(
                     solutionProject.Id,
                     []);
-            }
-        }
 
         return solution.GetProject(project.Id) ?? project;
     }
 
     private async Task EnsureProjectPersistedAsync(CSharpProjectModel analysisProject)
     {
-        var solutionModel = _context.Project.Solutions.FirstOrDefault(x => x.Projects.Contains(analysisProject.FilePath));
+        var solutionModel =
+            _context.Project.Solutions.FirstOrDefault(x => x.Projects.Contains(analysisProject.FilePath));
         if (solutionModel == null)
-        {
             throw new InvalidOperationException($"No solution mapping was found for {analysisProject.FilePath}.");
-        }
 
         solutionModel.ProjectId = _context.Project.DbId;
         analysisProject.SolutionId = await _cSharpSolutionRepository.InsertOrUpdateAsync(solutionModel);
@@ -118,10 +111,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         AnalysisState state)
     {
         var root = await document.GetSyntaxRootAsync();
-        if (root == null || document.FilePath == null)
-        {
-            return;
-        }
+        if (root == null || document.FilePath == null) return;
 
         var syntaxTree = root.SyntaxTree;
         var semanticModel = compilation.GetSemanticModel(syntaxTree);
@@ -129,23 +119,18 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         var fileId = await EnsureFilePersistedAsync(root, analysisProject.Id, document.FilePath);
         var objectDeclarations = root.DescendantNodes()
             .OfType<BaseTypeDeclarationSyntax>()
-            .Where(x => x.Parent is NamespaceDeclarationSyntax or FileScopedNamespaceDeclarationSyntax or CompilationUnitSyntax
+            .Where(x => x.Parent is NamespaceDeclarationSyntax or FileScopedNamespaceDeclarationSyntax
+                            or CompilationUnitSyntax
                         || x.Parent is TypeDeclarationSyntax or RecordDeclarationSyntax)
             .ToList();
 
         foreach (var objectDeclaration in objectDeclarations)
         {
             var objectSymbol = semanticModel.GetDeclaredSymbol(objectDeclaration) as INamedTypeSymbol;
-            if (objectSymbol == null)
-            {
-                continue;
-            }
+            if (objectSymbol == null) continue;
 
             var objectKey = GetSymbolKey(objectSymbol);
-            if (state.ObjectIds.ContainsKey(objectKey))
-            {
-                continue;
-            }
+            if (state.ObjectIds.ContainsKey(objectKey)) continue;
 
             var objectModel = CreateObjectModel(objectDeclaration, objectSymbol, fileId);
             var objectId = await _objectRepository.InsertOrUpdateAsync(objectModel);
@@ -154,26 +139,21 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             CollectObjectRelationships(objectSymbol, objectKey, state);
 
             foreach (var memberDeclaration in GetMemberDeclarations(objectDeclaration))
+            foreach (var pendingMember in CreateMembers(memberDeclaration, semanticModel, objectId))
             {
-                foreach (var pendingMember in CreateMembers(memberDeclaration, semanticModel, objectId))
-                {
-                    if (state.MemberIds.ContainsKey(pendingMember.SymbolKey))
-                    {
-                        continue;
-                    }
+                if (state.MemberIds.ContainsKey(pendingMember.SymbolKey)) continue;
 
-                    var memberId = await _memberRepository.InsertOrUpdateAsync(pendingMember.Model);
-                    state.MemberIds[pendingMember.SymbolKey] = memberId;
+                var memberId = await _memberRepository.InsertOrUpdateAsync(pendingMember.Model);
+                state.MemberIds[pendingMember.SymbolKey] = memberId;
 
-                    CollectSignatureRelationships(objectKey, pendingMember.Symbol, pendingMember.SymbolKey, state);
-                    CollectBodyRelationships(
-                        objectKey,
-                        pendingMember.SymbolKey,
-                        memberDeclaration,
-                        pendingMember.Model.IsTestMember,
-                        semanticModel,
-                        state);
-                }
+                CollectSignatureRelationships(objectKey, pendingMember.Symbol, pendingMember.SymbolKey, state);
+                CollectBodyRelationships(
+                    objectKey,
+                    pendingMember.SymbolKey,
+                    memberDeclaration,
+                    pendingMember.Model.IsTestMember,
+                    semanticModel,
+                    state);
             }
         }
     }
@@ -190,7 +170,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         return await _fileRepository.InsertOrUpdateAsync(fileModel);
     }
 
-    private static IEnumerable<MemberDeclarationSyntax> GetMemberDeclarations(BaseTypeDeclarationSyntax objectDeclaration)
+    private static IEnumerable<MemberDeclarationSyntax> GetMemberDeclarations(
+        BaseTypeDeclarationSyntax objectDeclaration)
     {
         return objectDeclaration switch
         {
@@ -223,9 +204,9 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty;
 
         return new ObjectModel(
-            attributes: GetAttributeStrings(declaration.AttributeLists),
-            modifiers: GetModifierStrings(declaration.Modifiers),
-            location: CreateLocation(declaration),
+            GetAttributeStrings(declaration.AttributeLists),
+            GetModifierStrings(declaration.Modifiers),
+            CreateLocation(declaration),
             fileId: fileId,
             @namespace: symbol.ContainingNamespace?.ToDisplayString() ?? string.Empty,
             name: symbol.Name,
@@ -236,7 +217,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             testFramework: testFramework);
     }
 
-    private IEnumerable<PendingMember> CreateMembers(MemberDeclarationSyntax declaration, SemanticModel semanticModel, int objectId)
+    private IEnumerable<PendingMember> CreateMembers(MemberDeclarationSyntax declaration, SemanticModel semanticModel,
+        int objectId)
     {
         switch (declaration)
         {
@@ -245,10 +227,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 foreach (var variable in fieldDeclaration.Declaration.Variables)
                 {
                     var symbol = semanticModel.GetDeclaredSymbol(variable) as IFieldSymbol;
-                    if (symbol == null)
-                    {
-                        continue;
-                    }
+                    if (symbol == null) continue;
 
                     yield return new PendingMember(
                         GetSymbolKey(symbol),
@@ -263,10 +242,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 foreach (var variable in eventFieldDeclaration.Declaration.Variables)
                 {
                     var symbol = semanticModel.GetDeclaredSymbol(variable) as IEventSymbol;
-                    if (symbol == null)
-                    {
-                        continue;
-                    }
+                    if (symbol == null) continue;
 
                     yield return new PendingMember(
                         GetSymbolKey(symbol),
@@ -279,15 +255,13 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             default:
             {
                 var symbol = semanticModel.GetDeclaredSymbol(declaration);
-                if (symbol is not ISymbol memberSymbol)
-                {
-                    yield break;
-                }
+                if (symbol is not ISymbol memberSymbol) yield break;
 
                 yield return new PendingMember(
                     GetSymbolKey(memberSymbol),
                     memberSymbol,
-                    CreateMemberModel(declaration, memberSymbol, objectId, memberSymbol.Name, GetMemberKind(memberSymbol)));
+                    CreateMemberModel(declaration, memberSymbol, objectId, memberSymbol.Name,
+                        GetMemberKind(memberSymbol)));
                 yield break;
             }
         }
@@ -300,17 +274,19 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         string name,
         string kind)
     {
+        var isTestMember = IsTestMember(declaration);
+
         return new MemberModel(
-            attributes: GetAttributeStrings(declaration.AttributeLists),
-            modifiers: GetModifierStrings(GetModifiers(declaration)),
-            testCategories: GetTestCategories(declaration),
-            location: CreateLocation(declaration),
+            GetAttributeStrings(declaration.AttributeLists),
+            GetModifierStrings(GetModifiers(declaration)),
+            isTestMember ? GetTestCategories(declaration) : [],
+            CreateLocation(declaration),
             objectEntityId: objectId,
             name: name,
             kind: kind,
             docString: symbol.GetDocumentationCommentXml() ?? string.Empty,
             fullString: declaration.ToFullString().Trim(),
-            isTestMember: IsTestMember(declaration),
+            isTestMember: isTestMember,
             testIntent: string.Empty,
             isGenerated: false,
             testMetadataSource: string.Empty,
@@ -321,37 +297,33 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private void CollectObjectRelationships(INamedTypeSymbol symbol, string objectKey, AnalysisState state)
     {
         if (symbol.ContainingType != null && state.IsProjectSymbol(symbol.ContainingType))
-        {
-            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.ContainingType), "contained_by"));
-        }
+            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.ContainingType),
+                "contained_by"));
 
         if (symbol.BaseType != null &&
             symbol.BaseType.SpecialType != SpecialType.System_Object &&
             state.IsProjectSymbol(symbol.BaseType))
-        {
-            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.BaseType), "inherits"));
-        }
+            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.BaseType),
+                "inherits"));
 
         foreach (var interfaceType in symbol.Interfaces.Where(state.IsProjectSymbol))
-        {
-            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(interfaceType), "implements"));
-        }
+            state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(interfaceType),
+                "implements"));
     }
 
-    private void CollectSignatureRelationships(string objectKey, ISymbol memberSymbol, string memberKey, AnalysisState state)
+    private void CollectSignatureRelationships(string objectKey, ISymbol memberSymbol, string memberKey,
+        AnalysisState state)
     {
         foreach (var typeSymbol in GetReferencedTypes(memberSymbol).Where(state.IsProjectSymbol))
-        {
             state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(typeSymbol), "uses"));
-        }
 
         foreach (var relatedMember in GetReferencedMembersFromSignature(memberSymbol).Where(state.IsProjectSymbol))
         {
-            state.MemberRelationships.Add(new PendingRelationship(memberKey, GetSymbolKey(relatedMember), "references"));
+            state.MemberRelationships.Add(new PendingRelationship(memberKey, GetSymbolKey(relatedMember),
+                "references"));
             if (relatedMember.ContainingType != null && state.IsProjectSymbol(relatedMember.ContainingType))
-            {
-                state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(relatedMember.ContainingType), "uses"));
-            }
+                state.ObjectRelationships.Add(new PendingRelationship(objectKey,
+                    GetSymbolKey(relatedMember.ContainingType), "uses"));
         }
     }
 
@@ -369,9 +341,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 and not ObjectCreationExpressionSyntax
                 and not IdentifierNameSyntax
                 and not MemberAccessExpressionSyntax)
-            {
                 continue;
-            }
 
             var symbol = ResolveReferencedSymbol(node, semanticModel);
             if (node is InvocationExpressionSyntax assertionInvocation &&
@@ -388,10 +358,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 continue;
             }
 
-            if (symbol == null || !state.IsProjectSymbol(symbol))
-            {
-                continue;
-            }
+            if (symbol == null || !state.IsProjectSymbol(symbol)) continue;
 
             var relationshipType = GetMemberRelationshipType(node, symbol);
             if (relationshipType != null)
@@ -400,20 +367,17 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 state.MemberRelationships.Add(new PendingRelationship(memberKey, targetMemberKey, relationshipType));
 
                 if (node is InvocationExpressionSyntax invocationExpression)
-                {
                     state.Invocations.Add(new PendingInvocation(
                         memberKey,
                         targetMemberKey,
                         node.ToFullString().Trim(),
                         CreateLocation(node),
                         isTestMember && IsAssertionInvocation(invocationExpression, symbol)));
-                }
             }
 
             if (symbol.ContainingType != null && state.IsProjectSymbol(symbol.ContainingType))
-            {
-                state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.ContainingType), "uses"));
-            }
+                state.ObjectRelationships.Add(new PendingRelationship(objectKey, GetSymbolKey(symbol.ContainingType),
+                    "uses"));
         }
     }
 
@@ -423,10 +387,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         {
             if (!state.ObjectIds.TryGetValue(relationship.SourceKey, out var sourceId) ||
                 !state.ObjectIds.TryGetValue(relationship.TargetKey, out var targetId) ||
-                sourceId == targetId && relationship.RelationshipType == "uses")
-            {
+                (sourceId == targetId && relationship.RelationshipType == "uses"))
                 continue;
-            }
 
             await _objectRelationshipRepository.InsertOrUpdateAsync(
                 new ObjectRelationshipModel(sourceId, targetId, relationship.RelationshipType));
@@ -437,9 +399,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             if (!state.MemberIds.TryGetValue(relationship.SourceKey, out var sourceId) ||
                 !state.MemberIds.TryGetValue(relationship.TargetKey, out var targetId) ||
                 sourceId == targetId)
-            {
                 continue;
-            }
 
             await _memberRelationshipRepository.InsertOrUpdateAsync(
                 new MemberRelationshipModel(sourceId, targetId, relationship.RelationshipType));
@@ -447,25 +407,19 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
         foreach (var invocation in state.Invocations)
         {
-            if (!state.MemberIds.TryGetValue(invocation.SourceKey, out var memberId))
-            {
-                continue;
-            }
+            if (!state.MemberIds.TryGetValue(invocation.SourceKey, out var memberId)) continue;
 
             int? invokedMemberId = null;
             if (invocation.TargetKey != null)
             {
-                if (!state.MemberIds.TryGetValue(invocation.TargetKey, out var resolvedInvokedMemberId))
-                {
-                    continue;
-                }
+                if (!state.MemberIds.TryGetValue(invocation.TargetKey, out var resolvedInvokedMemberId)) continue;
 
                 invokedMemberId = resolvedInvokedMemberId;
             }
 
             await _invocationRepository.InsertOrUpdateAsync(
                 new InvocationModel(
-                    location: invocation.Location,
+                    invocation.Location,
                     memberId: memberId,
                     invokedMemberId: invokedMemberId,
                     isAssertion: invocation.IsAssertion,
@@ -475,15 +429,12 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
     private string ResolveTestFramework(MemberDeclarationSyntax declaration)
     {
-        foreach (var framework in _context.Project.Config.RuntimeConfig.Frameworks ?? new Dictionary<string, List<string>>())
-        {
+        foreach (var framework in _context.Project.Config.RuntimeConfig.Frameworks ??
+                                  new Dictionary<string, List<string>>())
             if (declaration.AttributeLists
                 .SelectMany(x => x.Attributes)
                 .Any(attribute => framework.Value.Contains(attribute.Name.ToString())))
-            {
                 return framework.Key;
-            }
-        }
 
         return string.Empty;
     }
@@ -510,18 +461,12 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         {
             case IMethodSymbol methodSymbol:
                 AddType(types, methodSymbol.ReturnType);
-                foreach (var parameter in methodSymbol.Parameters)
-                {
-                    AddType(types, parameter.Type);
-                }
+                foreach (var parameter in methodSymbol.Parameters) AddType(types, parameter.Type);
 
                 break;
             case IPropertySymbol propertySymbol:
                 AddType(types, propertySymbol.Type);
-                foreach (var parameter in propertySymbol.Parameters)
-                {
-                    AddType(types, parameter.Type);
-                }
+                foreach (var parameter in propertySymbol.Parameters) AddType(types, parameter.Type);
 
                 break;
             case IFieldSymbol fieldSymbol:
@@ -539,34 +484,21 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     {
         if (symbol is IPropertySymbol propertySymbol)
         {
-            if (propertySymbol.GetMethod != null)
-            {
-                yield return propertySymbol.GetMethod;
-            }
+            if (propertySymbol.GetMethod != null) yield return propertySymbol.GetMethod;
 
-            if (propertySymbol.SetMethod != null)
-            {
-                yield return propertySymbol.SetMethod;
-            }
+            if (propertySymbol.SetMethod != null) yield return propertySymbol.SetMethod;
         }
     }
 
     private static void AddType(List<ITypeSymbol> types, ITypeSymbol? typeSymbol)
     {
-        if (typeSymbol == null)
-        {
-            return;
-        }
+        if (typeSymbol == null) return;
 
         types.Add(typeSymbol);
 
         if (typeSymbol is INamedTypeSymbol namedType)
-        {
             foreach (var argument in namedType.TypeArguments.OfType<ITypeSymbol>())
-            {
                 types.Add(argument);
-            }
-        }
     }
 
     private static ISymbol? ResolveReferencedSymbol(SyntaxNode node, SemanticModel semanticModel)
@@ -605,50 +537,46 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
         if (containingTypeName.Contains("Assert", StringComparison.OrdinalIgnoreCase) ||
             containingTypeName.Contains("Assertion", StringComparison.OrdinalIgnoreCase))
-        {
             return true;
-        }
 
         if (containingNamespace.Contains("FluentAssertions", StringComparison.OrdinalIgnoreCase) ||
             containingNamespace.Contains("Shouldly", StringComparison.OrdinalIgnoreCase))
-        {
             return true;
-        }
 
         return methodName switch
         {
             "True" or
-            "False" or
-            "Equal" or
-            "NotEqual" or
-            "Same" or
-            "NotSame" or
-            "Null" or
-            "NotNull" or
-            "Empty" or
-            "NotEmpty" or
-            "Contains" or
-            "DoesNotContain" or
-            "StartsWith" or
-            "EndsWith" or
-            "Matches" or
-            "Throws" or
-            "ThrowsAsync" or
-            "Throw" or
-            "ThrowAsync" or
-            "Fail" or
-            "That" or
-            "ShouldBe" or
-            "ShouldNotBe" or
-            "ShouldContain" or
-            "ShouldNotContain" or
-            "Be" or
-            "BeTrue" or
-            "BeFalse" or
-            "BeNull" or
-            "NotBeNull" or
-            "BeEquivalentTo" or
-            "ContainSingle" => true,
+                "False" or
+                "Equal" or
+                "NotEqual" or
+                "Same" or
+                "NotSame" or
+                "Null" or
+                "NotNull" or
+                "Empty" or
+                "NotEmpty" or
+                "Contains" or
+                "DoesNotContain" or
+                "StartsWith" or
+                "EndsWith" or
+                "Matches" or
+                "Throws" or
+                "ThrowsAsync" or
+                "Throw" or
+                "ThrowAsync" or
+                "Fail" or
+                "That" or
+                "ShouldBe" or
+                "ShouldNotBe" or
+                "ShouldContain" or
+                "ShouldNotContain" or
+                "Be" or
+                "BeTrue" or
+                "BeFalse" or
+                "BeNull" or
+                "NotBeNull" or
+                "BeEquivalentTo" or
+                "ContainSingle" => true,
             _ => invocation.ToFullString().Contains("Assert.", StringComparison.Ordinal)
         };
     }
@@ -665,10 +593,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
     private static string GetObjectKind(INamedTypeSymbol symbol)
     {
-        if (symbol.IsRecord)
-        {
-            return symbol.TypeKind == TypeKind.Struct ? "record_struct" : "record";
-        }
+        if (symbol.IsRecord) return symbol.TypeKind == TypeKind.Struct ? "record_struct" : "record";
 
         return symbol.TypeKind switch
         {
@@ -746,10 +671,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
     private static bool ShouldAnalyzeDocument(string? filePath)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || !filePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(filePath) ||
+            !filePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) return false;
 
         return !filePath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)
                && !filePath.EndsWith("AssemblyInfo.cs", StringComparison.OrdinalIgnoreCase)
@@ -781,7 +704,9 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     private sealed record PendingMember(string SymbolKey, ISymbol Symbol, MemberModel Model);
+
     private sealed record PendingRelationship(string SourceKey, string TargetKey, string RelationshipType);
+
     private sealed record PendingInvocation(
         string SourceKey,
         string? TargetKey,

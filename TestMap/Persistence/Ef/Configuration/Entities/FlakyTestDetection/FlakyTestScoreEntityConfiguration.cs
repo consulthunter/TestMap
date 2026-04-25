@@ -25,19 +25,21 @@ public class FlakyTestScoreEntityConfiguration : IEntityTypeConfiguration<FlakyT
             .HasColumnName("factor_scores")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<Dictionary<FlakinessFactorKind, double>>(v, (JsonSerializerOptions?)null) ?? new())
+                v => JsonSerializer.Deserialize<Dictionary<FlakinessFactorKind, double>>(v,
+                    (JsonSerializerOptions?)null) ?? new Dictionary<FlakinessFactorKind, double>())
             .IsRequired();
         builder.Property(x => x.Weights)
             .HasColumnName("weights")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<Dictionary<FlakinessFactorKind, double>>(v, (JsonSerializerOptions?)null) ?? new())
+                v => JsonSerializer.Deserialize<Dictionary<FlakinessFactorKind, double>>(v,
+                    (JsonSerializerOptions?)null) ?? new Dictionary<FlakinessFactorKind, double>())
             .IsRequired();
         builder.Property(x => x.Evidence)
             .HasColumnName("evidence")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new())
+                v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>())
             .IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
 

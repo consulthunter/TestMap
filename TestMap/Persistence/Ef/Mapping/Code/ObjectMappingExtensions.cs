@@ -26,18 +26,18 @@ public static class ObjectMappingExtensions
     public static ObjectModel ToDomain(this ObjectEntity entity)
     {
         return new ObjectModel(
-            attributes: entity.Attributes,
-            modifiers: entity.Modifiers,
-            location: entity.Location,
-            id: entity.Id,
-            fileId: entity.FileId,
-            @namespace: entity.Namespace,
-            name: entity.Name,
-            kind: entity.Kind,
-            docString: entity.DocString,
-            fullString: entity.FullString,
-            isTestObject: entity.IsTestObject,
-            testFramework: entity.TestFramework
+            entity.Attributes,
+            entity.Modifiers,
+            entity.Location,
+            entity.Id,
+            entity.FileId,
+            entity.Namespace,
+            entity.Name,
+            entity.Kind,
+            entity.DocString,
+            entity.FullString,
+            entity.IsTestObject,
+            entity.TestFramework
         );
     }
 }

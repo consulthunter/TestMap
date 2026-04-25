@@ -24,21 +24,25 @@ public class MutationTestingReportEntityConfiguration : IEntityTypeConfiguration
             .HasColumnName("files")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<Dictionary<string, StrykerFileResult>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, StrykerFileResult>())
+                v =>
+                    JsonSerializer.Deserialize<Dictionary<string, StrykerFileResult>>(v,
+                        (JsonSerializerOptions?)null) ?? new Dictionary<string, StrykerFileResult>())
             .IsRequired();
 
         builder.Property(x => x.TestFiles)
             .HasColumnName("test_files")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<Dictionary<string, StrykerTestFileResult>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, StrykerTestFileResult>())
+                v => JsonSerializer.Deserialize<Dictionary<string, StrykerTestFileResult>>(v,
+                    (JsonSerializerOptions?)null) ?? new Dictionary<string, StrykerTestFileResult>())
             .IsRequired();
 
         builder.Property(x => x.Thresholds)
             .HasColumnName("thresholds")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<StrykerThresholds>(v, (JsonSerializerOptions?)null) ?? new StrykerThresholds())
+                v => JsonSerializer.Deserialize<StrykerThresholds>(v, (JsonSerializerOptions?)null) ??
+                     new StrykerThresholds())
             .IsRequired();
 
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");

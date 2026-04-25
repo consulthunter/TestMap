@@ -22,15 +22,9 @@ public class CoverageGapRepository
             .Where(x => x.MemberId == memberId && x.CoverageReportId == coverageReportId)
             .ToListAsync();
 
-        if (existing.Count > 0)
-        {
-            _context.CoverageGaps.RemoveRange(existing);
-        }
+        if (existing.Count > 0) _context.CoverageGaps.RemoveRange(existing);
 
-        if (gaps.Count > 0)
-        {
-            _context.CoverageGaps.AddRange(gaps.Select(x => x.ToEntity()));
-        }
+        if (gaps.Count > 0) _context.CoverageGaps.AddRange(gaps.Select(x => x.ToEntity()));
 
         await _context.SaveChangesAsync();
     }
@@ -49,17 +43,14 @@ public class CoverageGapRepository
     public async Task<List<CoverageGapModel>> GetLatestByMemberAsync(int memberId)
     {
         var latestReportId = await (
-            from gap in _context.CoverageGaps
-            join report in _context.CoverageReports on gap.CoverageReportId equals report.Id
-            where gap.MemberId == memberId
-            orderby report.Timestamp descending, report.CreatedAt descending, gap.Id descending
-            select (int?)gap.CoverageReportId)
+                from gap in _context.CoverageGaps
+                join report in _context.CoverageReports on gap.CoverageReportId equals report.Id
+                where gap.MemberId == memberId
+                orderby report.Timestamp descending, report.CreatedAt descending, gap.Id descending
+                select (int?)gap.CoverageReportId)
             .FirstOrDefaultAsync();
 
-        if (latestReportId == null)
-        {
-            return [];
-        }
+        if (latestReportId == null) return [];
 
         return await GetByMemberAsync(memberId, latestReportId.Value);
     }

@@ -11,8 +11,11 @@ public class GenerateTestsRun : IPipelineRun
     private readonly InsertProjectInfoStep _insertProjectInfoStep;
     private readonly AnalyzeProjectStep _analyzeProjectStep;
     private readonly CollectCodeMetricsStep _collectCodeMetricsStep;
+    private readonly EnrichTestMetadataStep _enrichTestMetadataStep;
+    private readonly CollectTestSmellsStep _collectTestSmellsStep;
     private readonly BuildTestStep _buildTestStep;
     private readonly GenerateTestsStep _generateTestsStep;
+
     public GenerateTestsRun(
         CloneRepoStep cloneRepoStep,
         LoadDatabaseStep loadDatabaseStep,
@@ -20,9 +23,10 @@ public class GenerateTestsRun : IPipelineRun
         InsertProjectInfoStep insertProjectInfoStep,
         AnalyzeProjectStep analyzeProjectStep,
         CollectCodeMetricsStep collectCodeMetricsStep,
+        EnrichTestMetadataStep enrichTestMetadataStep,
+        CollectTestSmellsStep collectTestSmellsStep,
         BuildTestStep buildTestStep,
-        GenerateTestsStep generateTestsStep
-        )
+        GenerateTestsStep generateTestsStep)
     {
         _cloneRepoStep = cloneRepoStep;
         _loadDatabaseStep = loadDatabaseStep;
@@ -30,6 +34,8 @@ public class GenerateTestsRun : IPipelineRun
         _insertProjectInfoStep = insertProjectInfoStep;
         _analyzeProjectStep = analyzeProjectStep;
         _collectCodeMetricsStep = collectCodeMetricsStep;
+        _enrichTestMetadataStep = enrichTestMetadataStep;
+        _collectTestSmellsStep = collectTestSmellsStep;
         _buildTestStep = buildTestStep;
         _generateTestsStep = generateTestsStep;
     }
@@ -43,6 +49,8 @@ public class GenerateTestsRun : IPipelineRun
             _insertProjectInfoStep,
             _analyzeProjectStep,
             _collectCodeMetricsStep,
+            _enrichTestMetadataStep,
+            _collectTestSmellsStep,
             _buildTestStep,
             _generateTestsStep
         ]);

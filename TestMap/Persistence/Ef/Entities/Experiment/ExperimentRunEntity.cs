@@ -8,11 +8,10 @@ public class ExperimentRunEntity
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public int ProjectId { get; set; }
-    [MaxLength(4000)]
-    public string Configuration { get; set; } = string.Empty;
+    [MaxLength(4000)] public string Configuration { get; set; } = string.Empty;
     public int CandidateLimit { get; set; }
-    [MaxLength(50)]
-    public string Status { get; set; } = string.Empty;
-    
-    public virtual ICollection<CandidateMethodEntity> CandidateMethods { get; set; } = new List<CandidateMethodEntity>();
+    [MaxLength(50)] public string Status { get; set; } = string.Empty;
+
+    public virtual ICollection<CandidateMethodEntity> CandidateMethods { get; set; } =
+        new List<CandidateMethodEntity>();
 }

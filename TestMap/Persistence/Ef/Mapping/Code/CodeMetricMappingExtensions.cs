@@ -19,18 +19,19 @@ public static class CodeMetricMappingExtensions
             ExecutableLinesOfCode = model.ExecutableLinesOfCode
         };
     }
+
     public static CodeMetricsModel ToDomain(this CodeMetricEntity model)
     {
         return new CodeMetricsModel(
-            entityType: model.EntityType,
-            id: model.Id,
-            entityId: model.EntityId,
-            maintainabilityIndex: model.MaintainabilityIndex,
-            cyclomaticComplexity: model.CyclomaticComplexity,
-            classCoupling: model.ClassCoupling,
-            depthOfInheritance: model.DepthOfInheritance,
-            sourceLinesOfCode: model.SourceLinesOfCode,
-            executableLinesOfCode: model.ExecutableLinesOfCode
+            model.EntityType,
+            model.Id,
+            model.EntityId,
+            model.MaintainabilityIndex,
+            model.CyclomaticComplexity,
+            model.ClassCoupling,
+            model.DepthOfInheritance,
+            model.SourceLinesOfCode,
+            model.ExecutableLinesOfCode
         );
     }
 }

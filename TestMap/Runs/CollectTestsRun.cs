@@ -15,6 +15,7 @@ public class CollectTestsRun : IPipelineRun
     private readonly CollectTestSmellsStep _collectTestSmellsStep;
     private readonly BuildTestStep _buildTestStep;
     private readonly WriteCollectTestsResultStep _writeCollectTestsResultStep;
+
     public CollectTestsRun(
         CloneRepoStep cloneRepoStep,
         LoadDatabaseStep loadDatabaseStep,
@@ -26,7 +27,7 @@ public class CollectTestsRun : IPipelineRun
         CollectTestSmellsStep collectTestSmellsStep,
         BuildTestStep buildTestStep,
         WriteCollectTestsResultStep writeCollectTestsResultStep
-        )
+    )
     {
         _cloneRepoStep = cloneRepoStep;
         _loadDatabaseStep = loadDatabaseStep;

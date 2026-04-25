@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2025-04-09
  *
@@ -20,13 +20,12 @@ public class CoverageReportModel
 
     [XmlAttribute("branch-rate")] public double BranchRate { get; set; } = 0.0;
 
-    [XmlAttribute("complexity")]
-    public string ComplexityRaw { get; set; } = "0";
+    [XmlAttribute("complexity")] public string ComplexityRaw { get; set; } = "0";
 
     [XmlIgnore]
     public double ComplexityValue =>
-        double.TryParse(ComplexityRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) 
-            ? val 
+        double.TryParse(ComplexityRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var val)
+            ? val
             : 0.0;
 
     [XmlAttribute("version")] public string Version { get; set; } = "";

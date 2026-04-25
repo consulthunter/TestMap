@@ -1,4 +1,3 @@
-
 namespace TestMap.Models.Configuration.AiProviders.Ollama;
 
 public class OllamaConfig : IAiProviderConfig

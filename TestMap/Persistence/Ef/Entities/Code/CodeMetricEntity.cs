@@ -8,7 +8,7 @@ public class CodeMetricEntity
     public int MaintainabilityIndex { get; set; }
     public int CyclomaticComplexity { get; set; }
     public int ClassCoupling { get; set; }
-    public int DepthOfInheritance { get; set; }   
+    public int DepthOfInheritance { get; set; }
     public int SourceLinesOfCode { get; set; }
-    public int ExecutableLinesOfCode { get; set; }   
+    public int ExecutableLinesOfCode { get; set; }
 }

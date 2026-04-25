@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.Coverage;
+using TestMap.Persistence.Ef.Entities.Coverage;
 using TestMap.Persistence.Ef.Mappings;
 
 namespace TestMap.Persistence.Ef.Repositories.Coverage;
@@ -40,6 +41,17 @@ public class CoverageReportRepository
         var existing = await _context.CoverageReports.FirstOrDefaultAsync(x =>
             x.ProjectId == projectId && x.Timestamp == model.Timestamp);
 
+        return await InsertOrUpdateAsync(model, projectId, existing);
+    }
+
+    public async Task<int> InsertOrUpdateAsync(
+        CoverageReportModel model,
+        int projectId,
+        CoverageReportEntity? existing)
+    {
+        existing ??= await _context.CoverageReports.FirstOrDefaultAsync(x =>
+            x.ProjectId == projectId && x.Timestamp == model.Timestamp);
+
         if (existing != null)
         {
             if (HasChanged(existing, model))
@@ -69,7 +81,7 @@ public class CoverageReportRepository
         return await _context.CoverageReports.AnyAsync(x => x.ProjectId == projectId);
     }
 
-    private static bool HasChanged(Entities.Coverage.CoverageReportEntity entity, CoverageReportModel model)
+    private static bool HasChanged(CoverageReportEntity entity, CoverageReportModel model)
     {
         return entity.LineRate != SanitizeDouble(model.LineRate) ||
                entity.BranchRate != SanitizeDouble(model.BranchRate) ||

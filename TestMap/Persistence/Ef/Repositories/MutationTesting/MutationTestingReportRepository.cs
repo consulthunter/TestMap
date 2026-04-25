@@ -62,7 +62,7 @@ public class MutationTestingReportRepository
     }
 
     private static bool HasChanged(
-        Entities.MutationTesting.MutationTestingReportEntity entity,
+        MutationTestingReportEntity entity,
         StrykerMutationResults model,
         double mutationScore)
     {
@@ -74,50 +74,110 @@ public class MutationTestingReportRepository
     private async Task PersistMutantsAsync(int reportId, StrykerMutationResults model)
     {
         var testsById = BuildTestsById(model);
+        var existingMutants = await _context.Mutants
+            .Where(x => x.MutationTestingReportId == reportId)
+            .ToListAsync();
+        var memberCandidates = await _context.Members
+            .Join(
+                _context.Objects,
+                member => member.ObjectEntityId,
+                obj => obj.Id,
+                (member, obj) => new { Member = member, Object = obj })
+            .Join(
+                _context.Files,
+                memberObject => memberObject.Object.FileId,
+                file => file.Id,
+                (memberObject, file) => new MemberCandidate(memberObject.Member, file))
+            .ToListAsync();
+        var memberCandidatesByTestFlag = memberCandidates
+            .GroupBy(x => x.Member.IsTestMember)
+            .ToDictionary(x => x.Key, x => x.ToList());
+        var resolvedMemberIds = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+        var mutantsByHash = existingMutants.ToDictionary(x => x.ContentHash);
+        var pendingSurvivedTests = new List<(MutantEntity Mutant, string TestId, TestContext? TestContext)>();
 
         foreach (var (filePath, fileResult) in model.files ?? new Dictionary<string, StrykerFileResult>())
+        foreach (var mutant in fileResult.mutants ?? new List<StrykerMutant>())
         {
-            foreach (var mutant in fileResult.mutants ?? new List<StrykerMutant>())
+            var mutantEntity = UpsertMutant(
+                reportId,
+                model.projectRoot,
+                filePath,
+                mutant,
+                memberCandidatesByTestFlag,
+                resolvedMemberIds,
+                mutantsByHash);
+
+            if (!string.Equals(mutant.status, "Survived", StringComparison.OrdinalIgnoreCase)) continue;
+
+            foreach (var testId in GetSurvivedTestIds(mutant))
             {
-                var mutantEntity = await UpsertMutantAsync(reportId, model.projectRoot, filePath, mutant);
-
-                if (!string.Equals(mutant.status, "Survived", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                foreach (var testId in GetSurvivedTestIds(mutant))
-                {
-                    testsById.TryGetValue(testId, out var testContext);
-                    await UpsertSurvivedTestAsync(mutantEntity.Id, model.projectRoot, testId, testContext);
-                }
+                testsById.TryGetValue(testId, out var testContext);
+                pendingSurvivedTests.Add((mutantEntity, testId, testContext));
             }
         }
+
+        await _context.SaveChangesAsync();
+
+        var mutantIds = existingMutants
+            .Select(x => x.Id)
+            .Concat(pendingSurvivedTests.Select(x => x.Mutant.Id))
+            .Distinct()
+            .ToList();
+        var existingSurvivedTests = await _context.MutantSurvivedTests
+            .Where(x => mutantIds.Contains(x.MutantId))
+            .ToListAsync();
+        var survivedTestsByHash = existingSurvivedTests.ToDictionary(x => x.ContentHash);
+
+        foreach (var pending in pendingSurvivedTests)
+            UpsertSurvivedTest(
+                pending.Mutant,
+                model.projectRoot,
+                pending.TestId,
+                pending.TestContext,
+                memberCandidatesByTestFlag,
+                resolvedMemberIds,
+                survivedTestsByHash);
+
+        await _context.SaveChangesAsync();
     }
 
-    private async Task<MutantEntity> UpsertMutantAsync(int reportId, string projectRoot, string filePath, StrykerMutant mutant)
+    private MutantEntity UpsertMutant(
+        int reportId,
+        string projectRoot,
+        string filePath,
+        StrykerMutant mutant,
+        IReadOnlyDictionary<bool, List<MemberCandidate>> memberCandidatesByTestFlag,
+        IDictionary<string, int?> resolvedMemberIds,
+        IDictionary<string, MutantEntity> mutantsByHash)
     {
         var normalizedFilePath = NormalizePath(filePath, projectRoot);
         var location = ToLocation(mutant.location);
         var contentHash = Utilities.Utilities.ComputeSha256(
             $"{reportId}:{normalizedFilePath}:{mutant.id}:{location.StartLineNumber}:{location.BodyStartPosition}:{mutant.mutatorName}:{mutant.replacement}");
 
-        var existing = await _context.Mutants.FirstOrDefaultAsync(x => x.ContentHash == contentHash);
-        if (existing != null)
+        var memberId = ResolveMemberId(
+            filePath,
+            projectRoot,
+            location,
+            false,
+            memberCandidatesByTestFlag,
+            resolvedMemberIds);
+
+        if (mutantsByHash.TryGetValue(contentHash, out var existing))
         {
-            existing.MemberId = await ResolveMemberIdAsync(filePath, projectRoot, location, isTestMember: false);
+            existing.MemberId = memberId;
             existing.Status = mutant.status ?? string.Empty;
             existing.StatusReason = mutant.statusReason ?? string.Empty;
             existing.CoveredBy = mutant.coveredBy ?? new List<string>();
             existing.KilledBy = mutant.killedBy ?? new List<string>();
-            await _context.SaveChangesAsync();
             return existing;
         }
 
         var entity = new MutantEntity
         {
             MutationTestingReportId = reportId,
-            MemberId = await ResolveMemberIdAsync(filePath, projectRoot, location, isTestMember: false),
+            MemberId = memberId,
             StrykerMutantId = mutant.id ?? string.Empty,
             FilePath = filePath,
             MutatorName = mutant.mutatorName ?? string.Empty,
@@ -133,38 +193,45 @@ public class MutationTestingReportRepository
         };
 
         _context.Mutants.Add(entity);
-        await _context.SaveChangesAsync();
+        mutantsByHash[contentHash] = entity;
         return entity;
     }
 
-    private async Task UpsertSurvivedTestAsync(int mutantId, string projectRoot, string testId, TestContext? testContext)
+    private void UpsertSurvivedTest(
+        MutantEntity mutantEntity,
+        string projectRoot,
+        string testId,
+        TestContext? testContext,
+        IReadOnlyDictionary<bool, List<MemberCandidate>> memberCandidatesByTestFlag,
+        IDictionary<string, int?> resolvedMemberIds,
+        IDictionary<string, MutantSurvivedTestEntity> survivedTestsByHash)
     {
-        var contentHash = Utilities.Utilities.ComputeSha256($"{mutantId}:{testId}");
+        var contentHash = Utilities.Utilities.ComputeSha256($"{mutantEntity.Id}:{testId}");
         var testFilePath = testContext?.FilePath ?? string.Empty;
         var location = ToLocation(testContext?.Test.location);
         var testMemberId = string.IsNullOrWhiteSpace(testFilePath)
             ? null
-            : await ResolveMemberIdAsync(
+            : ResolveMemberId(
                 testFilePath,
                 projectRoot,
                 location,
-                isTestMember: true,
+                true,
+                memberCandidatesByTestFlag,
+                resolvedMemberIds,
                 testContext?.Test.name);
 
-        var existing = await _context.MutantSurvivedTests.FirstOrDefaultAsync(x => x.ContentHash == contentHash);
-        if (existing != null)
+        if (survivedTestsByHash.TryGetValue(contentHash, out var existing))
         {
             existing.TestMemberId = testMemberId;
             existing.TestName = testContext?.Test.name ?? string.Empty;
             existing.TestFilePath = testFilePath;
             existing.Location = location;
-            await _context.SaveChangesAsync();
             return;
         }
 
         var entity = new MutantSurvivedTestEntity
         {
-            MutantId = mutantId,
+            MutantId = mutantEntity.Id,
             TestMemberId = testMemberId,
             StrykerTestId = testId,
             TestName = testContext?.Test.name ?? string.Empty,
@@ -174,30 +241,31 @@ public class MutationTestingReportRepository
         };
 
         _context.MutantSurvivedTests.Add(entity);
-        await _context.SaveChangesAsync();
+        survivedTestsByHash[contentHash] = entity;
     }
 
-    private async Task<int?> ResolveMemberIdAsync(
+    private static int? ResolveMemberId(
         string reportedFilePath,
         string projectRoot,
         Location location,
         bool isTestMember,
+        IReadOnlyDictionary<bool, List<MemberCandidate>> memberCandidatesByTestFlag,
+        IDictionary<string, int?> resolvedMemberIds,
         string? memberName = null)
     {
+        var cacheKey = string.Join(
+            "|",
+            isTestMember,
+            NormalizeForComparison(reportedFilePath),
+            NormalizeForComparison(projectRoot),
+            location.StartLineNumber,
+            location.EndLineNumber,
+            memberName ?? string.Empty);
+        if (resolvedMemberIds.TryGetValue(cacheKey, out var cached)) return cached;
+
         var line = location.StartLineNumber;
-        var candidates = await _context.Members
-            .Join(
-                _context.Objects,
-                member => member.ObjectEntityId,
-                obj => obj.Id,
-                (member, obj) => new { Member = member, Object = obj })
-            .Join(
-                _context.Files,
-                memberObject => memberObject.Object.FileId,
-                file => file.Id,
-                (memberObject, file) => new { memberObject.Member, File = file })
-            .Where(x => x.Member.IsTestMember == isTestMember)
-            .ToListAsync();
+        memberCandidatesByTestFlag.TryGetValue(isTestMember, out var candidates);
+        candidates ??= [];
 
         var fileMatches = candidates
             .Where(x => PathsMatch(x.File.FilePath, reportedFilePath, projectRoot))
@@ -211,21 +279,25 @@ public class MutationTestingReportRepository
 
         if (lineMatch != null)
         {
+            resolvedMemberIds[cacheKey] = lineMatch;
             return lineMatch;
         }
 
         if (!string.IsNullOrWhiteSpace(memberName))
         {
             var simpleName = memberName.Split('.').Last();
-            return fileMatches
+            var match = fileMatches
                 .Where(x =>
                     string.Equals(x.Member.Name, simpleName, StringComparison.OrdinalIgnoreCase) ||
                     memberName.EndsWith("." + x.Member.Name, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(x => x.Member.IsTestMember == isTestMember ? 0 : 1)
                 .Select(x => (int?)x.Member.Id)
                 .FirstOrDefault();
+            resolvedMemberIds[cacheKey] = match;
+            return match;
         }
 
+        resolvedMemberIds[cacheKey] = null;
         return null;
     }
 
@@ -233,15 +305,9 @@ public class MutationTestingReportRepository
     {
         var testsById = new Dictionary<string, TestContext>(StringComparer.Ordinal);
         foreach (var (filePath, testFile) in model.testFiles ?? new Dictionary<string, StrykerTestFileResult>())
-        {
-            foreach (var test in testFile.tests ?? new List<StrykerTest>())
-            {
-                if (!string.IsNullOrWhiteSpace(test.id))
-                {
-                    testsById[test.id] = new TestContext(filePath, test);
-                }
-            }
-        }
+        foreach (var test in testFile.tests ?? new List<StrykerTest>())
+            if (!string.IsNullOrWhiteSpace(test.id))
+                testsById[test.id] = new TestContext(filePath, test);
 
         return testsById;
     }
@@ -255,11 +321,13 @@ public class MutationTestingReportRepository
     }
 
     private static Location ToLocation(StrykerLocation? location)
-        => new(
+    {
+        return new Location(
             Math.Max(0, (location?.start?.line ?? 1) - 1),
             Math.Max(0, (location?.start?.column ?? 1) - 1),
             Math.Max(0, (location?.end?.line ?? 1) - 1),
             Math.Max(0, (location?.end?.column ?? 1) - 1));
+    }
 
     private static string NormalizePath(string path, string projectRoot)
     {
@@ -291,16 +359,11 @@ public class MutationTestingReportRepository
         var normalizedProjectRoot = NormalizeForComparison(projectRoot);
         if (!string.IsNullOrWhiteSpace(normalizedProjectRoot) &&
             normalizedPath.StartsWith(normalizedProjectRoot + "/", StringComparison.OrdinalIgnoreCase))
-        {
             return normalizedPath[(normalizedProjectRoot.Length + 1)..];
-        }
 
         const string containerProjectRoot = "/APP/PROJECT/";
         var containerRootIndex = normalizedPath.IndexOf(containerProjectRoot, StringComparison.OrdinalIgnoreCase);
-        if (containerRootIndex >= 0)
-        {
-            return normalizedPath[(containerRootIndex + containerProjectRoot.Length)..];
-        }
+        if (containerRootIndex >= 0) return normalizedPath[(containerRootIndex + containerProjectRoot.Length)..];
 
         return normalizedPath;
     }
@@ -313,6 +376,10 @@ public class MutationTestingReportRepository
             .TrimEnd('/')
             .ToUpperInvariant();
     }
+
+    private sealed record MemberCandidate(
+        Persistence.Ef.Entities.Code.MemberEntity Member,
+        Persistence.Ef.Entities.Code.FileEntity File);
 
     private sealed record TestContext(string FilePath, StrykerTest Test);
 }

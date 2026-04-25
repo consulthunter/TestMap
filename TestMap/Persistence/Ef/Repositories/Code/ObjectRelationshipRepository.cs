@@ -19,10 +19,7 @@ public class ObjectRelationshipRepository
             x.SourceId == model.SourceId &&
             x.TargetId == model.TargetId &&
             x.RelationshipType == model.RelationshipType);
-        if (existing != null)
-        {
-            return existing.Id;
-        }
+        if (existing != null) return existing.Id;
 
         var entity = model.ToEntity();
         _context.ObjectRelationships.Add(entity);

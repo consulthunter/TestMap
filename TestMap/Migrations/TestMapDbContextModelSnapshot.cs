@@ -624,6 +624,10 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("existing_test_method_name");
 
+                    b.Property<double?>("ExpectedMetricDelta")
+                        .HasColumnType("REAL")
+                        .HasColumnName("expected_metric_delta");
+
                     b.Property<int>("ExperimentRunId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("experiment_run_id");
@@ -639,6 +643,39 @@ namespace TestMap.Migrations
                     b.Property<int>("InitialTotalLines")
                         .HasColumnType("INTEGER")
                         .HasColumnName("initial_total_lines");
+
+                    b.Property<double?>("MetricConfidence")
+                        .HasColumnType("REAL")
+                        .HasColumnName("metric_confidence");
+
+                    b.Property<double?>("MetricDrivenScore")
+                        .HasColumnType("REAL")
+                        .HasColumnName("metric_driven_score");
+
+                    b.Property<double?>("MetricEstimatedCost")
+                        .HasColumnType("REAL")
+                        .HasColumnName("metric_estimated_cost");
+
+                    b.Property<double?>("MetricFeasibility")
+                        .HasColumnType("REAL")
+                        .HasColumnName("metric_feasibility");
+
+                    b.Property<string>("MetricGuardrailStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("metric_guardrail_status");
+
+                    b.Property<string>("MetricSelectionReason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("metric_selection_reason");
+
+                    b.Property<string>("RecommendedAction")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("recommended_action");
 
                     b.Property<DateTime>("SelectionTime")
                         .HasColumnType("TEXT")
@@ -659,6 +696,26 @@ namespace TestMap.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT")
                         .HasColumnName("source_method_signature");
+
+                    b.Property<string>("TestImprovementReason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_improvement_reason");
+
+                    b.Property<double?>("TestImprovementScore")
+                        .HasColumnType("REAL")
+                        .HasColumnName("test_improvement_score");
+
+                    b.Property<string>("TestState")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_state");
+
+                    b.Property<string>("TestStateReason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_state_reason");
 
                     b.HasKey("Id");
 
@@ -966,6 +1023,203 @@ namespace TestMap.Migrations
                     b.ToTable("test_executions", (string)null);
                 });
 
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.FlakyTestDetection.FlakyTestRerunResultEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempt_number");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<double>("DurationMs")
+                        .HasColumnType("REAL")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_message");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("RunId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("run_id");
+
+                    b.Property<int>("TestExecutionResultId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("test_execution_result_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId");
+
+                    b.HasIndex("TestExecutionResultId");
+
+                    b.ToTable("flaky_test_rerun_results", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.FlakyTestDetection.FlakyTestScoreEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Classification")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("classification");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("evidence");
+
+                    b.Property<string>("FactorScores")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("factor_scores");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("file_path");
+
+                    b.Property<double>("FlakinessScore")
+                        .HasColumnType("REAL")
+                        .HasColumnName("flakiness_score");
+
+                    b.Property<string>("RunId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("run_id");
+
+                    b.Property<int?>("TestMemberId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("test_member_id");
+
+                    b.Property<string>("TestName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_name");
+
+                    b.Property<string>("Weights")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("weights");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId");
+
+                    b.HasIndex("TestMemberId");
+
+                    b.HasIndex("TestName", "FilePath");
+
+                    b.ToTable("flaky_test_scores", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.FlakyTestDetection.TestExecutionResultEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<double>("DurationMs")
+                        .HasColumnType("REAL")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_message");
+
+                    b.Property<string>("ErrorStackTrace")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_stack_trace");
+
+                    b.Property<string>("ExecutionContext")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("execution_context");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("file_path");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ProjectPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("project_path");
+
+                    b.Property<string>("RunId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("run_id");
+
+                    b.Property<string>("SolutionPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("solution_path");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("TargetFramework")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_framework");
+
+                    b.Property<int?>("TestMemberId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("test_member_id");
+
+                    b.Property<string>("TestName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_name");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId");
+
+                    b.HasIndex("TestMemberId");
+
+                    b.HasIndex("TestName", "FilePath");
+
+                    b.ToTable("test_execution_results", (string)null);
+                });
+
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.MutationTesting.MutantEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1205,6 +1459,53 @@ namespace TestMap.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("projects", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.RiskScoring.CandidateMethodRiskScoreEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("CandidateMethodId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("candidate_method_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FactorScores")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("factor_scores");
+
+                    b.Property<int>("MemberId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("member_id");
+
+                    b.Property<double>("RiskScore")
+                        .HasColumnType("REAL")
+                        .HasColumnName("risk_score");
+
+                    b.Property<string>("SelectionReason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("selection_reason");
+
+                    b.Property<string>("Weights")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("weights");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CandidateMethodId");
+
+                    b.HasIndex("MemberId");
+
+                    b.ToTable("candidate_method_risk_scores", (string)null);
                 });
 
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Testing.TestResultEntity", b =>
@@ -1525,8 +1826,7 @@ namespace TestMap.Migrations
                 {
                     b.Navigation("GenerationSteps");
 
-                    b.Navigation("TestExecution")
-                        .IsRequired();
+                    b.Navigation("TestExecution");
                 });
 #pragma warning restore 612, 618
         }

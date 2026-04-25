@@ -58,9 +58,7 @@ public static class GenerationStepMappingExtensions
             string.IsNullOrWhiteSpace(step.StructuredResponseJson) &&
             string.IsNullOrWhiteSpace(step.PromptVersion) &&
             string.IsNullOrWhiteSpace(step.ValidationStatus))
-        {
             return string.Empty;
-        }
 
         return JsonSerializer.Serialize(new GenerationStepPersistenceMetadata
         {
@@ -73,10 +71,7 @@ public static class GenerationStepMappingExtensions
 
     private static GenerationStepPersistenceMetadata? DeserializeMetadata(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
+        if (string.IsNullOrWhiteSpace(value)) return null;
 
         try
         {

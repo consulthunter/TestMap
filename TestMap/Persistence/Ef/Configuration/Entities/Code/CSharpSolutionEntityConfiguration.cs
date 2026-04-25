@@ -17,5 +17,4 @@ public class CSharpSolutionEntityConfiguration : IEntityTypeConfiguration<CSharp
         builder.Property(x => x.FilePath).HasColumnName("file_path").IsRequired();
         builder.Property(x => x.ContentHash).HasColumnName("content_hash");
     }
-    
 }

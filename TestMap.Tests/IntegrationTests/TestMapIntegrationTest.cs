@@ -9,5 +9,4 @@ namespace TestMap.Tests.IntegrationTests;
 
 public class TestMapIntegrationTest
 {
-   
 }

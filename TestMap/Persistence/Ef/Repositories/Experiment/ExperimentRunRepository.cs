@@ -29,7 +29,8 @@ public class ExperimentRunRepository
         return entity?.ToDomain();
     }
 
-    public async Task<List<ExperimentRun>> GetByProjectIdAsync(int projectId, CancellationToken cancellationToken = default)
+    public async Task<List<ExperimentRun>> GetByProjectIdAsync(int projectId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.ExperimentRuns
             .Where(e => e.ProjectId == projectId)

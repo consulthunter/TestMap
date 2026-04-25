@@ -22,17 +22,12 @@ public class FlakyTestDetectionService : IFlakyTestDetectionService
         FlakyTestDetectionRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!request.Config.Enabled)
-        {
-            return new FlakyTestDetectionResult([], []);
-        }
+        if (!request.Config.Enabled) return new FlakyTestDetectionResult([], []);
 
         var validation = _scoringService.Validate(request.Config);
         if (!validation.IsValid)
-        {
             throw new InvalidOperationException(
                 $"Invalid flaky test detection configuration: {string.Join("; ", validation.Errors)}");
-        }
 
         var failedTests = request.CurrentResults
             .Where(x => !string.Equals(x.Outcome, "Passed", StringComparison.OrdinalIgnoreCase))

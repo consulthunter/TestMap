@@ -3,7 +3,8 @@ using TestMap.Models.Configuration.AiProviders.Google;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Experiment;
 using TestMap.Services.Configuration;
-using TestMap.Services.Experiment;
+using TestMap.Services.Experiment.Execution;
+using TestMap.Services.Experiment.Reporting;
 
 namespace TestMap.Execution.Steps;
 
@@ -31,10 +32,8 @@ public class RunExperimentStep : IPipelineStep
         var experimentConfig = _configurationService.Config.ExperimentConfig;
 
         if (experimentConfig == null)
-        {
             throw new InvalidOperationException(
                 "ExperimentConfig is not configured. Please add an ExperimentConfig section to your configuration file.");
-        }
 
         ValidateExperimentConfiguration(experimentConfig);
 
@@ -43,10 +42,7 @@ public class RunExperimentStep : IPipelineStep
         if (!string.IsNullOrWhiteSpace(experimentConfig.OutputPath))
         {
             var outputDir = Path.GetDirectoryName(experimentConfig.OutputPath);
-            if (!string.IsNullOrWhiteSpace(outputDir))
-            {
-                Directory.CreateDirectory(outputDir);
-            }
+            if (!string.IsNullOrWhiteSpace(outputDir)) Directory.CreateDirectory(outputDir);
 
             await _analysisService.ExportToCsvAsync(experimentRun.Id, experimentConfig.OutputPath);
         }
@@ -55,14 +51,10 @@ public class RunExperimentStep : IPipelineStep
     private void ValidateExperimentConfiguration(ExperimentConfiguration experimentConfig)
     {
         if (experimentConfig.CandidateLimit <= 0)
-        {
             throw new InvalidOperationException("ExperimentConfig.CandidateLimit must be greater than 0.");
-        }
 
         if (experimentConfig.Strategies == null || experimentConfig.Strategies.Count == 0)
-        {
             throw new InvalidOperationException("ExperimentConfig.Strategies must contain at least one strategy.");
-        }
 
         var usableProviders = _configurationService.Config.AiProviderConfig.ProviderConfigs
             .Where(AiProviderConfigurationRules.IsUsable)
@@ -70,37 +62,31 @@ public class RunExperimentStep : IPipelineStep
             .ToHashSet();
 
         if (experimentConfig.IncludeProviders.Count > 0)
-        {
             foreach (var providerName in experimentConfig.IncludeProviders)
             {
                 if (!Enum.TryParse<AiProvider>(providerName, true, out var provider))
-                {
                     throw new InvalidOperationException($"Unknown experiment provider '{providerName}'.");
-                }
 
                 if (!usableProviders.Contains(provider))
                 {
                     var providerConfig = _configurationService.Config.AiProviderConfig.GetProviderConfig(provider);
                     var detail = providerConfig == null
                         ? "Provider config section is missing."
-                        : AiProviderConfigurationRules.GetValidationError(providerConfig) ?? "Provider config is invalid.";
-                    throw new InvalidOperationException($"Experiment provider '{provider}' is not configured for use. {detail}");
+                        : AiProviderConfigurationRules.GetValidationError(providerConfig) ??
+                          "Provider config is invalid.";
+                    throw new InvalidOperationException(
+                        $"Experiment provider '{provider}' is not configured for use. {detail}");
                 }
             }
-        }
         else if (usableProviders.Count == 0)
-        {
             throw new InvalidOperationException(
                 "ExperimentConfig requires at least one usable provider in AiProviderConfig.ProviderConfigs.");
-        }
 
         if (!string.IsNullOrWhiteSpace(experimentConfig.PreferredProvider))
         {
             if (!Enum.TryParse<AiProvider>(experimentConfig.PreferredProvider, true, out var preferredProvider))
-            {
                 throw new InvalidOperationException(
                     $"Unknown preferred provider '{experimentConfig.PreferredProvider}'.");
-            }
 
             if (!usableProviders.Contains(preferredProvider))
             {
@@ -116,11 +102,7 @@ public class RunExperimentStep : IPipelineStep
         if (!string.IsNullOrWhiteSpace(experimentConfig.OutputPath))
         {
             var outputDir = Path.GetDirectoryName(experimentConfig.OutputPath);
-            if (!string.IsNullOrWhiteSpace(outputDir))
-            {
-                Directory.CreateDirectory(outputDir);
-            }
+            if (!string.IsNullOrWhiteSpace(outputDir)) Directory.CreateDirectory(outputDir);
         }
     }
-
 }

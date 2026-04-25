@@ -31,7 +31,8 @@ public class GenerationAttemptRepository
         return entity?.ToDomain();
     }
 
-    public async Task<List<GenerationAttempt>> GetByCandidateMethodIdAsync(int candidateMethodId, CancellationToken cancellationToken = default)
+    public async Task<List<GenerationAttempt>> GetByCandidateMethodIdAsync(int candidateMethodId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.GenerationAttempts
             .Include(g => g.GenerationSteps)
@@ -43,12 +44,14 @@ public class GenerationAttemptRepository
         return entities.Select(x => x.ToDomain()).ToList();
     }
 
-    public Task<List<GenerationAttempt>> GetByCandidateMethodAsync(int candidateMethodId, CancellationToken cancellationToken = default)
+    public Task<List<GenerationAttempt>> GetByCandidateMethodAsync(int candidateMethodId,
+        CancellationToken cancellationToken = default)
     {
         return GetByCandidateMethodIdAsync(candidateMethodId, cancellationToken);
     }
 
-    public async Task<List<GenerationAttempt>> GetSuccessfulAttemptsAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<List<GenerationAttempt>> GetSuccessfulAttemptsAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.GenerationAttempts
             .Include(g => g.CandidateMethod)
@@ -60,7 +63,8 @@ public class GenerationAttemptRepository
         return entities.Select(x => x.ToDomain()).ToList();
     }
 
-    public async Task<Dictionary<AiProvider, int>> GetSuccessCountByProviderAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<AiProvider, int>> GetSuccessCountByProviderAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var rows = await _context.GenerationAttempts
             .Include(g => g.CandidateMethod)

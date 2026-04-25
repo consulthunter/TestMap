@@ -9,31 +9,51 @@ public class SqliteSchemaCompatibilityService
     {
         var connection = db.Database.GetDbConnection();
         var shouldClose = connection.State != System.Data.ConnectionState.Open;
-        if (shouldClose)
-        {
-            await connection.OpenAsync();
-        }
+        if (shouldClose) await connection.OpenAsync();
 
         try
         {
-            if (connection is not SqliteConnection sqliteConnection)
-            {
-                return;
-            }
+            if (connection is not SqliteConnection sqliteConnection) return;
 
-            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "error_message", "ALTER TABLE generation_attempts ADD COLUMN error_message TEXT NOT NULL DEFAULT '';");
-            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "failure_category", "ALTER TABLE generation_attempts ADD COLUMN failure_category TEXT NOT NULL DEFAULT '';");
-            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "failure_kind", "ALTER TABLE generation_attempts ADD COLUMN failure_kind TEXT NOT NULL DEFAULT '';");
-            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "failure_stage", "ALTER TABLE generation_attempts ADD COLUMN failure_stage TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "error_message",
+                "ALTER TABLE generation_attempts ADD COLUMN error_message TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "failure_category",
+                "ALTER TABLE generation_attempts ADD COLUMN failure_category TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "failure_kind",
+                "ALTER TABLE generation_attempts ADD COLUMN failure_kind TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "failure_stage",
+                "ALTER TABLE generation_attempts ADD COLUMN failure_stage TEXT NOT NULL DEFAULT '';");
 
-            await EnsureColumnAsync(sqliteConnection, "members", "test_metadata_source", "ALTER TABLE members ADD COLUMN test_metadata_source TEXT NOT NULL DEFAULT '';");
-            await EnsureColumnAsync(sqliteConnection, "members", "test_metadata_confidence", "ALTER TABLE members ADD COLUMN test_metadata_confidence REAL NULL;");
-            await EnsureColumnAsync(sqliteConnection, "members", "test_metadata_prompt_version", "ALTER TABLE members ADD COLUMN test_metadata_prompt_version TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "members", "test_metadata_source",
+                "ALTER TABLE members ADD COLUMN test_metadata_source TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "members", "test_metadata_confidence",
+                "ALTER TABLE members ADD COLUMN test_metadata_confidence REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "members", "test_metadata_prompt_version",
+                "ALTER TABLE members ADD COLUMN test_metadata_prompt_version TEXT NOT NULL DEFAULT '';");
 
-            await EnsureColumnAsync(sqliteConnection, "test_runs", "mutation_score", "ALTER TABLE test_runs ADD COLUMN mutation_score REAL NULL;");
-            await EnsureColumnAsync(sqliteConnection, "test_executions", "baseline_mutation_score", "ALTER TABLE test_executions ADD COLUMN baseline_mutation_score REAL NULL;");
-            await EnsureColumnAsync(sqliteConnection, "test_executions", "mutation_score_after", "ALTER TABLE test_executions ADD COLUMN mutation_score_after REAL NULL;");
-            await EnsureColumnAsync(sqliteConnection, "test_executions", "mutation_score_delta", "ALTER TABLE test_executions ADD COLUMN mutation_score_delta REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "test_runs", "mutation_score",
+                "ALTER TABLE test_runs ADD COLUMN mutation_score REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "baseline_mutation_score",
+                "ALTER TABLE test_executions ADD COLUMN baseline_mutation_score REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "mutation_score_after",
+                "ALTER TABLE test_executions ADD COLUMN mutation_score_after REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "mutation_score_delta",
+                "ALTER TABLE test_executions ADD COLUMN mutation_score_delta REAL NULL;");
+
+            await EnsureColumnAsync(sqliteConnection, "candidate_methods", "metric_driven_score",
+                "ALTER TABLE candidate_methods ADD COLUMN metric_driven_score REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "candidate_methods", "expected_metric_delta",
+                "ALTER TABLE candidate_methods ADD COLUMN expected_metric_delta REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "candidate_methods", "metric_confidence",
+                "ALTER TABLE candidate_methods ADD COLUMN metric_confidence REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "candidate_methods", "metric_feasibility",
+                "ALTER TABLE candidate_methods ADD COLUMN metric_feasibility REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "candidate_methods", "metric_estimated_cost",
+                "ALTER TABLE candidate_methods ADD COLUMN metric_estimated_cost REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "candidate_methods", "metric_guardrail_status",
+                "ALTER TABLE candidate_methods ADD COLUMN metric_guardrail_status TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "candidate_methods", "metric_selection_reason",
+                "ALTER TABLE candidate_methods ADD COLUMN metric_selection_reason TEXT NOT NULL DEFAULT '';");
 
             await EnsureInvocationsSupportExternalAssertionsAsync(sqliteConnection);
             await EnsureCoverageGapsTableAsync(sqliteConnection);
@@ -46,10 +66,7 @@ public class SqliteSchemaCompatibilityService
         }
         finally
         {
-            if (shouldClose)
-            {
-                await connection.CloseAsync();
-            }
+            if (shouldClose) await connection.CloseAsync();
         }
     }
 
@@ -64,12 +81,8 @@ public class SqliteSchemaCompatibilityService
         await using var reader = await pragma.ExecuteReaderAsync();
 
         while (await reader.ReadAsync())
-        {
             if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
-            {
                 return;
-            }
-        }
 
         await reader.CloseAsync();
 
@@ -83,10 +96,7 @@ public class SqliteSchemaCompatibilityService
         await using var check = connection.CreateCommand();
         check.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'invocations';";
         var exists = await check.ExecuteScalarAsync();
-        if (exists == null)
-        {
-            return;
-        }
+        if (exists == null) return;
 
         await using var pragma = connection.CreateCommand();
         pragma.CommandText = "PRAGMA table_info(invocations);";
@@ -94,20 +104,15 @@ public class SqliteSchemaCompatibilityService
 
         var invokedMemberIdIsRequired = false;
         while (await reader.ReadAsync())
-        {
             if (string.Equals(reader.GetString(1), "invoked_member_id", StringComparison.OrdinalIgnoreCase))
             {
                 invokedMemberIdIsRequired = reader.GetInt32(3) == 1;
                 break;
             }
-        }
 
         await reader.CloseAsync();
 
-        if (!invokedMemberIdIsRequired)
-        {
-            return;
-        }
+        if (!invokedMemberIdIsRequired) return;
 
         await using var rebuild = connection.CreateCommand();
         rebuild.CommandText = @"
@@ -274,10 +279,7 @@ CREATE INDEX IX_flaky_test_rerun_results_test_execution_result_id ON flaky_test_
         await using var check = connection.CreateCommand();
         check.CommandText = $"SELECT name FROM sqlite_master WHERE type = 'table' AND name = '{tableName}';";
         var exists = await check.ExecuteScalarAsync();
-        if (exists != null)
-        {
-            return;
-        }
+        if (exists != null) return;
 
         await using var create = connection.CreateCommand();
         create.CommandText = createSql;

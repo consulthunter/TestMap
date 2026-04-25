@@ -1,8 +1,5 @@
-
-
 using TestMap.App;
-using TestMap.Services.RepoOperations.Delete;
-using TestMap.Services.RepoOperations.Clone;
+using TestMap.Services.RepoOperations;
 
 namespace TestMap.Services.RepoOperations;
 

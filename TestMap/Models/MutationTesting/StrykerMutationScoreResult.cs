@@ -11,11 +11,12 @@ public record StrykerMutationScoreResult
 
     public int TotalDetected => Killed + Timeout + CompileErrors;
     public int TotalUndetected => Survived + NoCoverage;
+
     public int TotalMutants =>
         Killed + Survived + Timeout + NoCoverage + Ignored + CompileErrors;
 
     public double Score =>
-        (TotalDetected + TotalUndetected) == 0
+        TotalDetected + TotalUndetected == 0
             ? 0.0
             : (double)TotalDetected / (TotalDetected + TotalUndetected);
 }

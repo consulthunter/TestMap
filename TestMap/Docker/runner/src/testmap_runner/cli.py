@@ -76,7 +76,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     targeted_stryker_parser.add_argument("--run-id", required=True)
     targeted_stryker_parser.add_argument("--project", required=True, help="Source project path inside the container.")
-    targeted_stryker_parser.add_argument("--test-project", required=True, help="Test project path inside the container.")
+    targeted_stryker_parser.add_argument("--test-project", required=True,
+                                         help="Test project path inside the container.")
     targeted_stryker_parser.set_defaults(func=run_dotnet_stryker_project)
 
     dotnet_parser = subparsers.add_parser("dotnet", help="Run an arbitrary dotnet command in the mounted project.")
@@ -166,15 +167,17 @@ def run_dotnet_tests(args: argparse.Namespace) -> int:
     ensure_directory(paths.project_dir)
 
     solution_names = split_csv(args.solutions)
-    discovered_solution_paths: list[Path] = []
+    overall_exit_code = 0
+    produced_any_test_results = False
+    produced_any_coverage_files = False
 
     for solution_name in solution_names:
         solution_path = find_named_file(paths.project_dir, solution_name)
         if solution_path is None:
             print(f"Solution not found in container: {solution_name}")
+            overall_exit_code = overall_exit_code or 1
             continue
 
-        discovered_solution_paths.append(solution_path)
         print(f"Processing solution: {solution_path}")
 
         result = run_dotnet_test_command(
@@ -183,22 +186,39 @@ def run_dotnet_tests(args: argparse.Namespace) -> int:
             framework=args.framework,
             collector=None,
         )
-        if result.return_code != 0:
-            print(f"Testing failed for solution: {solution_path}")
-            return result.return_code
         if result.test_result_count == 0:
             print(f"No TRX test results were produced for solution: {solution_path}")
-            return 1
+            overall_exit_code = overall_exit_code or result.return_code or 1
+            continue
         if result.coverage_file_count == 0:
             print(f"No coverage files were produced for solution: {solution_path}")
-            return 1
+            overall_exit_code = overall_exit_code or result.return_code or 1
+            continue
+
+        produced_any_test_results = True
+        produced_any_coverage_files = True
+
+        if result.return_code != 0:
+            print(
+                f"Testing reported failures for solution: {solution_path}. "
+                "Continuing so produced coverage can still be merged."
+            )
+            overall_exit_code = overall_exit_code or result.return_code
+
+    if not produced_any_test_results:
+        print("No TRX test results were produced for any specified solution.")
+        return overall_exit_code or 1
+
+    if not produced_any_coverage_files:
+        print("No coverage files were produced for any specified solution.")
+        return overall_exit_code or 1
 
     merge_exit_code = merge_coverage_reports(paths, args.run_id)
     if merge_exit_code != 0:
         return merge_exit_code
 
     print("All specified solutions processed.")
-    return 0
+    return overall_exit_code
 
 
 def run_dotnet_test_project(args: argparse.Namespace) -> int:
@@ -221,22 +241,25 @@ def run_dotnet_test_project(args: argparse.Namespace) -> int:
         framework=args.framework,
         collector=args.collector,
     )
-    if result.return_code != 0:
-        print(f"Testing failed for project: {project_path}")
-        return result.return_code
     if result.test_result_count == 0:
         print(f"No TRX test results were produced for project: {project_path}")
-        return 1
+        return result.return_code or 1
     if result.coverage_file_count == 0:
         print(f"No coverage files were produced for project: {project_path}")
-        return 1
+        return result.return_code or 1
+
+    if result.return_code != 0:
+        print(
+            f"Testing reported failures for project: {project_path}. "
+            "Continuing so produced coverage can still be merged."
+        )
 
     merge_exit_code = merge_coverage_reports(paths, args.run_id)
     if merge_exit_code != 0:
         return merge_exit_code
 
     print("Targeted test project processed.")
-    return 0
+    return result.return_code
 
 
 def run_dotnet_build(args: argparse.Namespace) -> int:
@@ -387,11 +410,11 @@ def run_dotnet_passthrough(args: argparse.Namespace) -> int:
 
 
 def run_dotnet_test_command(
-    target_path: Path,
-    *,
-    paths: RunnerPaths,
-    framework: str | None,
-    collector: str | None,
+        target_path: Path,
+        *,
+        paths: RunnerPaths,
+        framework: str | None,
+        collector: str | None,
 ) -> CommandResult:
     collectors = [collector] if collector else [
         "XPlat Code Coverage",
@@ -512,12 +535,12 @@ def merge_coverage_reports(paths: RunnerPaths, run_id: str) -> int:
 
 
 def run_process(
-    command: Sequence[str],
-    *,
-    cwd: Path,
-    output_file: Path | None = None,
-    check: bool,
-    capture_output: bool = False,
+        command: Sequence[str],
+        *,
+        cwd: Path,
+        output_file: Path | None = None,
+        check: bool,
+        capture_output: bool = False,
 ) -> CommandResult:
     if output_file is None:
         completed = subprocess.run(

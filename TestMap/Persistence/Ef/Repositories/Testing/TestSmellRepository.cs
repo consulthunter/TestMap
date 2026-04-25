@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.Results;
+using TestMap.Persistence.Ef.Entities.Testing;
 using TestMap.Persistence.Ef.Mappings;
 
 namespace TestMap.Persistence.Ef.Repositories.Testing;
@@ -73,7 +74,7 @@ public class TestSmellRepository
         return entity.Id;
     }
 
-    private static bool HasChanged(Entities.Testing.TestSmellEntity entity, TestSmellModel model)
+    public static bool HasChanged(TestSmellEntity entity, TestSmellModel model)
     {
         return entity.MemberId != model.MemberId ||
                entity.ObjectId != model.ObjectId ||
@@ -82,5 +83,16 @@ public class TestSmellRepository
                entity.ContainingTypeName != model.ContainingTypeName ||
                entity.TestMethodName != model.TestMethodName ||
                entity.AnalyzedAtUtc != model.AnalyzedAtUtc;
+    }
+
+    public static void Apply(TestSmellEntity entity, TestSmellModel model)
+    {
+        entity.MemberId = model.MemberId;
+        entity.ObjectId = model.ObjectId;
+        entity.SmellName = model.SmellName;
+        entity.Message = model.Message;
+        entity.ContainingTypeName = model.ContainingTypeName;
+        entity.TestMethodName = model.TestMethodName;
+        entity.AnalyzedAtUtc = model.AnalyzedAtUtc;
     }
 }

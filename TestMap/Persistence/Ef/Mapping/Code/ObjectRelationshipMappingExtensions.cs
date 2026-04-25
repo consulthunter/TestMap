@@ -18,9 +18,9 @@ public static class ObjectRelationshipMappingExtensions
     public static ObjectRelationshipModel ToDomain(this ObjectRelationshipEntity entity)
     {
         return new ObjectRelationshipModel(
-            sourceId: entity.SourceId,
-            targetId: entity.TargetId,
-            relationshipType: entity.RelationshipType,
-            id: entity.Id);
+            entity.SourceId,
+            entity.TargetId,
+            entity.RelationshipType,
+            entity.Id);
     }
 }

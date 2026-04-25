@@ -11,6 +11,7 @@ public class OutcomeVarianceFlakinessFactorProvider : IFlakinessFactorProvider
         IReadOnlyList<TestExecutionResultModel> testHistory,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(new FlakinessFactorScore(Factor, 0.0, "Outcome variance scoring is not implemented yet."));
+        return Task.FromResult(
+            new FlakinessFactorScore(Factor, 0.0, "Outcome variance scoring is not implemented yet."));
     }
 }

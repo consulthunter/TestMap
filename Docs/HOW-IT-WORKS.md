@@ -23,10 +23,6 @@ Collects repository, source, build, test, and coverage information for later ana
 
 Uses the configured AI provider from `TestingConfig.GenerationConfig`, selects low-coverage methods from stored analysis data, and runs the shared test-generation pipeline to generate or repair tests.
 
-### `full-analysis`
-
-Runs the broader collection and evaluation pipeline so downstream reports and experiment selection have the required data.
-
 ### `experiment`
 
 Selects candidate methods from stored coverage data, iterates providers and strategies from `ExperimentConfig`, executes generated tests, persists results, and exports CSV if `ExperimentConfig.OutputPath` is configured.

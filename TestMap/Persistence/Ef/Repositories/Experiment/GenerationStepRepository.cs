@@ -21,7 +21,8 @@ public class GenerationStepRepository
         return entity?.ToDomain();
     }
 
-    public async Task<List<GenerationStep>> GetByAttemptIdAsync(int attemptId, CancellationToken cancellationToken = default)
+    public async Task<List<GenerationStep>> GetByAttemptIdAsync(int attemptId,
+        CancellationToken cancellationToken = default)
     {
         var entities = await _context.GenerationSteps
             .Where(s => s.GenerationAttemptId == attemptId)
@@ -31,7 +32,8 @@ public class GenerationStepRepository
         return entities.Select(x => x.ToDomain()).ToList();
     }
 
-    public async Task<GenerationStep?> GetByStepTypeAsync(int attemptId, GenerationStepType stepType, CancellationToken cancellationToken = default)
+    public async Task<GenerationStep?> GetByStepTypeAsync(int attemptId, GenerationStepType stepType,
+        CancellationToken cancellationToken = default)
     {
         var entity = await _context.GenerationSteps
             .FirstOrDefaultAsync(
@@ -40,7 +42,8 @@ public class GenerationStepRepository
         return entity?.ToDomain();
     }
 
-    public async Task<Dictionary<GenerationStepType, int>> GetAverageTokensByStepTypeAsync(int experimentRunId, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<GenerationStepType, int>> GetAverageTokensByStepTypeAsync(int experimentRunId,
+        CancellationToken cancellationToken = default)
     {
         var attempts = await _context.GenerationAttempts
             .Include(a => a.CandidateMethod)
@@ -55,7 +58,9 @@ public class GenerationStepRepository
             .ToListAsync(cancellationToken);
 
         return rows.ToDictionary(
-            x => Enum.TryParse<GenerationStepType>(x.StepName, true, out var stepType) ? stepType : GenerationStepType.Scenario,
+            x => Enum.TryParse<GenerationStepType>(x.StepName, true, out var stepType)
+                ? stepType
+                : GenerationStepType.Scenario,
             x => x.AvgTokens);
     }
 

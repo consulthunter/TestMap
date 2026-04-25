@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models;
 using TestMap.Persistence.Ef.Mapping;
+
 namespace TestMap.Persistence.Ef.Repositories;
 
 public class ProjectRepository
@@ -49,10 +50,10 @@ public class ProjectRepository
                 existing.LastAnalyzedCommit = model.LastAnalyzedCommit ?? existing.LastAnalyzedCommit;
                 existing.DatabasePath = model.DatabasePath ?? existing.DatabasePath;
                 existing.UpdatedAt = DateTime.UtcNow;
-                
+
                 await _context.SaveChangesAsync();
             }
-            
+
             model.DbId = existing.Id;
             return existing.Id;
         }
@@ -63,7 +64,7 @@ public class ProjectRepository
         entity.UpdatedAt = DateTime.UtcNow;
         _context.Projects.Add(entity);
         await _context.SaveChangesAsync();
-        
+
         model.DbId = entity.Id;
         return entity.Id;
     }

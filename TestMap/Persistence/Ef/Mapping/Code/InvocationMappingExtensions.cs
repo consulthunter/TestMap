@@ -21,12 +21,12 @@ public static class InvocationMappingExtensions
     public static InvocationModel ToDomain(this InvocationEntity entity)
     {
         return new InvocationModel(
-        location: entity.Location,
-        id: entity.Id,
-        memberId: entity.MemberId,
-        invokedMemberId: entity.InvokedMemberId,
-        isAssertion: entity.IsAssertion,
-        fullString: entity.FullString
+            entity.Location,
+            entity.Id,
+            entity.MemberId,
+            entity.InvokedMemberId,
+            entity.IsAssertion,
+            entity.FullString
         );
     }
 }

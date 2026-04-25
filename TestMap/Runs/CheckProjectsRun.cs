@@ -6,6 +6,7 @@ namespace TestMap.Runs;
 public class CheckProjectsRun : IPipelineRun
 {
     private readonly CheckProjectsStep _checkProjectsStep;
+
     public CheckProjectsRun(CheckProjectsStep checkProjectsStep)
     {
         _checkProjectsStep = checkProjectsStep;

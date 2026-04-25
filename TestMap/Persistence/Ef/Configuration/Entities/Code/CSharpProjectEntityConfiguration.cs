@@ -28,7 +28,8 @@ public class CSharpProjectEntityConfiguration : IEntityTypeConfiguration<CSharpP
             .HasColumnName("build_metadata")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<ProjectBuildMetadataModel>(v, (JsonSerializerOptions?)null) ?? new ProjectBuildMetadataModel())
+                v => JsonSerializer.Deserialize<ProjectBuildMetadataModel>(v, (JsonSerializerOptions?)null) ??
+                     new ProjectBuildMetadataModel())
             .IsRequired();
         builder.Property(x => x.ContentHash).HasColumnName("content_hash");
     }

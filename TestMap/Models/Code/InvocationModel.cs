@@ -14,7 +14,7 @@ public class InvocationModel(
     public bool IsAssertion { get; set; } = isAssertion;
     public string FullString { get; set; } = fullString;
     public Location Location { get; set; } = location;
-    
+
     public string ContentHash => Utilities.Utilities.ComputeSha256(
         $"{MemberId}:{InvokedMemberId}:{Location.StartLineNumber}:{Location.BodyStartPosition}:{FullString}");
 }

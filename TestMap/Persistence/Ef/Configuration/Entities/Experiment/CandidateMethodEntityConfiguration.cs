@@ -22,6 +22,18 @@ public class CandidateMethodEntityConfiguration : IEntityTypeConfiguration<Candi
         builder.Property(x => x.InitialCoverage).HasColumnName("initial_coverage").IsRequired();
         builder.Property(x => x.InitialCoveredLines).HasColumnName("initial_covered_lines").IsRequired();
         builder.Property(x => x.InitialTotalLines).HasColumnName("initial_total_lines").IsRequired();
+        builder.Property(x => x.MetricDrivenScore).HasColumnName("metric_driven_score");
+        builder.Property(x => x.ExpectedMetricDelta).HasColumnName("expected_metric_delta");
+        builder.Property(x => x.MetricConfidence).HasColumnName("metric_confidence");
+        builder.Property(x => x.MetricFeasibility).HasColumnName("metric_feasibility");
+        builder.Property(x => x.MetricEstimatedCost).HasColumnName("metric_estimated_cost");
+        builder.Property(x => x.MetricGuardrailStatus).HasColumnName("metric_guardrail_status");
+        builder.Property(x => x.MetricSelectionReason).HasColumnName("metric_selection_reason");
+        builder.Property(x => x.TestImprovementScore).HasColumnName("test_improvement_score");
+        builder.Property(x => x.TestImprovementReason).HasColumnName("test_improvement_reason");
+        builder.Property(x => x.TestState).HasColumnName("test_state");
+        builder.Property(x => x.RecommendedAction).HasColumnName("recommended_action");
+        builder.Property(x => x.TestStateReason).HasColumnName("test_state_reason");
         builder.Property(x => x.SelectionTime).HasColumnName("selection_time").IsRequired();
 
         builder.HasMany(x => x.GenerationAttempts)

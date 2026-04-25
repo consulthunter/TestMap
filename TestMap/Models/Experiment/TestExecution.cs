@@ -28,6 +28,6 @@ public class TestExecution
     public string? ErrorLogs { get; set; }
     public long? ExecutionTimeMs { get; set; }
     public DateTime ExecutedAt { get; set; }
-    
+
     public virtual GenerationAttempt? GenerationAttempt { get; set; }
 }

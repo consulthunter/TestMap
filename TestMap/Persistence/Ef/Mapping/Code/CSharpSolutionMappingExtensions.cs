@@ -14,13 +14,13 @@ public static class CSharpSolutionMappingExtensions
             ContentHash = model.ContentHash
         };
     }
-    
+
     public static CSharpSolutionModel ToDomain(this CSharpSolutionEntity entity)
     {
         return new CSharpSolutionModel(
-            projects: new List<string>(),
-            id: entity.Id,
-            projectId: entity.ProjectId,
-            filePath: entity.FilePath);
+            new List<string>(),
+            entity.Id,
+            entity.ProjectId,
+            entity.FilePath);
     }
 }

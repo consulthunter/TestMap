@@ -1,5 +1,5 @@
 using TestMap.Models.Configuration.AiProviders;
-using TestMap.Services.Testing.Providers.Abstractions;
+using TestMap.Services.TestGeneration.Providers.Abstractions;
 
 namespace TestMap.Models.Configuration.Testing.MetadataEnrichment;
 

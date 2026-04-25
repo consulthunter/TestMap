@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2025-04-09
  *
@@ -19,12 +19,11 @@ public class FunctionCoverageModel
     [XmlElement("signature")] public string Signature { get; set; } = "";
     [XmlElement("line-rate")] public string LineRate { get; set; } = "";
     [XmlElement("branch-rate")] public string BranchRate { get; set; } = "";
-    [XmlAttribute("complexity")]
-    public string ComplexityRaw { get; set; } = "0";
+    [XmlAttribute("complexity")] public string ComplexityRaw { get; set; } = "0";
 
     [XmlIgnore]
     public double ComplexityValue =>
-        double.TryParse(ComplexityRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) 
-            ? val 
+        double.TryParse(ComplexityRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var val)
+            ? val
             : 0.0;
 }

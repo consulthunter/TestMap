@@ -7,7 +7,7 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
 {
     private readonly MSBuildWorkspace _workspace = MSBuildWorkspace.Create();
     private readonly Dictionary<string, Task<Solution>> _solutionsByPath = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, Task<Microsoft.CodeAnalysis.Project>> _projectsByPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Task<Project>> _projectsByPath = new(StringComparer.OrdinalIgnoreCase);
 
     public Task<Solution> OpenSolutionAsync(string solutionPath, CancellationToken cancellationToken = default)
     {
@@ -21,7 +21,7 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
         return solutionTask;
     }
 
-    public async Task<Microsoft.CodeAnalysis.Project> OpenProjectAsync(
+    public async Task<Project> OpenProjectAsync(
         string projectPath,
         CancellationToken cancellationToken = default)
     {
@@ -32,10 +32,7 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
             var cachedSolution = await solutionTask;
             var cachedProject = cachedSolution.Projects.FirstOrDefault(project =>
                 string.Equals(project.FilePath, normalizedProjectPath, StringComparison.OrdinalIgnoreCase));
-            if (cachedProject != null)
-            {
-                return cachedProject;
-            }
+            if (cachedProject != null) return cachedProject;
         }
 
         if (!_projectsByPath.TryGetValue(normalizedProjectPath, out var projectTask))
@@ -53,7 +50,9 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
     }
 
     private static string NormalizePath(string path)
-        => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
 
     private async Task<Solution> OpenSanitizedSolutionAsync(string solutionPath, CancellationToken cancellationToken)
     {
@@ -61,7 +60,7 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
         return RemoveAnalyzerReferences(solution);
     }
 
-    private async Task<Microsoft.CodeAnalysis.Project> OpenSanitizedProjectAsync(
+    private async Task<Project> OpenSanitizedProjectAsync(
         string projectPath,
         CancellationToken cancellationToken)
     {
@@ -73,12 +72,8 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
     private static Solution RemoveAnalyzerReferences(Solution solution)
     {
         foreach (var project in solution.Projects)
-        {
             if (project.AnalyzerReferences.Any())
-            {
                 solution = solution.WithProjectAnalyzerReferences(project.Id, []);
-            }
-        }
 
         return solution;
     }

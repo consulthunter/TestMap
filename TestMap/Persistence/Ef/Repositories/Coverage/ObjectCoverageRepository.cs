@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.Coverage;
+using TestMap.Persistence.Ef.Entities.Coverage;
 using TestMap.Persistence.Ef.Mappings;
 
 namespace TestMap.Persistence.Ef.Repositories.Coverage;
@@ -30,6 +31,18 @@ public class ObjectCoverageRepository
         var existing = await _context.ObjectCoverages.FirstOrDefaultAsync(x =>
             x.ObjectId == objectId && x.CoverageReportId == coverageReportId);
 
+        return await InsertOrUpdateAsync(model, objectId, coverageReportId, existing);
+    }
+
+    public async Task<int> InsertOrUpdateAsync(
+        ObjectCoverageModel model,
+        int objectId,
+        int coverageReportId,
+        ObjectCoverageEntity? existing)
+    {
+        existing ??= await _context.ObjectCoverages.FirstOrDefaultAsync(x =>
+            x.ObjectId == objectId && x.CoverageReportId == coverageReportId);
+
         if (existing != null)
         {
             if (HasChanged(existing, model))
@@ -49,14 +62,21 @@ public class ObjectCoverageRepository
         return entity.Id;
     }
 
-    private static bool HasChanged(Entities.Coverage.ObjectCoverageEntity entity, ObjectCoverageModel model)
+    public static bool HasChanged(ObjectCoverageEntity entity, ObjectCoverageModel model)
     {
         return entity.LineRate != SanitizeDouble(model.LineRate) ||
                entity.BranchRate != SanitizeDouble(model.BranchRate) ||
                entity.Complexity != SanitizeDouble(model.ComplexityValue);
     }
 
-    private static double SanitizeDouble(double value)
+    public static void Apply(ObjectCoverageEntity entity, ObjectCoverageModel model)
+    {
+        entity.LineRate = SanitizeDouble(model.LineRate);
+        entity.BranchRate = SanitizeDouble(model.BranchRate);
+        entity.Complexity = SanitizeDouble(model.ComplexityValue);
+    }
+
+    public static double SanitizeDouble(double value)
     {
         return double.IsFinite(value) ? value : 0.0;
     }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2025-03-26
  *
@@ -16,6 +16,7 @@ using TestMap.Models.Configuration.AiProviders.Ollama;
 using TestMap.Models.Configuration.AiProviders.OpenAI;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.Framework;
+using TestMap.Services.TestGeneration.Providers.Abstractions;
 
 namespace TestMap.Services.Configuration;
 
@@ -49,12 +50,15 @@ public class GenerateConfigurationService(string configurationFilePath, string b
 
         // Testing Configuration
         config.TestingConfig.GenerationConfig.Provider = AiProvider.OpenAi;
-        config.TestingConfig.GenerationConfig.Mode = Services.Testing.Providers.Abstractions.AiProviderMode.Chat;
+        config.TestingConfig.GenerationConfig.Mode = AiProviderMode.Chat;
         config.TestingConfig.GenerationConfig.MaxRetries = 1;
 
-        config.TestingConfig.TestingFrameworks.Add(new NunitConfig { patterns = new() { "Test", "TestCase", "TestCaseSource", "Theory" } });
-        config.TestingConfig.TestingFrameworks.Add(new XunitConfig { patterns = new() { "Fact", "Theory" } });
-        config.TestingConfig.TestingFrameworks.Add(new MsTestConfig { patterns = new() { "TestMethod", "DataSource" } });
+        config.TestingConfig.TestingFrameworks.Add(new NunitConfig
+            { patterns = new List<string> { "Test", "TestCase", "TestCaseSource", "Theory" } });
+        config.TestingConfig.TestingFrameworks.Add(new XunitConfig
+            { patterns = new List<string> { "Fact", "Theory" } });
+        config.TestingConfig.TestingFrameworks.Add(new MsTestConfig
+            { patterns = new List<string> { "TestMethod", "DataSource" } });
 
         // AI Provider Configuration
         config.AiProviderConfig.OpenAi = new OpenAiConfig
@@ -95,10 +99,7 @@ public class GenerateConfigurationService(string configurationFilePath, string b
         };
 
         // Use System.Text.Json for serialization
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true // Makes the output more readable (pretty print)
-        };
+        var options = ConfigJsonSerializer.CreateOptions();
 
         // Serialize the config data to a JSON string
         var json = JsonSerializer.Serialize(config, options);

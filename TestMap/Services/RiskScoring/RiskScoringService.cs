@@ -14,18 +14,12 @@ public class RiskScoringService(IEnumerable<IRiskFactorProvider> riskFactorProvi
         var weights = request.TargetSelectionConfig.RiskWeights.ToDictionary();
 
         foreach (var (factor, weight) in weights)
-        {
             if (weight is < MinimumWeight or > MaximumWeight)
-            {
                 errors.Add($"Risk weight '{factor}' must be between {MinimumWeight:0.00} and {MaximumWeight:0.00}.");
-            }
-        }
 
         var total = weights.Values.Sum();
         if (Math.Abs(total - 1.0) > WeightTotalTolerance)
-        {
             errors.Add($"Risk weights must total 1.0. Current total is {total:0.####}.");
-        }
 
         return errors.Count == 0
             ? RiskScoringValidationResult.Success()
@@ -38,9 +32,7 @@ public class RiskScoringService(IEnumerable<IRiskFactorProvider> riskFactorProvi
     {
         var validation = ValidateWeights(request);
         if (!validation.IsValid)
-        {
             throw new InvalidOperationException(string.Join(Environment.NewLine, validation.Errors));
-        }
 
         var providersByFactor = riskFactorProviders.ToDictionary(x => x.Factor);
         var weights = request.TargetSelectionConfig.RiskWeights.ToDictionary();
@@ -56,9 +48,7 @@ public class RiskScoringService(IEnumerable<IRiskFactorProvider> riskFactorProvi
                 if (!providersByFactor.TryGetValue(factor, out var provider))
                 {
                     if (request.TargetSelectionConfig.FailOnMissingRiskInputs)
-                    {
                         throw new InvalidOperationException($"No risk factor provider is registered for '{factor}'.");
-                    }
 
                     factorScores[factor] = 0.0;
                     continue;
@@ -66,10 +56,7 @@ public class RiskScoringService(IEnumerable<IRiskFactorProvider> riskFactorProvi
 
                 var factorScore = await provider.ScoreAsync(candidate, cancellationToken);
                 factorScores[factor] = Clamp01(factorScore.Score);
-                if (!string.IsNullOrWhiteSpace(factorScore.Evidence))
-                {
-                    evidence.Add($"{factor}: {factorScore.Evidence}");
-                }
+                if (!string.IsNullOrWhiteSpace(factorScore.Evidence)) evidence.Add($"{factor}: {factorScore.Evidence}");
             }
 
             var weightedScore = factorScores.Sum(x => x.Value * weights[x.Key]);
@@ -90,5 +77,8 @@ public class RiskScoringService(IEnumerable<IRiskFactorProvider> riskFactorProvi
             .ToList();
     }
 
-    private static double Clamp01(double value) => Math.Min(1.0, Math.Max(0.0, value));
+    private static double Clamp01(double value)
+    {
+        return Math.Min(1.0, Math.Max(0.0, value));
+    }
 }

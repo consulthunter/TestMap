@@ -22,13 +22,15 @@ public class CandidateMethodRiskScoreEntityConfiguration : IEntityTypeConfigurat
             .HasColumnName("factor_scores")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<Dictionary<RiskFactorKind, double>>(v, (JsonSerializerOptions?)null) ?? new())
+                v => JsonSerializer.Deserialize<Dictionary<RiskFactorKind, double>>(v, (JsonSerializerOptions?)null) ??
+                     new Dictionary<RiskFactorKind, double>())
             .IsRequired();
         builder.Property(x => x.Weights)
             .HasColumnName("weights")
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                v => JsonSerializer.Deserialize<Dictionary<RiskFactorKind, double>>(v, (JsonSerializerOptions?)null) ?? new())
+                v => JsonSerializer.Deserialize<Dictionary<RiskFactorKind, double>>(v, (JsonSerializerOptions?)null) ??
+                     new Dictionary<RiskFactorKind, double>())
             .IsRequired();
         builder.Property(x => x.SelectionReason).HasColumnName("selection_reason").IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();

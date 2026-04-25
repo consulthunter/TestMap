@@ -12,19 +12,19 @@ public class CSharpProjectRepository
     {
         _context = context;
     }
-    
+
     public async Task<List<CSharpProjectModel>> GetAllAsync()
     {
         var entities = await _context.CSharpProjects.ToListAsync();
         return entities.Select(e => e.ToDomain()).ToList();
     }
-    
+
     public async Task<CSharpProjectModel?> GetByIdAsync(int id)
     {
         var entity = await _context.CSharpProjects.FindAsync(id);
         return entity?.ToDomain();
     }
-    
+
     public async Task<CSharpProjectModel?> GetByContentHashAsync(string contentHash)
     {
         var entity = await _context.CSharpProjects.FirstOrDefaultAsync(p => p.ContentHash == contentHash);
@@ -45,22 +45,20 @@ public class CSharpProjectRepository
                 existing.BuildMetadata = model.BuildMetadata;
                 await _context.SaveChangesAsync();
             }
+
             return existing.Id;
-            
         }
+
         var solution = await _context.CSharpSolutions.FirstOrDefaultAsync(x => x.Id == model.SolutionId);
 
-        if (solution == null)
-        {
-            throw new InvalidOperationException("Solution not found for the given ID");
-        }
-        
+        if (solution == null) throw new InvalidOperationException("Solution not found for the given ID");
+
         var entity = model.ToEntity(solution.Id);
         _context.CSharpProjects.Add(entity);
         await _context.SaveChangesAsync();
         return entity.Id;
     }
-    
+
     private bool HasChanged(Entities.Code.CSharpProjectEntity entity, CSharpProjectModel model)
     {
         return model.FilePath != entity.FilePath ||
