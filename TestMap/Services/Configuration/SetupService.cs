@@ -1,29 +1,42 @@
-using System.Diagnostics;
-
 namespace TestMap.Services.Configuration;
 
 public class SetupService
 {
     private readonly string _basePath;
     private readonly string _parentDir;
-    private readonly string _dockerRoot;
-    private readonly string _sourceRoot;
     private readonly TextWriter _output;
     private readonly TextWriter _error;
+    private readonly ISetupProcessExecutor _processExecutor;
 
-    public SetupService(string basePath, TextWriter? output = null, TextWriter? error = null)
+    public SetupService(
+        string basePath,
+        TextWriter? output = null,
+        TextWriter? error = null,
+        ISetupProcessExecutor? processExecutor = null)
     {
         _basePath = string.IsNullOrEmpty(basePath)
             ? Directory.GetCurrentDirectory()
             : basePath;
         _parentDir = Directory.GetParent(_basePath)?.FullName ?? "";
-        _dockerRoot = ResolveDockerRoot(_basePath);
-        _sourceRoot = Directory.GetParent(_dockerRoot)?.FullName ?? _basePath;
         _output = output ?? Console.Out;
         _error = error ?? Console.Error;
+        _processExecutor = processExecutor ?? new DefaultSetupProcessExecutor();
     }
 
     public void Setup(bool overwrite = false)
+    {
+        SetupWorkspace(overwrite);
+        SetupExternalTools();
+    }
+
+    public void SetupExternalTools()
+    {
+        CheckForDocker();
+        CheckForGit();
+        BuildAllImages();
+    }
+
+    public void SetupWorkspace(bool overwrite = false)
     {
         CreateConfigDirectory();
         CreateLogsDirectory();
@@ -32,9 +45,6 @@ public class SetupService
         CreateExampleProject();
         CreateConfigurationFile(overwrite);
         CreateEnvFile();
-        CheckForDocker();
-        CheckForGit();
-        BuildAllImages();
     }
 
     private void CheckForDocker()
@@ -53,22 +63,9 @@ public class SetupService
 
     private bool DockerContextExists(string contextName)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "docker",
-            Arguments = "context ls",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(startInfo)!;
-        var output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-
-        return process.ExitCode == 0 &&
-               output.Split('\n')
+        var result = _processExecutor.Run("docker", "context ls", false);
+        return result.ExitCode == 0 &&
+               result.StdOut.Split('\n')
                    .Any(line => line.StartsWith(contextName + " ", StringComparison.Ordinal));
     }
 
@@ -96,44 +93,35 @@ public class SetupService
 
     private string GetDockerfile(string os)
     {
+        var dockerRoot = GetDockerRoot();
         return os switch
         {
-            "linux" => Path.Combine(_dockerRoot, "linux", "Dockerfile"),
-            "windows" => Path.Combine(_dockerRoot, "windows", "Dockerfile"),
+            "linux" => Path.Combine(dockerRoot, "linux", "Dockerfile"),
+            "windows" => Path.Combine(dockerRoot, "windows", "Dockerfile"),
             _ => throw new InvalidOperationException($"Unknown OS: {os}")
         };
     }
 
     private void BuildForContext(string contextName, string dockerfilePath, string imageName)
     {
-        var contextDir = _dockerRoot;
+        var dockerRoot = GetDockerRoot();
+        var sourceRoot = Directory.GetParent(dockerRoot)?.FullName ?? _basePath;
+        var contextDir = dockerRoot;
 
-        _output.WriteLine($"Docker source root: {_sourceRoot}");
+        _output.WriteLine($"Docker source root: {sourceRoot}");
         _output.WriteLine($"Docker context dir: {contextDir}");
         _output.WriteLine($"Dockerfile: {dockerfilePath}");
         _output.WriteLine($"Image: {imageName}");
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "docker",
-            Arguments = $"--context {contextName} build -t {imageName} -f \"{dockerfilePath}\" \"{contextDir}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+        var result = _processExecutor.Run(
+            "docker",
+            $"--context {contextName} build -t {imageName} -f \"{dockerfilePath}\" \"{contextDir}\"",
+            false);
 
-        using var process = new Process { StartInfo = startInfo };
-        process.OutputDataReceived += (_, args) => _output.WriteLine(args.Data);
-        process.ErrorDataReceived += (_, args) => _error.WriteLine(args.Data);
+        WriteProcessOutput(result);
 
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-            throw new Exception($"Docker build failed for context '{contextName}' with exit code {process.ExitCode}");
+        if (result.ExitCode != 0)
+            throw new Exception($"Docker build failed for context '{contextName}' with exit code {result.ExitCode}");
 
         _output.WriteLine($"Image '{imageName}' built successfully for context '{contextName}'.");
     }
@@ -181,11 +169,7 @@ public class SetupService
         if (!File.Exists(dockerDesktopPath)) return;
 
         _output.WriteLine("Starting Docker Desktop...");
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = dockerDesktopPath,
-            UseShellExecute = true
-        });
+        _processExecutor.Start(dockerDesktopPath, string.Empty, true);
 
         WaitForDockerResponsive(TimeSpan.FromSeconds(30));
     }
@@ -211,20 +195,20 @@ public class SetupService
             : "-SwitchLinuxEngine";
 
         _output.WriteLine($"Switching Docker Desktop to {expectedOs} containers...");
-        RunProcess(dockerCliPath, switchArgument, false);
+        _processExecutor.Run(dockerCliPath, switchArgument, false);
 
         return WaitForDockerDaemon(contextName, expectedOs, TimeSpan.FromMinutes(2));
     }
 
     private bool IsDockerResponsive()
     {
-        var result = RunProcess("docker", "info --format \"{{{{.ServerVersion}}}}\"", false);
+        var result = _processExecutor.Run("docker", "info --format \"{{{{.ServerVersion}}}}\"", false);
         return result.ExitCode == 0;
     }
 
     private bool IsDockerDaemon(string contextName, string expectedOs)
     {
-        var result = RunProcess(
+        var result = _processExecutor.Run(
             "docker",
             $"--context {contextName} info --format \"{{{{.OSType}}}}\"",
             false);
@@ -257,56 +241,18 @@ public class SetupService
         return false;
     }
 
-    private static ProcessResult RunProcess(string fileName, string arguments, bool throwOnFailure)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = fileName,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(startInfo)!;
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (throwOnFailure && process.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"Command failed: {fileName} {arguments}{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
-
-        return new ProcessResult(process.ExitCode, stdout, stderr);
-    }
-
     private bool IsCommandAvailable(string command)
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = command,
-                Arguments = "--version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var process = Process.Start(psi);
-            if (process == null) return false;
-
-            process.WaitForExit();
-            return process.ExitCode == 0;
+            var result = _processExecutor.Run(command, "--version", false);
+            return result.ExitCode == 0;
         }
         catch
         {
             return false;
         }
     }
-
-    private sealed record ProcessResult(int ExitCode, string StdOut, string StdErr);
 
     private void CreateConfigDirectory()
     {
@@ -424,5 +370,30 @@ public class SetupService
 
         throw new InvalidOperationException(
             $"Could not locate the Docker build context from base path '{basePath}'.");
+    }
+
+    private string GetDockerRoot()
+    {
+        return ResolveDockerRoot(_basePath);
+    }
+
+    private void WriteProcessOutput(SetupProcessExecutionResult result)
+    {
+        foreach (var line in SplitLines(result.StdOut))
+        {
+            _output.WriteLine(line);
+        }
+
+        foreach (var line in SplitLines(result.StdErr))
+        {
+            _error.WriteLine(line);
+        }
+    }
+
+    private static IEnumerable<string> SplitLines(string output)
+    {
+        return output.Split(
+            ["\r\n", "\n"],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 }

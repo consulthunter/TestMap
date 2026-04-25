@@ -20,6 +20,9 @@ namespace TestMap;
 
 public class Program
 {
+    public static Func<SetupOptions, SetupService> SetupServiceFactory { get; set; } =
+        options => new SetupService(options.BasePath);
+
     /// <summary>
     ///     Main
     /// </summary>
@@ -204,7 +207,7 @@ public class Program
     /// <param name="options">Setup options parsed by CommandLine.</param>
     private static void RunSetup(SetupOptions options)
     {
-        var setupService = new SetupService(options.BasePath);
+        var setupService = SetupServiceFactory(options);
         setupService.Setup(options.OverwriteFile);
     }
 
