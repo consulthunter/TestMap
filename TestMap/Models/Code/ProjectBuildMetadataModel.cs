@@ -1,3 +1,5 @@
+using TestMap.Models.Rules;
+
 namespace TestMap.Models.Code;
 
 public class ProjectBuildMetadataModel
@@ -13,5 +15,6 @@ public class ProjectBuildMetadataModel
     public bool UsesWindowsDesktop { get; set; }
     public WindowsRequirementType WindowsRequirement { get; set; } = WindowsRequirementType.Unknown;
     public CoverageCollectorType CoverageCollector { get; set; } = CoverageCollectorType.Unknown;
+    public List<RuleDecisionRecord> RuleDecisions { get; set; } = new();
     public string Notes { get; set; } = string.Empty;
 }

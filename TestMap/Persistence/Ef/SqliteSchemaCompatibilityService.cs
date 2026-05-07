@@ -23,6 +23,46 @@ public class SqliteSchemaCompatibilityService
                 "ALTER TABLE generation_attempts ADD COLUMN failure_kind TEXT NOT NULL DEFAULT '';");
             await EnsureColumnAsync(sqliteConnection, "generation_attempts", "failure_stage",
                 "ALTER TABLE generation_attempts ADD COLUMN failure_stage TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "objective",
+                "ALTER TABLE generation_attempts ADD COLUMN objective TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "generation_approach",
+                "ALTER TABLE generation_attempts ADD COLUMN generation_approach TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "metrics_path",
+                "ALTER TABLE generation_attempts ADD COLUMN metrics_path TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "context_mode",
+                "ALTER TABLE generation_attempts ADD COLUMN context_mode TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "budget_mode",
+                "ALTER TABLE generation_attempts ADD COLUMN budget_mode TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "ablation_variant_id",
+                "ALTER TABLE generation_attempts ADD COLUMN ablation_variant_id TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "step_config_json",
+                "ALTER TABLE generation_attempts ADD COLUMN step_config_json TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "effective_profile_json",
+                "ALTER TABLE generation_attempts ADD COLUMN effective_profile_json TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "effective_profile_hash",
+                "ALTER TABLE generation_attempts ADD COLUMN effective_profile_hash TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "temperature",
+                "ALTER TABLE generation_attempts ADD COLUMN temperature REAL NOT NULL DEFAULT 0;");
+            await EnsureColumnAsync(sqliteConnection, "generation_attempts", "rule_decision_json",
+                "ALTER TABLE generation_attempts ADD COLUMN rule_decision_json TEXT NOT NULL DEFAULT '';");
+
+            await EnsureColumnAsync(sqliteConnection, "experiment_runs", "objective",
+                "ALTER TABLE experiment_runs ADD COLUMN objective TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "experiment_runs", "candidate_selection_strategy",
+                "ALTER TABLE experiment_runs ADD COLUMN candidate_selection_strategy TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "experiment_runs", "results_file_path",
+                "ALTER TABLE experiment_runs ADD COLUMN results_file_path TEXT NOT NULL DEFAULT '';");
+
+            await EnsureColumnAsync(sqliteConnection, "generation_steps", "status",
+                "ALTER TABLE generation_steps ADD COLUMN status TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_steps", "skip_reason",
+                "ALTER TABLE generation_steps ADD COLUMN skip_reason TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "generation_steps", "input_tokens",
+                "ALTER TABLE generation_steps ADD COLUMN input_tokens INTEGER NULL;");
+            await EnsureColumnAsync(sqliteConnection, "generation_steps", "output_tokens",
+                "ALTER TABLE generation_steps ADD COLUMN output_tokens INTEGER NULL;");
+            await EnsureColumnAsync(sqliteConnection, "generation_steps", "rule_decision_json",
+                "ALTER TABLE generation_steps ADD COLUMN rule_decision_json TEXT NOT NULL DEFAULT '';");
 
             await EnsureColumnAsync(sqliteConnection, "members", "test_metadata_source",
                 "ALTER TABLE members ADD COLUMN test_metadata_source TEXT NOT NULL DEFAULT '';");
@@ -39,6 +79,16 @@ public class SqliteSchemaCompatibilityService
                 "ALTER TABLE test_executions ADD COLUMN mutation_score_after REAL NULL;");
             await EnsureColumnAsync(sqliteConnection, "test_executions", "mutation_score_delta",
                 "ALTER TABLE test_executions ADD COLUMN mutation_score_delta REAL NULL;");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "validation_result_json",
+                "ALTER TABLE test_executions ADD COLUMN validation_result_json TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "accepted",
+                "ALTER TABLE test_executions ADD COLUMN accepted INTEGER NULL;");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "acceptance_reason",
+                "ALTER TABLE test_executions ADD COLUMN acceptance_reason TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "validation_rule_decision_json",
+                "ALTER TABLE test_executions ADD COLUMN validation_rule_decision_json TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "test_executions", "classification_rule_decision_json",
+                "ALTER TABLE test_executions ADD COLUMN classification_rule_decision_json TEXT NOT NULL DEFAULT '';");
 
             await EnsureColumnAsync(sqliteConnection, "candidate_methods", "metric_driven_score",
                 "ALTER TABLE candidate_methods ADD COLUMN metric_driven_score REAL NULL;");
@@ -60,9 +110,24 @@ public class SqliteSchemaCompatibilityService
             await EnsureMutantsTableAsync(sqliteConnection);
             await EnsureMutantSurvivedTestsTableAsync(sqliteConnection);
             await EnsureCandidateMethodRiskScoresTableAsync(sqliteConnection);
+            await EnsureExperimentMatrixWorkItemsTableAsync(sqliteConnection);
             await EnsureTestExecutionResultsTableAsync(sqliteConnection);
             await EnsureFlakyTestScoresTableAsync(sqliteConnection);
             await EnsureFlakyTestRerunResultsTableAsync(sqliteConnection);
+            await EnsureRuleDefinitionsTableAsync(sqliteConnection);
+            await EnsureRuleDecisionsTableAsync(sqliteConnection);
+            await EnsureColumnAsync(sqliteConnection, "rule_decisions", "scope_kind",
+                "ALTER TABLE rule_decisions ADD COLUMN scope_kind TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "rule_decisions", "scope_id",
+                "ALTER TABLE rule_decisions ADD COLUMN scope_id TEXT NOT NULL DEFAULT '';");
+            await EnsureColumnAsync(sqliteConnection, "rule_decisions", "experiment_run_id",
+                "ALTER TABLE rule_decisions ADD COLUMN experiment_run_id INTEGER NULL;");
+            await EnsureColumnAsync(sqliteConnection, "rule_decisions", "candidate_method_id",
+                "ALTER TABLE rule_decisions ADD COLUMN candidate_method_id INTEGER NULL;");
+            await EnsureColumnAsync(sqliteConnection, "rule_decisions", "generation_attempt_id",
+                "ALTER TABLE rule_decisions ADD COLUMN generation_attempt_id INTEGER NULL;");
+            await EnsureColumnAsync(sqliteConnection, "rule_decisions", "test_execution_id",
+                "ALTER TABLE rule_decisions ADD COLUMN test_execution_id INTEGER NULL;");
         }
         finally
         {
@@ -210,6 +275,35 @@ CREATE INDEX IX_candidate_method_risk_scores_candidate_method_id ON candidate_me
 CREATE INDEX IX_candidate_method_risk_scores_member_id ON candidate_method_risk_scores (member_id);");
     }
 
+    private static async Task EnsureExperimentMatrixWorkItemsTableAsync(SqliteConnection connection)
+    {
+        await EnsureTableAsync(connection, "experiment_matrix_work_items", @"
+CREATE TABLE experiment_matrix_work_items (
+    id INTEGER NOT NULL CONSTRAINT PK_experiment_matrix_work_items PRIMARY KEY AUTOINCREMENT,
+    experiment_run_id INTEGER NOT NULL,
+    candidate_method_id INTEGER NOT NULL,
+    member_id INTEGER NOT NULL,
+    stable_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    approach TEXT NOT NULL,
+    metrics_path TEXT NOT NULL,
+    context_mode TEXT NOT NULL,
+    budget_mode TEXT NOT NULL,
+    ablation_variant_id TEXT NOT NULL,
+    step_config_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT NULL,
+    last_heartbeat_at TEXT NULL,
+    completed_at TEXT NULL,
+    error_message TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IX_experiment_matrix_work_items_stable_key ON experiment_matrix_work_items (stable_key);
+CREATE INDEX IX_experiment_matrix_work_items_experiment_run_id_status ON experiment_matrix_work_items (experiment_run_id, status);");
+    }
+
     private static async Task EnsureTestExecutionResultsTableAsync(SqliteConnection connection)
     {
         await EnsureTableAsync(connection, "test_execution_results", @"
@@ -272,6 +366,53 @@ CREATE TABLE flaky_test_rerun_results (
 );
 CREATE INDEX IX_flaky_test_rerun_results_run_id ON flaky_test_rerun_results (run_id);
 CREATE INDEX IX_flaky_test_rerun_results_test_execution_result_id ON flaky_test_rerun_results (test_execution_result_id);");
+    }
+
+    private static async Task EnsureRuleDefinitionsTableAsync(SqliteConnection connection)
+    {
+        await EnsureTableAsync(connection, "rule_definitions", @"
+CREATE TABLE rule_definitions (
+    id INTEGER NOT NULL CONSTRAINT PK_rule_definitions PRIMARY KEY AUTOINCREMENT,
+    rule_id TEXT NOT NULL,
+    rule_version TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IX_rule_definitions_rule_id_rule_version ON rule_definitions (rule_id, rule_version);
+CREATE INDEX IX_rule_definitions_category ON rule_definitions (category);");
+    }
+
+    private static async Task EnsureRuleDecisionsTableAsync(SqliteConnection connection)
+    {
+        await EnsureTableAsync(connection, "rule_decisions", @"
+CREATE TABLE rule_decisions (
+    id INTEGER NOT NULL CONSTRAINT PK_rule_decisions PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    csharp_project_id INTEGER NULL,
+    scope_kind TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    experiment_run_id INTEGER NULL,
+    candidate_method_id INTEGER NULL,
+    generation_attempt_id INTEGER NULL,
+    test_execution_id INTEGER NULL,
+    decision_kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    rule_version TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IX_rule_decisions_project_id ON rule_decisions (project_id);
+CREATE INDEX IX_rule_decisions_csharp_project_id ON rule_decisions (csharp_project_id);
+CREATE INDEX IX_rule_decisions_scope_kind_scope_id ON rule_decisions (scope_kind, scope_id);
+CREATE INDEX IX_rule_decisions_experiment_run_id ON rule_decisions (experiment_run_id);
+CREATE INDEX IX_rule_decisions_candidate_method_id ON rule_decisions (candidate_method_id);
+CREATE INDEX IX_rule_decisions_generation_attempt_id ON rule_decisions (generation_attempt_id);
+CREATE INDEX IX_rule_decisions_test_execution_id ON rule_decisions (test_execution_id);
+CREATE INDEX IX_rule_decisions_rule_id_rule_version ON rule_decisions (rule_id, rule_version);");
     }
 
     private static async Task EnsureTableAsync(SqliteConnection connection, string tableName, string createSql)

@@ -274,34 +274,21 @@ public class BuildTestService : IBuildTestService
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
         var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
-        var quotedRunId = QuoteDockerArgument(_runId);
-        var quotedProject = QuoteDockerArgument(GetContainerPath(testProjectPath));
-        var frameworkArgs = string.IsNullOrWhiteSpace(targetFramework)
-            ? string.Empty
-            : $" --framework {QuoteDockerArgument(targetFramework)}";
-        var collectorArgs = string.IsNullOrWhiteSpace(collector)
-            ? string.Empty
-            : $" --collector {QuoteDockerArgument(collector)}";
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
 
         var mount = _pathMapper.GetMountArgument(localDir, context);
-        if (_pathMapper.IsWindowsContext(context))
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} " +
-                $"{mount} {imageName} " +
-                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner dotnet-test-project --run-id {quotedRunId} --project {quotedProject}{frameworkArgs}{collectorArgs}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
-        else
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} {mount} {imageName} " +
-                $"python3 -m testmap_runner dotnet-test-project --run-id {quotedRunId} --project {quotedProject}{frameworkArgs}{collectorArgs}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
+        var args = BuildTestDockerCommandFactory.CreateTargetedTestsArgs(
+            context,
+            _containerName,
+            mount,
+            imageName,
+            _runId,
+            GetContainerPath(testProjectPath),
+            targetFramework,
+            collector);
+        await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
     private async Task RunBaselineAsync(List<string> solutionFilenames)
@@ -347,31 +334,20 @@ public class BuildTestService : IBuildTestService
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
         var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
-        var quotedRunId = QuoteDockerArgument(_runId);
-        var quotedSolutions = QuoteDockerArgument(string.Join(",", solutionFilenames));
-        var frameworkArgs = string.IsNullOrWhiteSpace(targetFramework)
-            ? string.Empty
-            : $" --framework {QuoteDockerArgument(targetFramework)}";
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
 
         var mount = _pathMapper.GetMountArgument(localDir, context);
-        if (_pathMapper.IsWindowsContext(context))
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} " +
-                $"{mount} {imageName} " +
-                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner dotnet-tests --run-id {quotedRunId} --solutions {quotedSolutions}{frameworkArgs}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
-        else
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} {mount} {imageName} " +
-                $"python3 -m testmap_runner dotnet-tests --run-id {quotedRunId} --solutions {quotedSolutions}{frameworkArgs}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
+        var args = BuildTestDockerCommandFactory.CreateBaselineTestsArgs(
+            context,
+            _containerName,
+            mount,
+            imageName,
+            _runId,
+            solutionFilenames,
+            targetFramework);
+        await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
     private async Task RunDockerBaselineMutationAsync(List<string> solutionFilenames)
@@ -379,28 +355,19 @@ public class BuildTestService : IBuildTestService
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
         var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
-        var quotedRunId = QuoteDockerArgument(_runId);
-        var quotedSolutions = QuoteDockerArgument(string.Join(",", solutionFilenames));
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
 
         var mount = _pathMapper.GetMountArgument(localDir, context);
-        if (_pathMapper.IsWindowsContext(context))
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} " +
-                $"{mount} {imageName} " +
-                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner dotnet-stryker --run-id {quotedRunId} --solutions {quotedSolutions}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
-        else
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} {mount} {imageName} " +
-                $"python3 -m testmap_runner dotnet-stryker --run-id {quotedRunId} --solutions {quotedSolutions}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
+        var args = BuildTestDockerCommandFactory.CreateBaselineMutationArgs(
+            context,
+            _containerName,
+            mount,
+            imageName,
+            _runId,
+            solutionFilenames);
+        await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
     private async Task RunDockerDotnetBuildForSolutionsAsync(List<string> solutionFilenames)
@@ -408,28 +375,19 @@ public class BuildTestService : IBuildTestService
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
         var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
-        var quotedRunId = QuoteDockerArgument(_runId);
-        var quotedSolutions = QuoteDockerArgument(string.Join(",", solutionFilenames));
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
 
         var mount = _pathMapper.GetMountArgument(localDir, context);
-        if (_pathMapper.IsWindowsContext(context))
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} " +
-                $"{mount} {imageName} " +
-                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner dotnet-build --run-id {quotedRunId} --solutions {quotedSolutions}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
-        else
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} {mount} {imageName} " +
-                $"python3 -m testmap_runner dotnet-build --run-id {quotedRunId} --solutions {quotedSolutions}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
+        var args = BuildTestDockerCommandFactory.CreateBaselineBuildArgs(
+            context,
+            _containerName,
+            mount,
+            imageName,
+            _runId,
+            solutionFilenames);
+        await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
     private async Task RunDockerTargetedMutationAsync(string sourceProjectPath, string testProjectPath)
@@ -437,29 +395,20 @@ public class BuildTestService : IBuildTestService
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
         var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
-        var quotedRunId = QuoteDockerArgument(_runId);
-        var quotedSourceProject = QuoteDockerArgument(GetContainerPath(sourceProjectPath));
-        var quotedTestProject = QuoteDockerArgument(GetContainerPath(testProjectPath));
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
 
         var mount = _pathMapper.GetMountArgument(localDir, context);
-        if (_pathMapper.IsWindowsContext(context))
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} " +
-                $"{mount} {imageName} " +
-                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner dotnet-stryker-project --run-id {quotedRunId} --project {quotedSourceProject} --test-project {quotedTestProject}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
-        else
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} {mount} {imageName} " +
-                $"python3 -m testmap_runner dotnet-stryker-project --run-id {quotedRunId} --project {quotedSourceProject} --test-project {quotedTestProject}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
+        var args = BuildTestDockerCommandFactory.CreateTargetedMutationArgs(
+            context,
+            _containerName,
+            mount,
+            imageName,
+            _runId,
+            GetContainerPath(sourceProjectPath),
+            GetContainerPath(testProjectPath));
+        await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
     private async Task<int> WaitForActiveContainerAsync(bool allowNonZeroExit = false)
@@ -479,40 +428,29 @@ public class BuildTestService : IBuildTestService
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
         var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
-        var workingDirectoryArg = string.IsNullOrWhiteSpace(workingDirectory)
-            ? string.Empty
-            : $" --working-directory {QuoteDockerArgument(GetContainerPath(workingDirectory))}";
-        var dotnetArgumentText = string.Join(" ", dotnetArgs.Select(QuoteDockerArgument));
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
 
         var mount = _pathMapper.GetMountArgument(localDir, context);
-        if (_pathMapper.IsWindowsContext(context))
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} " +
-                $"{mount} {imageName} " +
-                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner dotnet{workingDirectoryArg} {dotnetArgumentText}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
-        else
-        {
-            var args =
-                $"--context {context} run -d --name {_containerName} {mount} {imageName} " +
-                $"python3 -m testmap_runner dotnet{workingDirectoryArg} {dotnetArgumentText}";
-            await _dockerCommandRunner.RunProcessAsync("docker", args);
-        }
-    }
-
-    private static string QuoteDockerArgument(string value)
-    {
-        return DockerCommandRunner.QuoteDockerArgument(value);
+        var args = BuildTestDockerCommandFactory.CreateDotnetPassthroughArgs(
+            context,
+            _containerName,
+            mount,
+            imageName,
+            dotnetArgs,
+            string.IsNullOrWhiteSpace(workingDirectory) ? null : GetContainerPath(workingDirectory));
+        await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
     private string GetContainerPath(string hostPath)
     {
         return _pathMapper.GetContainerPath(hostPath, _context.Project.DirectoryPath!, CurrentDockerContext);
+    }
+
+    private static string QuoteDockerArgument(string value)
+    {
+        return DockerCommandRunner.QuoteDockerArgument(value);
     }
 
     private void ResetLatestState()
@@ -785,11 +723,7 @@ public class BuildTestService : IBuildTestService
 
     private static string ResolveCoverageCollectorArgument(CoverageCollectorType collectorType)
     {
-        return collectorType switch
-        {
-            CoverageCollectorType.Coverlet => "XPlat Code Coverage",
-            _ => "Code Coverage;Format=Cobertura"
-        };
+        return BuildTestDockerCommandFactory.ResolveCoverageCollectorArgument(collectorType);
     }
 
     private string CurrentDockerContext =>
@@ -799,50 +733,28 @@ public class BuildTestService : IBuildTestService
 
     private string ResolveDockerContext(bool requiresWindows)
     {
-        if (requiresWindows) return DockerRuntimePathMapper.WindowsContextName;
-
-        var configuredContext = _context.Project.Config.RuntimeConfig.Docker.Context;
-        if (string.IsNullOrWhiteSpace(configuredContext) ||
-            _pathMapper.IsWindowsContext(configuredContext))
-            return DockerRuntimePathMapper.LinuxContextName;
-
-        return configuredContext;
+        return BuildTestDockerCommandFactory.ResolveDockerContext(
+            _context.Project.Config.RuntimeConfig.Docker.Context,
+            requiresWindows,
+            _pathMapper);
     }
 
     private bool SolutionSetRequiresWindows(List<string> solutionFilenames)
     {
         var solutionProjects = GetProjectsForSolutions(solutionFilenames).ToList();
-        return solutionProjects.Any(project =>
-            project.BuildMetadata.WindowsRequirement is WindowsRequirementType.Required
-                or WindowsRequirementType.LikelyRequired);
+        return BuildTestDockerCommandFactory.SolutionSetRequiresWindows(solutionProjects);
     }
 
     private string? TryResolveCommonBaselineTestFramework(List<string> solutionFilenames)
     {
-        var testProjects = GetProjectsForSolutions(solutionFilenames)
-            .Where(project => project.BuildMetadata.IsTestProject)
-            .ToList();
+        var solutionProjects = GetProjectsForSolutions(solutionFilenames).ToList();
+        var testProjects = solutionProjects.Where(project => project.BuildMetadata.IsTestProject).ToList();
 
         if (testProjects.Count == 0)
             throw new InvalidOperationException(
                 $"No test projects were found for baseline solution(s): {string.Join(", ", solutionFilenames)}.");
 
-        var commonFrameworks = new HashSet<string>(
-            GetProjectTargetFrameworks(testProjects[0]),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var testProject in testProjects.Skip(1))
-            commonFrameworks.IntersectWith(GetProjectTargetFrameworks(testProject));
-
-        var selectedFramework = commonFrameworks
-            .Select(ParseFrameworkPreference)
-            .OrderByDescending(framework => framework.IsModernNet)
-            .ThenBy(framework => framework.IsLegacyFramework)
-            .ThenByDescending(framework => framework.Major)
-            .ThenByDescending(framework => framework.Minor)
-            .ThenByDescending(framework => framework.Framework.StartsWith("net", StringComparison.OrdinalIgnoreCase))
-            .Select(framework => framework.Framework)
-            .FirstOrDefault();
+        var selectedFramework = BuildTestDockerCommandFactory.TryResolveCommonBaselineTestFramework(solutionProjects);
 
         if (string.IsNullOrWhiteSpace(selectedFramework))
         {
@@ -887,64 +799,7 @@ public class BuildTestService : IBuildTestService
 
     private static string? ChoosePreferredTargetFramework(CSharpProjectModel project)
     {
-        var candidates = GetProjectTargetFrameworks(project);
-
-        return candidates
-            .Select(ParseFrameworkPreference)
-            .OrderByDescending(x => x.IsModernNet)
-            .ThenBy(x => x.IsLegacyFramework)
-            .ThenByDescending(x => x.Major)
-            .ThenByDescending(x => x.Minor)
-            .ThenByDescending(x => x.Framework.StartsWith("net", StringComparison.OrdinalIgnoreCase))
-            .Select(x => x.Framework)
-            .FirstOrDefault();
-    }
-
-    private static FrameworkPreference ParseFrameworkPreference(string framework)
-    {
-        var legacyMatch = Regex.Match(framework, @"^net(?<major>[1-4])(?<minor>\d)(?<patch>\d)?$",
-            RegexOptions.IgnoreCase);
-        if (legacyMatch.Success)
-        {
-            var legacyMajor = int.TryParse(legacyMatch.Groups["major"].Value, out var parsedLegacyMajor)
-                ? parsedLegacyMajor
-                : -1;
-            var legacyMinor = int.TryParse(legacyMatch.Groups["minor"].Value, out var parsedLegacyMinor)
-                ? parsedLegacyMinor
-                : 0;
-            return new FrameworkPreference(framework, false, true, legacyMajor, legacyMinor);
-        }
-
-        var modernMatch = Regex.Match(framework, @"^net(?<major>[5-9]|\d{2,})(?:\.(?<minor>\d+))?$",
-            RegexOptions.IgnoreCase);
-        if (modernMatch.Success)
-        {
-            var modernMajor = int.TryParse(modernMatch.Groups["major"].Value, out var parsedModernMajor)
-                ? parsedModernMajor
-                : -1;
-            var modernMinor = int.TryParse(modernMatch.Groups["minor"].Value, out var parsedModernMinor)
-                ? parsedModernMinor
-                : 0;
-            return new FrameworkPreference(framework, true, false, modernMajor, modernMinor);
-        }
-
-        var netStandardOrCoreMatch = Regex.Match(framework,
-            @"^net(?:standard|coreapp)(?<major>\d+)(?:\.(?<minor>\d+))?$", RegexOptions.IgnoreCase);
-        if (netStandardOrCoreMatch.Success)
-        {
-            var major = int.TryParse(netStandardOrCoreMatch.Groups["major"].Value, out var parsedMajor)
-                ? parsedMajor
-                : -1;
-            var minor = int.TryParse(netStandardOrCoreMatch.Groups["minor"].Value, out var parsedMinor)
-                ? parsedMinor
-                : 0;
-            return new FrameworkPreference(framework, false, false, major, minor);
-        }
-
-        if (!framework.StartsWith("net", StringComparison.OrdinalIgnoreCase))
-            return new FrameworkPreference(framework, false, false, -1, -1);
-
-        return new FrameworkPreference(framework, false, false, -1, -1);
+        return BuildTestDockerCommandFactory.ChoosePreferredTargetFramework(project);
     }
 
     private sealed record BuildDiagnostic(
@@ -958,12 +813,6 @@ public class BuildTestService : IBuildTestService
 
     private sealed record BaselineTestTarget(string ProjectPath, string? TargetFramework, string Collector);
 
-    private sealed record FrameworkPreference(
-        string Framework,
-        bool IsModernNet,
-        bool IsLegacyFramework,
-        int Major,
-        int Minor);
 }
 
 public sealed record DockerCompilationValidationResult(bool IsSuccess, string? LogText, string? StructuredErrors)

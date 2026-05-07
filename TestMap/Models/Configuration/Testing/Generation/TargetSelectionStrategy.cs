@@ -4,6 +4,5 @@ public enum TargetSelectionStrategy
 {
     Existing,
     RiskWeighted,
-    MetricDrivenImprovement,
-    TestSuiteImprovements
+    MetricDrivenImprovement
 }

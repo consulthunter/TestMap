@@ -41,6 +41,9 @@ public class CandidateMethodContext
     public required string TestNamespace { get; init; }
     public required string TestClassName { get; init; }
     public required string TestFilePath { get; init; }
+    public required string SourceFilePath { get; init; }
+    public required CandidateSourceLocation SourceLocation { get; init; }
+    public CandidateTestLocation? TestLocation { get; init; }
     public required string SourceProjectPath { get; init; }
     public required string TestProjectPath { get; init; }
     public required string TargetBuildFramework { get; init; }
@@ -54,4 +57,21 @@ public class CandidateMethodContext
     public required string TestFramework { get; init; }
     public required string TestDependencies { get; init; }
     public required string CoverageGapSummary { get; init; }
+}
+
+public sealed class CandidateSourceLocation
+{
+    public string SourceFilePath { get; init; } = string.Empty;
+    public int StartLine { get; init; }
+    public int EndLine { get; init; }
+    public int StartPosition { get; init; }
+    public int EndPosition { get; init; }
+}
+
+public sealed class CandidateTestLocation
+{
+    public string? TestFilePath { get; init; }
+    public int? StartLine { get; init; }
+    public int? EndLine { get; init; }
+    public string? TestProjectPath { get; init; }
 }

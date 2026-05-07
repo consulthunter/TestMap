@@ -15,6 +15,8 @@ public class GenerationStepEntityConfiguration : IEntityTypeConfiguration<Genera
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.GenerationAttemptId).HasColumnName("generation_attempt_id").IsRequired();
         builder.Property(x => x.StepName).HasColumnName("step_name").IsRequired();
+        builder.Property(x => x.Status).HasColumnName("status").IsRequired();
+        builder.Property(x => x.SkipReason).HasColumnName("skip_reason");
         builder.Property(x => x.StepOrder).HasColumnName("step_order").IsRequired();
         builder.Property(x => x.StartTime).HasColumnName("start_time").IsRequired();
         builder.Property(x => x.EndTime).HasColumnName("end_time");
@@ -24,5 +26,8 @@ public class GenerationStepEntityConfiguration : IEntityTypeConfiguration<Genera
         builder.Property(x => x.Success).HasColumnName("success").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message");
         builder.Property(x => x.ValidationResult).HasColumnName("validation_result");
+        builder.Property(x => x.InputTokens).HasColumnName("input_tokens");
+        builder.Property(x => x.OutputTokens).HasColumnName("output_tokens");
+        builder.Property(x => x.RuleDecisionJson).HasColumnName("rule_decision_json");
     }
 }

@@ -4,8 +4,10 @@ using SharpToken;
 using TestMap.App;
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 using TestMap.Models.Generation;
+using TestMap.Services.TestGeneration.Context;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 
 namespace TestMap.Services.TestGeneration;
@@ -20,16 +22,22 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
     private readonly ProjectContext _context;
     private readonly TestMapConfig _config;
     private readonly Dictionary<AiProvider, IAiGenerationProvider> _providers;
+    private readonly IContextGraphService _contextGraphService;
+    private readonly IContextResolutionService _contextResolutionService;
     private readonly GptEncoding _encoding;
 
     public TestGenerationPipelineService(
         ProjectContext context,
         TestMapConfig config,
-        IEnumerable<IAiGenerationProvider> providers)
+        IEnumerable<IAiGenerationProvider> providers,
+        IContextGraphService? contextGraphService = null,
+        IContextResolutionService? contextResolutionService = null)
     {
         _context = context;
         _config = config;
         _providers = providers.ToDictionary(x => x.Provider);
+        _contextGraphService = contextGraphService ?? new ContextGraphService();
+        _contextResolutionService = contextResolutionService ?? new ContextResolutionService();
         _encoding = GptEncoding.GetEncoding("cl100k_base");
     }
 
@@ -39,130 +47,216 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
     {
         var provider = await GetProviderAsync(request.Provider, cancellationToken);
         var steps = new List<GenerationStepMetadata>();
-        var conversation = GenerationConversationState.Create(request.EnableHistoryChaining);
+        var conversation = GenerationConversationState.Create(ShouldUseConversationHistory(request));
         var overallStopwatch = Stopwatch.StartNew();
 
         try
         {
+            var promptEvidence = GenerationPromptEvidence.FromRequest(request);
+            var artifacts = new GenerationPipelineArtifacts();
+
+            if (request.Steps.EnableContextGraph)
+            {
+                artifacts.ContextGraph = await _contextGraphService.BuildAsync(request, cancellationToken);
+                steps.Add(CreateContextGraphStep(artifacts.ContextGraph));
+            }
+
+            if (request.Steps.EnableContextResolution)
+            {
+                if (artifacts.ContextGraph == null)
+                {
+                    artifacts.ContextGraph = await _contextGraphService.BuildAsync(request, cancellationToken);
+                    steps.Add(CreateContextGraphStep(artifacts.ContextGraph));
+                }
+
+                artifacts.ContextResolution = _contextResolutionService.Resolve(artifacts.ContextGraph);
+                steps.Add(CreateContextResolutionStep(artifacts.ContextResolution));
+            }
+
+            var contextSummary = BuildContextSummary(artifacts);
+
             // Step 1: Generate Scenario
-            var scenarioPrompt = CreateScenarioPrompt(request);
-            var scenario = await ExecuteStepAsync(
-                GenerationStepType.Scenario,
-                PreparePrompt(
-                    conversation,
+            var scenario = request.Steps.EnableScenario
+                ? await ExecuteStepAsync(
                     GenerationStepType.Scenario,
-                    scenarioPrompt),
-                provider,
-                request.Temperature,
-                request.StepErrorRetries,
-                request.StepRetryDelayMs,
-                cancellationToken);
+                    PreparePrompt(
+                        conversation,
+                        request.ContextMode,
+                        GenerationStepType.Scenario,
+                        CreateScenarioPrompt(promptEvidence)),
+                    provider,
+                    request.Temperature,
+                    request.StepErrorRetries,
+                    request.StepRetryDelayMs,
+                    cancellationToken)
+                : CreateFallbackStep(
+                    GenerationStepType.Scenario,
+                    BuildFallbackScenario(promptEvidence),
+                    "Scenario step disabled; final synthesis will use target evidence directly.");
             steps.Add(scenario);
             if (!scenario.Success) return CreateFailureResult(steps, overallStopwatch, scenario.ErrorMessage);
-            conversation.Append(GenerationStepType.Scenario, scenarioPrompt, scenario.Response);
+            artifacts.Scenario = scenario.Response;
+            if (scenario.Status == GenerationStepStatus.Executed)
+                conversation.Append(GenerationStepType.Scenario, CreateScenarioPrompt(promptEvidence), scenario.Response);
 
             // Step 2: Generate Method Name
-            var methodNamePrompt = CreateMethodNamePrompt(request, scenario.Response);
-            var methodName = await ExecuteStepAsync(
-                GenerationStepType.MethodName,
-                PreparePrompt(
-                    conversation,
+            var methodName = request.Steps.EnableMethodName
+                ? await ExecuteStepAsync(
                     GenerationStepType.MethodName,
-                    methodNamePrompt),
-                provider,
-                request.Temperature,
-                request.StepErrorRetries,
-                request.StepRetryDelayMs,
-                cancellationToken);
+                    PreparePrompt(
+                        conversation,
+                        request.ContextMode,
+                        GenerationStepType.MethodName,
+                        CreateMethodNamePrompt(promptEvidence, artifacts.Scenario ?? string.Empty)),
+                    provider,
+                    request.Temperature,
+                    request.StepErrorRetries,
+                    request.StepRetryDelayMs,
+                    cancellationToken)
+                : CreateFallbackStep(
+                    GenerationStepType.MethodName,
+                    BuildFallbackMethodName(promptEvidence),
+                    "Method-name step disabled; deterministic fallback method name was used.");
             steps.Add(methodName);
             if (!methodName.Success) return CreateFailureResult(steps, overallStopwatch, methodName.ErrorMessage);
-            conversation.Append(GenerationStepType.MethodName, methodNamePrompt, methodName.Response);
+            artifacts.MethodName = methodName.Response;
+            if (methodName.Status == GenerationStepStatus.Executed)
+                conversation.Append(
+                    GenerationStepType.MethodName,
+                    CreateMethodNamePrompt(promptEvidence, artifacts.Scenario ?? string.Empty),
+                    methodName.Response);
 
             // Step 3: Generate Arrange Plan
-            var arrangePrompt = CreateArrangePlanPrompt(request, scenario.Response);
-            var arrangePlan = await ExecuteStructuredStepAsync<ArrangePlan>(
-                GenerationStepType.ArrangePlan,
-                PreparePrompt(
-                    conversation,
+            var arrangePlan = request.Steps.EnableArrangePlan
+                ? await ExecuteStructuredStepAsync<ArrangePlan>(
                     GenerationStepType.ArrangePlan,
-                    arrangePrompt),
-                provider,
-                request.Temperature,
-                request.StepErrorRetries,
-                request.StepRetryDelayMs,
-                cancellationToken);
+                    PreparePrompt(
+                        conversation,
+                        request.ContextMode,
+                        GenerationStepType.ArrangePlan,
+                        CreateArrangePlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, contextSummary)),
+                    provider,
+                    request.Temperature,
+                    request.StepErrorRetries,
+                    request.StepRetryDelayMs,
+                    cancellationToken)
+                : CreateFallbackStructuredStep<ArrangePlan>(
+                    GenerationStepType.ArrangePlan,
+                    "Arrange-plan step disabled; final synthesis will infer arrange code.");
             steps.Add(arrangePlan.Metadata);
             if (!arrangePlan.Metadata.Success)
                 return CreateFailureResult(steps, overallStopwatch, arrangePlan.Metadata.ErrorMessage);
-            conversation.Append(GenerationStepType.ArrangePlan, arrangePrompt, arrangePlan.Metadata.Response);
+            artifacts.ArrangePlan = arrangePlan.Structured;
+            if (arrangePlan.Metadata.Status == GenerationStepStatus.Executed)
+                conversation.Append(
+                    GenerationStepType.ArrangePlan,
+                    CreateArrangePlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, contextSummary),
+                    arrangePlan.Metadata.Response);
 
             // Step 4: Generate Input Plan
-            var inputPrompt = CreateInputPlanPrompt(request, scenario.Response, arrangePlan.Structured);
-            var inputPlan = await ExecuteStructuredStepAsync<InputPlan>(
-                GenerationStepType.InputPlan,
-                PreparePrompt(
-                    conversation,
+            var inputPlan = request.Steps.EnableInputPlan
+                ? await ExecuteStructuredStepAsync<InputPlan>(
                     GenerationStepType.InputPlan,
-                    inputPrompt),
-                provider,
-                request.Temperature,
-                request.StepErrorRetries,
-                request.StepRetryDelayMs,
-                cancellationToken);
+                    PreparePrompt(
+                        conversation,
+                        request.ContextMode,
+                        GenerationStepType.InputPlan,
+                        CreateInputPlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, arrangePlan.Structured, contextSummary)),
+                    provider,
+                    request.Temperature,
+                    request.StepErrorRetries,
+                    request.StepRetryDelayMs,
+                    cancellationToken)
+                : CreateFallbackStructuredStep<InputPlan>(
+                    GenerationStepType.InputPlan,
+                    "Input-plan step disabled; final synthesis will infer concrete inputs.");
             steps.Add(inputPlan.Metadata);
             if (!inputPlan.Metadata.Success)
                 return CreateFailureResult(steps, overallStopwatch, inputPlan.Metadata.ErrorMessage);
-            conversation.Append(GenerationStepType.InputPlan, inputPrompt, inputPlan.Metadata.Response);
+            artifacts.InputPlan = inputPlan.Structured;
+            if (inputPlan.Metadata.Status == GenerationStepStatus.Executed)
+                conversation.Append(
+                    GenerationStepType.InputPlan,
+                    CreateInputPlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, arrangePlan.Structured, contextSummary),
+                    inputPlan.Metadata.Response);
 
             // Step 5: Generate Action Plan
-            var actionPrompt = CreateActionPlanPrompt(request, scenario.Response, inputPlan.Structured);
-            var actionPlan = await ExecuteStructuredStepAsync<ActionPlan>(
-                GenerationStepType.ActionPlan,
-                PreparePrompt(
-                    conversation,
+            var actionPlan = request.Steps.EnableActionPlan
+                ? await ExecuteStructuredStepAsync<ActionPlan>(
                     GenerationStepType.ActionPlan,
-                    actionPrompt),
-                provider,
-                request.Temperature,
-                request.StepErrorRetries,
-                request.StepRetryDelayMs,
-                cancellationToken);
+                    PreparePrompt(
+                        conversation,
+                        request.ContextMode,
+                        GenerationStepType.ActionPlan,
+                        CreateActionPlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, inputPlan.Structured)),
+                    provider,
+                    request.Temperature,
+                    request.StepErrorRetries,
+                    request.StepRetryDelayMs,
+                    cancellationToken)
+                : CreateFallbackStructuredStep<ActionPlan>(
+                    GenerationStepType.ActionPlan,
+                    "Action-plan step disabled; final synthesis will infer invocation.");
             steps.Add(actionPlan.Metadata);
             if (!actionPlan.Metadata.Success)
                 return CreateFailureResult(steps, overallStopwatch, actionPlan.Metadata.ErrorMessage);
-            conversation.Append(GenerationStepType.ActionPlan, actionPrompt, actionPlan.Metadata.Response);
+            artifacts.ActionPlan = actionPlan.Structured;
+            if (actionPlan.Metadata.Status == GenerationStepStatus.Executed)
+                conversation.Append(
+                    GenerationStepType.ActionPlan,
+                    CreateActionPlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, inputPlan.Structured),
+                    actionPlan.Metadata.Response);
 
             // Step 6: Generate Assertion Plan
-            var assertionPrompt = CreateAssertionPlanPrompt(request, scenario.Response, actionPlan.Structured);
-            var assertionPlan = await ExecuteStructuredStepAsync<AssertionPlan>(
-                GenerationStepType.AssertionPlan,
-                PreparePrompt(
-                    conversation,
+            var assertionPlan = request.Steps.EnableAssertionPlan
+                ? await ExecuteStructuredStepAsync<AssertionPlan>(
                     GenerationStepType.AssertionPlan,
-                    assertionPrompt),
-                provider,
-                request.Temperature,
-                request.StepErrorRetries,
-                request.StepRetryDelayMs,
-                cancellationToken);
+                    PreparePrompt(
+                        conversation,
+                        request.ContextMode,
+                        GenerationStepType.AssertionPlan,
+                        CreateAssertionPlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, actionPlan.Structured)),
+                    provider,
+                    request.Temperature,
+                    request.StepErrorRetries,
+                    request.StepRetryDelayMs,
+                    cancellationToken)
+                : CreateFallbackStructuredStep<AssertionPlan>(
+                    GenerationStepType.AssertionPlan,
+                    "Assertion-plan step disabled; final synthesis will infer assertions.");
             steps.Add(assertionPlan.Metadata);
             if (!assertionPlan.Metadata.Success)
                 return CreateFailureResult(steps, overallStopwatch, assertionPlan.Metadata.ErrorMessage);
-            conversation.Append(GenerationStepType.AssertionPlan, assertionPrompt, assertionPlan.Metadata.Response);
+            artifacts.AssertionPlan = assertionPlan.Structured;
+            if (assertionPlan.Metadata.Status == GenerationStepStatus.Executed)
+                conversation.Append(
+                    GenerationStepType.AssertionPlan,
+                    CreateAssertionPlanPrompt(promptEvidence, artifacts.Scenario ?? string.Empty, actionPlan.Structured),
+                    assertionPlan.Metadata.Response);
 
             // Step 7: Generate Final Test
+            if (!request.Steps.EnableFinalTest)
+            {
+                steps.Add(CreateSkippedStep(
+                    GenerationStepType.FinalTest,
+                    "Final-test step disabled; no generated test can be produced."));
+                return CreateFailureResult(steps, overallStopwatch, "Final-test step is disabled.");
+            }
+
             var finalTestPrompt = CreateFinalTestPrompt(
-                request,
-                scenario.Response,
-                methodName.Response,
+                promptEvidence,
+                artifacts.Scenario ?? string.Empty,
+                artifacts.MethodName ?? BuildFallbackMethodName(promptEvidence),
                 arrangePlan,
                 inputPlan,
                 actionPlan,
-                assertionPlan);
+                assertionPlan,
+                contextSummary);
             var finalTestStep = await ExecuteStepAsync(
                 GenerationStepType.FinalTest,
                 PreparePrompt(
                     conversation,
+                    request.ContextMode,
                     GenerationStepType.FinalTest,
                     finalTestPrompt),
                 provider,
@@ -178,7 +272,7 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
 
             var finalTest = ExtractCodeBlock(finalTestStep.Response);
             var extractedMethodName = Utilities.Utilities.ExtractTestMethodName(finalTest) ??
-                                      ExtractMethodName(methodName.Response);
+                                      ExtractMethodName(artifacts.MethodName ?? string.Empty);
 
             return new TestGenerationResult
             {
@@ -206,7 +300,7 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         var provider = await GetProviderAsync(request.Provider, cancellationToken);
         var steps = new List<GenerationStepMetadata>();
         var conversation = GenerationConversationState.Create(
-            request.EnableHistoryChaining,
+            ShouldUseConversationHistory(request),
             request.PriorConversationTranscript);
         var overallStopwatch = Stopwatch.StartNew();
 
@@ -216,6 +310,7 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             var rawRepairPrompt = CreateRepairPrompt(request);
             var repairPrompt = PreparePrompt(
                 conversation,
+                request.ContextMode,
                 repairStepType,
                 rawRepairPrompt);
             var result = await ExecuteStepAsync(
@@ -406,6 +501,8 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             StructuredResponseJson = json,
             PromptVersion = PromptVersion,
             ValidationStatus = parsed != null ? "valid_json" : "invalid_json",
+            Status = metadata.Status,
+            SkipReason = metadata.SkipReason,
             TokenCount = metadata.TokenCount,
             DurationSeconds = metadata.DurationSeconds,
             StartedAt = metadata.StartedAt,
@@ -445,10 +542,11 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
 
     private static string PreparePrompt(
         GenerationConversationState conversation,
+        GenerationContextMode contextMode,
         GenerationStepType stepType,
         string prompt)
     {
-        if (!conversation.Enabled) return prompt;
+        if (contextMode == GenerationContextMode.NoHistory || !conversation.Enabled) return prompt;
 
         var transcript = conversation.Export();
         var transcriptBlock = string.IsNullOrWhiteSpace(transcript)
@@ -466,7 +564,156 @@ Instruction:
 {prompt}";
     }
 
-    private string CreateScenarioPrompt(TestGenerationRequest request)
+    private static bool ShouldUseConversationHistory(TestGenerationRequest request)
+    {
+        return request.ContextMode == GenerationContextMode.ChainedHistory;
+    }
+
+    private static bool ShouldUseConversationHistory(TestRepairRequest request)
+    {
+        return request.ContextMode == GenerationContextMode.ChainedHistory;
+    }
+
+    private static GenerationStepMetadata CreateFallbackStep(
+        GenerationStepType stepType,
+        string response,
+        string reason)
+    {
+        return new GenerationStepMetadata
+        {
+            StepType = stepType,
+            Status = GenerationStepStatus.Fallback,
+            SkipReason = reason,
+            Prompt = string.Empty,
+            Response = response,
+            ResponseFormat = "text/plain",
+            PromptVersion = PromptVersion,
+            ValidationStatus = "fallback",
+            Success = true,
+            StartedAt = DateTime.UtcNow,
+            CompletedAt = DateTime.UtcNow
+        };
+    }
+
+    private static GenerationStepMetadata CreateSkippedStep(
+        GenerationStepType stepType,
+        string reason)
+    {
+        return new GenerationStepMetadata
+        {
+            StepType = stepType,
+            Status = GenerationStepStatus.Skipped,
+            SkipReason = reason,
+            Prompt = string.Empty,
+            Response = string.Empty,
+            ResponseFormat = GetResponseFormat(stepType),
+            PromptVersion = PromptVersion,
+            ValidationStatus = "skipped",
+            Success = true,
+            StartedAt = DateTime.UtcNow,
+            CompletedAt = DateTime.UtcNow
+        };
+    }
+
+    private static StructuredStepResult<TPlan> CreateFallbackStructuredStep<TPlan>(
+        GenerationStepType stepType,
+        string reason)
+        where TPlan : class, new()
+    {
+        var structured = new TPlan();
+        var json = JsonSerializer.Serialize(structured);
+        return new StructuredStepResult<TPlan>(
+            new GenerationStepMetadata
+            {
+                StepType = stepType,
+                Status = GenerationStepStatus.Fallback,
+                SkipReason = reason,
+                Prompt = string.Empty,
+                Response = json,
+                ResponseFormat = "application/json",
+                StructuredResponseJson = json,
+                PromptVersion = PromptVersion,
+                ValidationStatus = "fallback",
+                Success = true,
+                StartedAt = DateTime.UtcNow,
+                CompletedAt = DateTime.UtcNow
+            },
+            structured);
+    }
+
+    private static GenerationStepMetadata CreateContextGraphStep(ContextGraph graph)
+    {
+        var json = JsonSerializer.Serialize(graph);
+        return new GenerationStepMetadata
+        {
+            StepType = GenerationStepType.ContextGraph,
+            Status = GenerationStepStatus.Executed,
+            Prompt = string.Empty,
+            Response = json,
+            ResponseFormat = "application/json",
+            StructuredResponseJson = json,
+            PromptVersion = PromptVersion,
+            ValidationStatus = "built",
+            Success = true,
+            StartedAt = DateTime.UtcNow,
+            CompletedAt = DateTime.UtcNow
+        };
+    }
+
+    private static GenerationStepMetadata CreateContextResolutionStep(
+        IReadOnlyList<ContextResolutionResult> resolutions)
+    {
+        var json = JsonSerializer.Serialize(resolutions);
+        return new GenerationStepMetadata
+        {
+            StepType = GenerationStepType.ContextResolution,
+            Status = GenerationStepStatus.Executed,
+            Prompt = string.Empty,
+            Response = json,
+            ResponseFormat = "application/json",
+            StructuredResponseJson = json,
+            PromptVersion = PromptVersion,
+            ValidationStatus = "resolved",
+            Success = true,
+            StartedAt = DateTime.UtcNow,
+            CompletedAt = DateTime.UtcNow
+        };
+    }
+
+    private static string BuildContextSummary(GenerationPipelineArtifacts artifacts)
+    {
+        if (artifacts.ContextGraph == null) return "Context graph disabled or unavailable.";
+
+        var graphLines = artifacts.ContextGraph.Nodes
+            .Select(node =>
+                $"- {node.NodeType}: {node.VariableName ?? node.TypeName} ({node.TypeName}) - {node.ConstructionHint}")
+            .ToList();
+
+        var resolutionLines = artifacts.ContextResolution.Count == 0
+            ? ["- No context resolution snippets were produced."]
+            : artifacts.ContextResolution.Select(result =>
+                $"- {result.NodeId}: {result.CodeSnippet} {result.Explanation}".Trim()).ToList();
+
+        return string.Join(
+            Environment.NewLine,
+            ["Context graph:", ..graphLines, "Context resolution:", ..resolutionLines]);
+    }
+
+    private static string BuildFallbackScenario(GenerationPromptEvidence evidence)
+    {
+        return $"Generate a focused test for {evidence.MethodName} using the available method and test context.";
+    }
+
+    private static string BuildFallbackMethodName(GenerationPromptEvidence evidence)
+    {
+        var methodName = string.IsNullOrWhiteSpace(evidence.MethodName)
+            ? "Generated"
+            : evidence.MethodName.Trim();
+
+        return $"{methodName}_GeneratedScenario_ExpectedBehavior";
+    }
+
+    private string CreateScenarioPrompt(GenerationPromptEvidence request)
     {
         return $@"Given this method:
 {request.MethodBody}
@@ -494,7 +741,7 @@ Use this coverage gap information when deciding which path to target:
 Respond with only the scenario description, 1-2 sentences.";
     }
 
-    private string CreateMethodNamePrompt(TestGenerationRequest request, string scenario)
+    private string CreateMethodNamePrompt(GenerationPromptEvidence request, string scenario)
     {
         return $@"Given this test scenario:
 {scenario}
@@ -507,13 +754,19 @@ The name should clearly describe what is being tested.
 Respond with only the method name, nothing else.";
     }
 
-    private string CreateArrangePlanPrompt(TestGenerationRequest request, string scenario)
+    private string CreateArrangePlanPrompt(
+        GenerationPromptEvidence request,
+        string scenario,
+        string contextSummary)
     {
         return $@"For this test scenario:
 {scenario}
 
 And this method under test:
 {request.MethodBody}
+
+Context graph and resolution hints:
+{contextSummary}
 
 Produce strict JSON for the arrange plan in this shape:
 {{
@@ -539,7 +792,11 @@ Relevant coverage gaps:
 Respond with only JSON.";
     }
 
-    private string CreateInputPlanPrompt(TestGenerationRequest request, string scenario, ArrangePlan arrangePlan)
+    private string CreateInputPlanPrompt(
+        GenerationPromptEvidence request,
+        string scenario,
+        ArrangePlan arrangePlan,
+        string contextSummary)
     {
         return $@"For this test scenario:
 {scenario}
@@ -549,6 +806,9 @@ Method under test:
 
 Arrange plan:
 {JsonSerializer.Serialize(arrangePlan)}
+
+Context graph and resolution hints:
+{contextSummary}
 
 Return strict JSON in this shape:
 {{
@@ -562,7 +822,7 @@ Relevant coverage gaps:
 Respond with only JSON.";
     }
 
-    private string CreateActionPlanPrompt(TestGenerationRequest request, string scenario, InputPlan inputPlan)
+    private string CreateActionPlanPrompt(GenerationPromptEvidence request, string scenario, InputPlan inputPlan)
     {
         return $@"For this test scenario:
 {scenario}
@@ -582,7 +842,7 @@ Return strict JSON in this shape:
 Respond with only JSON.";
     }
 
-    private string CreateAssertionPlanPrompt(TestGenerationRequest request, string scenario, ActionPlan actionPlan)
+    private string CreateAssertionPlanPrompt(GenerationPromptEvidence request, string scenario, ActionPlan actionPlan)
     {
         return $@"For this test scenario:
 {scenario}
@@ -612,13 +872,14 @@ Respond with only JSON.";
     }
 
     private string CreateFinalTestPrompt(
-        TestGenerationRequest request,
+        GenerationPromptEvidence request,
         string scenario,
         string methodName,
         StructuredStepResult<ArrangePlan> arrangePlan,
         StructuredStepResult<InputPlan> inputPlan,
         StructuredStepResult<ActionPlan> actionPlan,
-        StructuredStepResult<AssertionPlan> assertionPlan)
+        StructuredStepResult<AssertionPlan> assertionPlan,
+        string contextSummary)
     {
         return $@"Write the complete final {request.TestFramework} test method for this target method:
 {request.MethodBody}
@@ -640,6 +901,9 @@ Action plan:
 
 Assertion plan:
 {assertionPlan.Metadata.StructuredResponseJson ?? assertionPlan.Metadata.Response}
+
+Context graph and resolution hints:
+{contextSummary}
 
 Use this example test from the same class for style and framework conventions:
 {request.ExampleTest}
@@ -878,6 +1142,43 @@ Respond with only the complete test method code wrapped in ```.";
     }
 
     private sealed record StructuredStepResult<TPlan>(GenerationStepMetadata Metadata, TPlan Structured);
+
+    private sealed class GenerationPromptEvidence
+    {
+        public required string MethodBody { get; init; }
+        public required string MethodName { get; init; }
+        public required string MethodSignature { get; init; }
+        public required string ContainingClass { get; init; }
+        public required string ExampleTest { get; init; }
+        public required string ExampleTestMetadataSummary { get; init; }
+        public required string ProjectTestMetadataSummary { get; init; }
+        public required string TestClass { get; init; }
+        public required string TestFileContents { get; init; }
+        public required string TestSupportContext { get; init; }
+        public required string TestFramework { get; init; }
+        public required string TestDependencies { get; init; }
+        public required string CoverageGapSummary { get; init; }
+
+        public static GenerationPromptEvidence FromRequest(TestGenerationRequest request)
+        {
+            return new GenerationPromptEvidence
+            {
+                MethodBody = request.MethodBody,
+                MethodName = request.MethodName,
+                MethodSignature = request.MethodSignature,
+                ContainingClass = request.ContainingClass,
+                ExampleTest = request.ExampleTest,
+                ExampleTestMetadataSummary = request.ExampleTestMetadataSummary,
+                ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
+                TestClass = request.TestClass,
+                TestFileContents = request.TestFileContents,
+                TestSupportContext = request.TestSupportContext,
+                TestFramework = request.TestFramework,
+                TestDependencies = request.TestDependencies,
+                CoverageGapSummary = request.CoverageGapSummary
+            };
+        }
+    }
 
     #endregion
 }

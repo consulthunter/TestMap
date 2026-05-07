@@ -10,12 +10,14 @@ using TestMap.Persistence.Ef.Repositories.Experiment;
 using TestMap.Persistence.Ef.Repositories.FlakyTestDetection;
 using TestMap.Persistence.Ef.Repositories.MutationTesting;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
+using TestMap.Persistence.Ef.Repositories.Rules;
 using TestMap.Persistence.Ef.Repositories.Testing;
 using TestMap.Runs;
 using TestMap.Services.ProjectDiscovery;
 using TestMap.Services.Configuration;
 using TestMap.Services.TestExecution.Mapping;
 using TestMap.Services.RepoOperations;
+using TestMap.Services.Rules;
 using TestMap.Services.FlakyTestDetection;
 using TestMap.Services.RiskScoring;
 using TestMap.Services.StaticAnalysis;
@@ -24,6 +26,10 @@ using TestMap.Services.TestExecution;
 using TestMap.Services.TestExecution.Collection;
 using TestMap.Services.TestGeneration;
 using TestMap.Services.TestGeneration.Bootstrap;
+using TestMap.Services.TestGeneration.Acceptance;
+using TestMap.Services.TestGeneration.Classification;
+using TestMap.Services.TestGeneration.Context;
+using TestMap.Services.TestGeneration.Evidence;
 using TestMap.Services.TestGeneration.Providers;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 using TestMap.Services.TestGeneration.Providers.Amazon;
@@ -39,6 +45,7 @@ using TestMap.Services.Experiment.Execution;
 using TestMap.Services.Experiment.Reporting;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.TargetSelection.Strategies;
+using TestMap.Services.TestGeneration.Validation;
 
 namespace TestMap.Services;
 
@@ -60,17 +67,28 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DockerCommandRunner>();
         services.AddScoped<BuildTestResultCollector>();
         services.AddScoped<TestGenerator>();
+        services.AddScoped<IRuleDecisionRecorder, RuleDecisionRecorder>();
         services.AddScoped<ITestBootstrapDetectionService, TestBootstrapDetectionService>();
         services.AddScoped<ITestProjectBootstrapService, TestProjectBootstrapService>();
         services.AddScoped<ITestProjectScaffoldingService, TestProjectScaffoldingService>();
         services.AddScoped<ITestTypeClassificationService, TestTypeClassificationService>();
         services.AddScoped<ITestBootstrapService, TestBootstrapService>();
+        services.AddScoped<IGenerationEvidenceService, GenerationEvidenceService>();
+        services.AddScoped<IGeneratedTestExecutionService, GeneratedTestExecutionService>();
+        services.AddScoped<IGenerationValidationService, GenerationValidationService>();
+        services.AddScoped<IRoslynGeneratedTestValidationService, RoslynGeneratedTestValidationService>();
+        services.AddScoped<IGenerationAcceptanceService, GenerationAcceptanceService>();
+        services.AddScoped<IGenerationClassificationService, GenerationClassificationService>();
+        services.AddScoped<IContextGraphService, ContextGraphService>();
+        services.AddScoped<IContextResolutionService, ContextResolutionService>();
         services.AddScoped<ITestGenerationPipelineService, TestGenerationPipelineService>();
-        services.AddScoped<ITestGenerationApproach, DefaultCoverageExtensionGenerationApproach>();
+        services.AddScoped<ITestGenerationApproach, NaiveGenerationApproach>();
+        services.AddScoped<ITestGenerationApproach, MetricsDrivenGenerationApproach>();
         services.AddScoped<ITestGenerationApproach, ActionAwareGenerationApproach>();
         services.AddScoped<ITestCodeEditService, TestCodeEditService>();
-        services.AddScoped<ITestActionExecutor, BasicCoverageExtensionTestActionExecutor>();
+        services.AddScoped<ITestActionExecutor, BasicExtensionTestActionExecutor>();
         services.AddScoped<ITestActionExecutor, ActionAwareTestActionExecutor>();
+        services.AddScoped<IGeneratedTestApplicationService, GeneratedTestApplicationService>();
         services.AddScoped<RollbackWorkspaceService>();
         services.AddScoped<BranchWorkspaceService>();
         services.AddScoped<CollectCoverageResultsService>();
@@ -191,6 +209,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<TestRunRepository>();
         services.AddScoped<TestResultRepository>();
         services.AddScoped<TestSmellRepository>();
+        services.AddScoped<RuleAuditRepository>();
 
         return services;
     }
@@ -201,6 +220,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddExperimentRepositories(this IServiceCollection services)
     {
         services.AddScoped<ExperimentRunRepository>();
+        services.AddScoped<ExperimentMatrixWorkItemRepository>();
         services.AddScoped<CandidateMethodRepository>();
         services.AddScoped<GenerationAttemptRepository>();
         services.AddScoped<GenerationStepRepository>();
@@ -217,11 +237,15 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICandidateSelectionStrategy, ExistingCandidateSelectionStrategy>();
         services.AddScoped<ICandidateSelectionStrategy, RiskWeightedCandidateSelectionStrategy>();
         services.AddScoped<ICandidateSelectionStrategy, MetricDrivenCandidateSelectionStrategy>();
-        services.AddScoped<ICandidateSelectionStrategy, TestSuiteImprovementCandidateSelectionStrategy>();
         services.AddScoped<CandidateMethodSelector>();
         services.AddScoped<IMethodSelectionService, MethodSelectionService>();
         services.AddScoped<IExperimentOrchestrationService, ExperimentOrchestrationService>();
         services.AddScoped<IExperimentAnalysisService, ExperimentAnalysisService>();
+        services.AddScoped<IExperimentResultsWriter, ExperimentResultsWriter>();
+        services.AddScoped<IStepAblationVariantGenerator, StepAblationVariantGenerator>();
+        services.AddScoped<IGenerationExperimentMatrixGenerator, GenerationExperimentMatrixGenerator>();
+        services.AddScoped<IGenerationBudgetExecutor, GenerationBudgetExecutor>();
+        services.AddScoped<IExperimentResumeService, ExperimentResumeService>();
 
         return services;
     }

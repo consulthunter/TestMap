@@ -6,6 +6,7 @@ using TestMap.Persistence.Ef.Entities.Experiment;
 using TestMap.Persistence.Ef.Entities.FlakyTestDetection;
 using TestMap.Persistence.Ef.Entities.MutationTesting;
 using TestMap.Persistence.Ef.Entities.RiskScoring;
+using TestMap.Persistence.Ef.Entities.Rules;
 using TestMap.Persistence.Ef.Entities.Testing;
 
 namespace TestMap.Persistence.Ef;
@@ -42,10 +43,13 @@ public class TestMapDbContext : DbContext
     public DbSet<TestRunEntity> TestRuns => Set<TestRunEntity>();
     public DbSet<TestSmellEntity> TestSmells => Set<TestSmellEntity>();
     public DbSet<ExperimentRunEntity> ExperimentRuns => Set<ExperimentRunEntity>();
+    public DbSet<ExperimentMatrixWorkItemEntity> ExperimentMatrixWorkItems => Set<ExperimentMatrixWorkItemEntity>();
     public DbSet<CandidateMethodEntity> CandidateMethods => Set<CandidateMethodEntity>();
     public DbSet<GenerationAttemptEntity> GenerationAttempts => Set<GenerationAttemptEntity>();
     public DbSet<GenerationStepEntity> GenerationSteps => Set<GenerationStepEntity>();
     public DbSet<TestExecutionEntity> TestExecutions => Set<TestExecutionEntity>();
+    public DbSet<RuleDefinitionEntity> RuleDefinitions => Set<RuleDefinitionEntity>();
+    public DbSet<RuleDecisionEntity> RuleDecisions => Set<RuleDecisionEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

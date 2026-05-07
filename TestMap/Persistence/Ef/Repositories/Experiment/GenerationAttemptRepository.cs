@@ -18,6 +18,7 @@ public class GenerationAttemptRepository
     public async Task<GenerationAttempt?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _context.GenerationAttempts
+            .AsNoTracking()
             .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
         return entity?.ToDomain();
     }
@@ -25,6 +26,7 @@ public class GenerationAttemptRepository
     public async Task<GenerationAttempt?> GetWithStepsAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _context.GenerationAttempts
+            .AsNoTracking()
             .Include(g => g.GenerationSteps)
             .Include(g => g.TestExecution)
             .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
@@ -35,6 +37,7 @@ public class GenerationAttemptRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.GenerationAttempts
+            .AsNoTracking()
             .Include(g => g.GenerationSteps)
             .Include(g => g.TestExecution)
             .Where(g => g.CandidateMethodId == candidateMethodId)
@@ -54,6 +57,7 @@ public class GenerationAttemptRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.GenerationAttempts
+            .AsNoTracking()
             .Include(g => g.CandidateMethod)
             .Include(g => g.TestExecution)
             .Where(g => g.CandidateMethod != null && g.CandidateMethod.ExperimentRunId == experimentRunId)
@@ -67,6 +71,7 @@ public class GenerationAttemptRepository
         CancellationToken cancellationToken = default)
     {
         var rows = await _context.GenerationAttempts
+            .AsNoTracking()
             .Include(g => g.CandidateMethod)
             .Include(g => g.TestExecution)
             .Where(g => g.CandidateMethod != null && g.CandidateMethod.ExperimentRunId == experimentRunId)
@@ -97,8 +102,15 @@ public class GenerationAttemptRepository
 
     public async Task UpdateAsync(GenerationAttempt attempt, CancellationToken cancellationToken = default)
     {
-        var entity = attempt.ToEntity();
-        _context.GenerationAttempts.Update(entity);
+        _context.ChangeTracker.Clear();
+
+        var entity = await _context.GenerationAttempts
+            .FirstOrDefaultAsync(g => g.Id == attempt.Id, cancellationToken);
+
+        if (entity == null)
+            throw new InvalidOperationException($"Generation attempt '{attempt.Id}' was not found.");
+
+        _context.Entry(entity).CurrentValues.SetValues(attempt.ToEntity());
         await _context.SaveChangesAsync(cancellationToken);
     }
 

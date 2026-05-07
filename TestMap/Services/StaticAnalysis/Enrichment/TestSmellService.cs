@@ -72,12 +72,12 @@ public class TestSmellService : ITestSmellService
                 member => member.ObjectEntityId,
                 obj => obj.Id,
                 (member, obj) => new { Member = member, Object = obj })
+            .Where(x => x.Member.IsTestMember)
             .Join(
                 _dbContext.Files,
                 memberObject => memberObject.Object.FileId,
                 file => file.Id,
                 (memberObject, file) => new MemberCandidate(memberObject.Member, memberObject.Object, file))
-            .Where(x => x.Member.IsTestMember)
             .ToListAsync(cancellationToken);
         var objectCandidates = await _dbContext.Objects
             .Join(

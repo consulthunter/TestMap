@@ -1,5 +1,6 @@
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 using TestMap.Services.TestGeneration.TargetSelection;
 
@@ -15,6 +16,6 @@ public interface IExperimentOrchestrationService
         CandidateMethod candidateMethod,
         CandidateMethodContext context,
         AiProvider provider,
-        GenerationStrategy strategy,
+        GenerationBudgetMode budgetMode,
         CancellationToken cancellationToken = default);
 }

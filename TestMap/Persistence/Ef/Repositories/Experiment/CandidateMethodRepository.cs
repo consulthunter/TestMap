@@ -17,6 +17,7 @@ public class CandidateMethodRepository
     public async Task<CandidateMethod?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _context.CandidateMethods
+            .AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
         return entity?.ToDomain();
     }
@@ -25,6 +26,7 @@ public class CandidateMethodRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.CandidateMethods
+            .AsNoTracking()
             .Where(c => c.ExperimentRunId == experimentRunId)
             .OrderBy(c => c.SourceMethodName)
             .ToListAsync(cancellationToken);
@@ -42,6 +44,7 @@ public class CandidateMethodRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.CandidateMethods
+            .AsNoTracking()
             .Where(c => c.ExperimentRunId == experimentRunId)
             .Where(c => !c.GenerationAttempts.Any())
             .ToListAsync(cancellationToken);
@@ -67,8 +70,15 @@ public class CandidateMethodRepository
 
     public async Task UpdateAsync(CandidateMethod candidateMethod, CancellationToken cancellationToken = default)
     {
-        var entity = candidateMethod.ToEntity();
-        _context.CandidateMethods.Update(entity);
+        _context.ChangeTracker.Clear();
+
+        var entity = await _context.CandidateMethods
+            .FirstOrDefaultAsync(c => c.Id == candidateMethod.Id, cancellationToken);
+
+        if (entity == null)
+            throw new InvalidOperationException($"Candidate method '{candidateMethod.Id}' was not found.");
+
+        _context.Entry(entity).CurrentValues.SetValues(candidateMethod.ToEntity());
         await _context.SaveChangesAsync(cancellationToken);
     }
 

@@ -31,6 +31,11 @@ public class TestExecutionEntityConfiguration : IEntityTypeConfiguration<TestExe
         builder.Property(x => x.MutationScoreDelta).HasColumnName("mutation_score_delta");
         builder.Property(x => x.NewLinesCovered).HasColumnName("new_lines_covered").IsRequired();
         builder.Property(x => x.TestClassification).HasColumnName("test_classification").IsRequired();
+        builder.Property(x => x.ValidationResultJson).HasColumnName("validation_result_json");
+        builder.Property(x => x.Accepted).HasColumnName("accepted");
+        builder.Property(x => x.AcceptanceReason).HasColumnName("acceptance_reason");
+        builder.Property(x => x.ValidationRuleDecisionJson).HasColumnName("validation_rule_decision_json");
+        builder.Property(x => x.ClassificationRuleDecisionJson).HasColumnName("classification_rule_decision_json");
         builder.Property(x => x.ExecutionTime).HasColumnName("execution_time").IsRequired();
         builder.Property(x => x.StructuredErrors).HasColumnName("structured_errors");
     }

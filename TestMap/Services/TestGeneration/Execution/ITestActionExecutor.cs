@@ -1,5 +1,6 @@
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
+using TestMap.Models.Rules;
 using TestMap.Services.TestGeneration.TargetSelection;
 
 namespace TestMap.Services.TestGeneration.Execution;
@@ -22,4 +23,5 @@ public sealed class TestActionExecutionResult
     public string? AppliedTestMethodName { get; init; }
     public CandidateActionKind ActionKind { get; init; }
     public string? ErrorMessage { get; init; }
+    public IReadOnlyList<RuleDecisionRecord> RuleDecisions { get; init; } = [];
 }

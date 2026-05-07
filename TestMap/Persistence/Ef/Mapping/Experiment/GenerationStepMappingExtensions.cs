@@ -16,6 +16,10 @@ public static class GenerationStepMappingExtensions
             StepType = Enum.TryParse<GenerationStepType>(entity.StepName, true, out var stepType)
                 ? stepType
                 : GenerationStepType.Scenario,
+            Status = Enum.TryParse<GenerationStepStatus>(entity.Status, true, out var status)
+                ? status
+                : GenerationStepStatus.Executed,
+            SkipReason = EmptyToNull(entity.SkipReason),
             Prompt = entity.Prompt ?? string.Empty,
             Response = entity.Response ?? string.Empty,
             TokenCount = entity.TokensUsed,
@@ -27,7 +31,10 @@ public static class GenerationStepMappingExtensions
             ResponseFormat = persistence?.ResponseFormat,
             StructuredResponseJson = persistence?.StructuredResponseJson,
             PromptVersion = persistence?.PromptVersion,
-            ValidationStatus = persistence?.ValidationStatus
+            ValidationStatus = persistence?.ValidationStatus,
+            InputTokens = entity.InputTokens,
+            OutputTokens = entity.OutputTokens,
+            RuleDecisionJson = entity.RuleDecisionJson
         };
     }
 
@@ -40,6 +47,8 @@ public static class GenerationStepMappingExtensions
             Id = step.Id,
             GenerationAttemptId = step.GenerationAttemptId,
             StepName = step.StepType.ToString(),
+            Status = step.Status.ToString(),
+            SkipReason = step.SkipReason ?? string.Empty,
             StepOrder = (int)step.StepType,
             StartTime = start,
             EndTime = end,
@@ -48,7 +57,10 @@ public static class GenerationStepMappingExtensions
             TokensUsed = step.TokenCount,
             Success = step.Success,
             ErrorMessage = step.ErrorMessage ?? string.Empty,
-            ValidationResult = SerializeMetadata(step)
+            ValidationResult = SerializeMetadata(step),
+            InputTokens = step.InputTokens,
+            OutputTokens = step.OutputTokens,
+            RuleDecisionJson = step.RuleDecisionJson
         };
     }
 
@@ -89,5 +101,10 @@ public static class GenerationStepMappingExtensions
         public string? StructuredResponseJson { get; set; }
         public string? PromptVersion { get; set; }
         public string? ValidationStatus { get; set; }
+    }
+
+    private static string? EmptyToNull(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 }

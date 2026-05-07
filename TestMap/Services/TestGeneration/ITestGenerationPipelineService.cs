@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 
 namespace TestMap.Services.TestGeneration;
@@ -35,10 +36,26 @@ public interface ITestGenerationPipelineService
 /// </summary>
 public class TestGenerationRequest
 {
+    public TestGenerationObjective Objective { get; init; } = TestGenerationObjective.TestSuiteExpansion;
+    public TestGenerationApproach Approach { get; init; } = TestGenerationApproach.MetricsDriven;
+    public MetricsDrivenPath? MetricsPath { get; init; }
+    public GenerationContextMode ContextMode { get; init; } = GenerationContextMode.ChainedHistory;
+    public GenerationStepConfig Steps { get; init; } = new();
+    public string? ExperimentVariantId { get; init; }
     public required string MethodBody { get; init; }
     public required string MethodName { get; init; }
     public required string MethodSignature { get; init; }
     public required string ContainingClass { get; init; }
+    public string SourceFilePath { get; init; } = string.Empty;
+    public string SourceProjectPath { get; init; } = string.Empty;
+    public string SolutionFilePath { get; init; } = string.Empty;
+    public int SourceStartLine { get; init; }
+    public int SourceEndLine { get; init; }
+    public int SourceStartPosition { get; init; }
+    public int SourceEndPosition { get; init; }
+    public string? ExistingTestFilePath { get; init; }
+    public int? ExistingTestStartLine { get; init; }
+    public int? ExistingTestEndLine { get; init; }
     public required string ExampleTest { get; init; }
     public required string ExampleTestMetadataSummary { get; init; }
     public required string ProjectTestMetadataSummary { get; init; }
@@ -52,7 +69,6 @@ public class TestGenerationRequest
     public double Temperature { get; init; } = 0.0;
     public int StepErrorRetries { get; init; }
     public int StepRetryDelayMs { get; init; } = 1000;
-    public bool EnableHistoryChaining { get; init; }
 }
 
 /// <summary>
@@ -60,6 +76,12 @@ public class TestGenerationRequest
 /// </summary>
 public class TestRepairRequest
 {
+    public TestGenerationObjective Objective { get; init; } = TestGenerationObjective.TestSuiteExpansion;
+    public TestGenerationApproach Approach { get; init; } = TestGenerationApproach.MetricsDriven;
+    public MetricsDrivenPath? MetricsPath { get; init; }
+    public GenerationContextMode ContextMode { get; init; } = GenerationContextMode.ChainedHistory;
+    public GenerationStepConfig Steps { get; init; } = new();
+    public string? ExperimentVariantId { get; init; }
     public required string MethodBody { get; init; }
     public required string MethodName { get; init; }
     public required string GeneratedTest { get; init; }
@@ -79,7 +101,6 @@ public class TestRepairRequest
     public int AttemptNumber { get; init; }
     public int StepErrorRetries { get; init; }
     public int StepRetryDelayMs { get; init; } = 1000;
-    public bool EnableHistoryChaining { get; init; }
 }
 
 /// <summary>
@@ -103,6 +124,8 @@ public class TestGenerationResult
 public class GenerationStepMetadata
 {
     public GenerationStepType StepType { get; init; }
+    public GenerationStepStatus Status { get; init; } = GenerationStepStatus.Executed;
+    public string? SkipReason { get; init; }
     public required string Prompt { get; init; }
     public required string Response { get; init; }
     public string? ResponseFormat { get; init; }

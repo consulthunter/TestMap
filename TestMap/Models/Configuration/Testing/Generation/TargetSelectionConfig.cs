@@ -6,6 +6,5 @@ public class TargetSelectionConfig
     public int CandidateLimit { get; set; } = 20;
     public RiskWeightsConfig RiskWeights { get; set; } = new();
     public MetricDrivenImprovementConfig MetricDrivenImprovement { get; set; } = new();
-    public TestSuiteImprovementConfig TestSuiteImprovement { get; set; } = new();
     public bool FailOnMissingRiskInputs { get; set; } = true;
 }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TestMap.App;
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.Experiment;
@@ -65,15 +66,15 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
         // Calculate provider performance
         var providerPerformance = CalculateProviderPerformance(allAttempts);
 
-        // Calculate strategy performance
-        var strategyPerformance = CalculateStrategyPerformance(allAttempts);
+        // Calculate budget-mode performance
+        var budgetModePerformance = CalculateBudgetModePerformance(allAttempts);
 
         // Calculate overall summary
         var summary = CalculateSummary(
             candidateMethods,
             allAttempts,
             providerPerformance,
-            strategyPerformance);
+            budgetModePerformance);
         var detailedResults = await BuildDetailedResultsAsync(
             candidateMethods,
             true,
@@ -84,7 +85,7 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
         {
             ExperimentRun = experimentRun,
             ProviderPerformance = providerPerformance,
-            StrategyPerformance = strategyPerformance,
+            BudgetModePerformance = budgetModePerformance,
             Summary = summary,
             Projects = projects,
             DetailedResults = detailedResults
@@ -111,7 +112,7 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
             cancellationToken);
         var csv = new StringBuilder();
         csv.AppendLine(
-            "Owner,Repo,Branch,CommitHash,SourceProjectName,SourceProjectPath,TestProjectName,TestProjectPath,Method,ExampleTestName,GeneratedTestName,ExampleTestExecutionTimeMs,GeneratedTestExecutionTimeMs,ExampleTestCodeMetrics,GeneratedTestCodeMetrics,ExampleTestSmells,GeneratedTestSmells,Provider,Strategy,AttemptNumber,CompilationSuccess,TestPassed,CoverageBefore,CoverageAfter,CoverageImprovement,BaselineMutationScore,MutationScoreAfter,MutationScoreImprovement,TotalTokens,DurationSeconds,ErrorLogs");
+            "Owner,Repo,Branch,CommitHash,SourceProjectName,SourceProjectPath,TestProjectName,TestProjectPath,Method,ExampleTestName,GeneratedTestName,ExampleTestExecutionTimeMs,GeneratedTestExecutionTimeMs,SourceMethodCodeMetrics,ExampleTestCodeMetrics,GeneratedTestCodeMetrics,ExampleTestSmells,GeneratedTestSmells,Provider,BudgetMode,AttemptNumber,CompilationSuccess,TestPassed,CoverageBefore,CoverageAfter,CoverageImprovement,BaselineMutationScore,MutationScoreAfter,MutationScoreImprovement,TotalTokens,DurationSeconds,ErrorLogs");
 
         foreach (var row in detailedResults)
             csv.AppendLine(
@@ -128,12 +129,13 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
                 $"{EscapeCsv(row.GeneratedTestName ?? string.Empty)}," +
                 $"{FormatNullableDouble(row.ExampleTestExecutionTimeMs)}," +
                 $"{FormatNullableDouble(row.GeneratedTestExecutionTimeMs)}," +
+                $"{EscapeCsv(row.SourceMethodCodeMetrics)}," +
                 $"{EscapeCsv(row.ExampleTestCodeMetrics)}," +
                 $"{EscapeCsv(row.GeneratedTestCodeMetrics)}," +
                 $"{EscapeCsv(row.ExampleTestSmells)}," +
                 $"{EscapeCsv(row.GeneratedTestSmells)}," +
                 $"{row.Provider}," +
-                $"{row.Strategy}," +
+                $"{row.BudgetMode}," +
                 $"{row.AttemptNumber}," +
                 $"{row.CompilationSuccess}," +
                 $"{row.TestPassed}," +
@@ -193,13 +195,13 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
             .ToList();
     }
 
-    private List<StrategyPerformance> CalculateStrategyPerformance(List<GenerationAttempt> attempts)
+    private List<BudgetModePerformance> CalculateBudgetModePerformance(List<GenerationAttempt> attempts)
     {
         return attempts
-            .GroupBy(a => a.Strategy)
-            .Select(g => new StrategyPerformance
+            .GroupBy(a => a.BudgetMode)
+            .Select(g => new BudgetModePerformance
             {
-                Strategy = g.Key,
+                BudgetMode = g.Key,
                 TotalAttempts = g.Count(),
                 SuccessfulTests = g.Count(a => a.TestExecution?.TestPassed ?? false),
                 AverageCoverageImprovement = g.Average(a => a.TestExecution?.CoverageImprovement ?? 0.0),
@@ -214,10 +216,10 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
         List<CandidateMethod> methods,
         List<GenerationAttempt> attempts,
         List<ProviderPerformance> providerPerformance,
-        List<StrategyPerformance> strategyPerformance)
+        List<BudgetModePerformance> budgetModePerformance)
     {
         var bestProvider = providerPerformance.FirstOrDefault();
-        var bestStrategy = strategyPerformance.FirstOrDefault();
+        var bestBudgetMode = budgetModePerformance.FirstOrDefault();
 
         var experimentStart = attempts.Min(a => a.StartedAt);
         var experimentEnd = attempts.Max(a => a.CompletedAt ?? a.StartedAt);
@@ -231,9 +233,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
             TotalTokensUsed = attempts.Sum(a => a.TotalTokensUsed),
             TotalDurationSeconds = totalDuration,
             BestProvider = bestProvider?.Provider,
-            BestStrategy = bestStrategy?.Strategy,
+            BestBudgetMode = bestBudgetMode?.BudgetMode,
             BestProviderSuccessRate = bestProvider?.SuccessRate ?? 0.0,
-            BestStrategySuccessRate = bestStrategy?.SuccessRate ?? 0.0
+            BestBudgetModeSuccessRate = bestBudgetMode?.SuccessRate ?? 0.0
         };
     }
 
@@ -272,6 +274,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
             var exampleDurationMs = await GetLatestTestDurationMsAsync(
                 method.ExistingTestMethodName,
                 method.ExistingTestMemberId,
+                cancellationToken);
+            var sourceCodeMetrics = await GetMemberCodeMetricsSummaryAsync(
+                method.MemberId,
                 cancellationToken);
             var exampleCodeMetrics = await GetMemberCodeMetricsSummaryAsync(
                 method.ExistingTestMemberId,
@@ -315,12 +320,13 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
                     GeneratedTestName = generatedTestName,
                     ExampleTestExecutionTimeMs = exampleDurationMs,
                     GeneratedTestExecutionTimeMs = generatedDurationMs,
+                    SourceMethodCodeMetrics = sourceCodeMetrics,
                     ExampleTestCodeMetrics = exampleCodeMetrics,
                     GeneratedTestCodeMetrics = generatedCodeMetrics,
                     ExampleTestSmells = exampleTestSmells,
                     GeneratedTestSmells = generatedTestSmells,
                     Provider = attempt.Provider,
-                    Strategy = attempt.Strategy,
+                    BudgetMode = attempt.BudgetMode,
                     AttemptNumber = attempt.AttemptNumber,
                     CompilationSuccess = execution?.CompilationSuccess ?? false,
                     TestPassed = execution?.TestPassed ?? false,

@@ -5,26 +5,13 @@ using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.MetadataEnrichment;
 using TestMap.Persistence.Ef;
+using TestMap.Rules.TestMetadata;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 
 namespace TestMap.Services.StaticAnalysis.Enrichment;
 
 public class TestMetadataEnrichmentService : ITestMetadataEnrichmentService
 {
-    private static readonly string[] AllowedCategories =
-    [
-        "UnitTest",
-        "IntegrationTest",
-        "ApiTest",
-        "UiTest",
-        "Benchmark",
-        "PropertyTest",
-        "RegressionTest",
-        "SmokeTest",
-        "ParameterizedTest",
-        "EndToEndTest"
-    ];
-
     private readonly ProjectContext _context;
     private readonly TestMapConfig _config;
     private readonly TestMapDbContext _dbContext;
@@ -81,37 +68,28 @@ public class TestMetadataEnrichmentService : ITestMetadataEnrichmentService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var deterministicCategories = InferDeterministicCategories(testMember);
-            var intent = CreateFallbackIntent(testMember.Member.Name);
-            var categories = deterministicCategories;
-            var source = "Deterministic";
-            double? confidence = GetDeterministicConfidence(deterministicCategories);
-            var promptVersion = string.Empty;
+            var metadataDecision = TestMetadataClassifier.InferDeterministicMetadata(testMember);
 
             if (provider != null)
             {
                 var llmResult = await TryEnrichWithModelAsync(
                     testMember,
-                    deterministicCategories,
+                    metadataDecision.Categories,
                     provider,
                     enrichmentConfig,
                     cancellationToken);
                 if (llmResult != null)
-                {
-                    categories = MergeCategories(deterministicCategories, llmResult.Categories);
-                    if (!string.IsNullOrWhiteSpace(llmResult.Intent)) intent = NormalizeIntent(llmResult.Intent);
-
-                    source = deterministicCategories.Count > 0 ? "Hybrid" : "Llm";
-                    confidence = llmResult.Confidence ?? GetHybridConfidence(categories);
-                    promptVersion = enrichmentConfig.PromptVersion;
-                }
+                    metadataDecision = TestMetadataClassifier.ApplyLlmResult(
+                        metadataDecision,
+                        llmResult,
+                        enrichmentConfig.PromptVersion);
             }
 
-            testMember.Member.TestCategories = categories;
-            testMember.Member.TestIntent = intent;
-            testMember.Member.TestMetadataSource = source;
-            testMember.Member.TestMetadataConfidence = confidence;
-            testMember.Member.TestMetadataPromptVersion = promptVersion;
+            testMember.Member.TestCategories = metadataDecision.Categories;
+            testMember.Member.TestIntent = metadataDecision.Intent;
+            testMember.Member.TestMetadataSource = metadataDecision.Source;
+            testMember.Member.TestMetadataConfidence = metadataDecision.Confidence;
+            testMember.Member.TestMetadataPromptVersion = metadataDecision.PromptVersion;
             enrichedCount++;
         }
 
@@ -188,118 +166,6 @@ public class TestMetadataEnrichmentService : ITestMetadataEnrichmentService
         }
     }
 
-    private static List<string> InferDeterministicCategories(TestMemberContext context)
-    {
-        var categories = new HashSet<string>(StringComparer.Ordinal);
-        var attributes = context.Member.Attributes;
-        var memberBody = context.Member.FullString;
-        var objectBody = context.TestObject.FullString;
-        var combinedText = string.Join(
-            "\n",
-            attributes,
-            memberBody,
-            objectBody,
-            context.TestFile.FilePath,
-            context.TestProject.FilePath,
-            context.TestObject.TestFramework);
-
-        if (attributes.Any(x => x.Contains("Benchmark", StringComparison.OrdinalIgnoreCase)) ||
-            combinedText.Contains("BenchmarkRunner", StringComparison.OrdinalIgnoreCase))
-            categories.Add("Benchmark");
-
-        if (attributes.Any(x => x.Contains("Theory", StringComparison.OrdinalIgnoreCase) ||
-                                x.Contains("TestCase", StringComparison.OrdinalIgnoreCase) ||
-                                x.Contains("DataRow", StringComparison.OrdinalIgnoreCase) ||
-                                x.Contains("DataTestMethod", StringComparison.OrdinalIgnoreCase)))
-            categories.Add("ParameterizedTest");
-
-        if (combinedText.Contains("WebApplicationFactory", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("TestServer", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("HttpClient", StringComparison.OrdinalIgnoreCase) ||
-            context.TestProject.FilePath.Contains(".Api", StringComparison.OrdinalIgnoreCase))
-        {
-            categories.Add("ApiTest");
-            categories.Add("IntegrationTest");
-        }
-
-        if (combinedText.Contains("Playwright", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("Selenium", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("Page.GotoAsync", StringComparison.OrdinalIgnoreCase))
-        {
-            categories.Add("UiTest");
-            categories.Add("EndToEndTest");
-        }
-
-        if (combinedText.Contains("FsCheck", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("Property", StringComparison.OrdinalIgnoreCase))
-            categories.Add("PropertyTest");
-
-        if (context.Member.Name.Contains("Smoke", StringComparison.OrdinalIgnoreCase)) categories.Add("SmokeTest");
-
-        if (context.Member.Name.Contains("Regression", StringComparison.OrdinalIgnoreCase))
-            categories.Add("RegressionTest");
-
-        if (combinedText.Contains("DbContext", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("SqlConnection", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("IHost", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("Container", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("Docker", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("File.", StringComparison.OrdinalIgnoreCase) ||
-            combinedText.Contains("Directory.", StringComparison.OrdinalIgnoreCase))
-            categories.Add("IntegrationTest");
-
-        if (categories.Count == 0) categories.Add("UnitTest");
-
-        return categories.OrderBy(x => x, StringComparer.Ordinal).ToList();
-    }
-
-    private static List<string> MergeCategories(
-        IReadOnlyCollection<string> deterministicCategories,
-        IReadOnlyCollection<string> llmCategories)
-    {
-        var merged = new HashSet<string>(deterministicCategories, StringComparer.Ordinal);
-        foreach (var category in llmCategories.Where(AllowedCategories.Contains)) merged.Add(category);
-
-        if (merged.Count == 0) merged.Add("UnitTest");
-
-        return merged.OrderBy(x => x, StringComparer.Ordinal).ToList();
-    }
-
-    private static double GetDeterministicConfidence(IReadOnlyCollection<string> categories)
-    {
-        return categories.Count switch
-        {
-            0 => 0.40,
-            1 => 0.60,
-            2 => 0.68,
-            _ => 0.72
-        };
-    }
-
-    private static double GetHybridConfidence(IReadOnlyCollection<string> categories)
-    {
-        return Math.Min(0.95, 0.72 + categories.Count * 0.05);
-    }
-
-    private static string CreateFallbackIntent(string memberName)
-    {
-        var readableName = string.IsNullOrWhiteSpace(memberName)
-            ? "the target behavior"
-            : memberName.Replace('_', ' ').Trim();
-
-        return $"Tests {readableName}; ensures the expected behavior holds.";
-    }
-
-    private static string NormalizeIntent(string intent)
-    {
-        var trimmed = intent.Trim();
-        if (string.IsNullOrWhiteSpace(trimmed)) return string.Empty;
-
-        if (!trimmed.EndsWith('.')) trimmed += ".";
-
-        return trimmed;
-    }
-
     private static string CreatePrompt(
         TestMemberContext context,
         IReadOnlyCollection<string> deterministicCategories,
@@ -311,7 +177,7 @@ Prompt version:
 {enrichmentConfig.PromptVersion}
 
 Allowed categories:
-{string.Join(", ", AllowedCategories)}
+{string.Join(", ", TestMetadataClassifier.AllowedCategories)}
 
 Return strict JSON in this shape:
 {{""categories"":[""UnitTest""],""intent"":""Tests condition; ensures expected behavior."",""confidence"":0.82}}
@@ -360,7 +226,7 @@ Target test member:
             if (result == null) return null;
 
             result.Categories = result.Categories
-                .Where(x => AllowedCategories.Contains(x, StringComparer.Ordinal))
+                .Where(x => TestMetadataClassifier.AllowedCategories.Contains(x, StringComparer.Ordinal))
                 .Distinct(StringComparer.Ordinal)
                 .Take(3)
                 .ToList();
@@ -391,18 +257,4 @@ Target test member:
             : string.Empty;
     }
 
-    private sealed class TestMemberContext
-    {
-        public required Persistence.Ef.Entities.Code.MemberEntity Member { get; init; }
-        public required Persistence.Ef.Entities.Code.ObjectEntity TestObject { get; init; }
-        public required Persistence.Ef.Entities.Code.FileEntity TestFile { get; init; }
-        public required Persistence.Ef.Entities.Code.CSharpProjectEntity TestProject { get; init; }
-    }
-
-    private sealed class LlmMetadataResult
-    {
-        public List<string> Categories { get; set; } = new();
-        public string Intent { get; set; } = string.Empty;
-        public double? Confidence { get; set; }
-    }
 }

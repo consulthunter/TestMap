@@ -14,7 +14,10 @@ public static class ExperimentRunMappingExtensions
             StartedAt = entity.StartTime,
             CompletedAt = entity.EndTime,
             ProjectId = entity.ProjectId,
+            Objective = entity.Objective,
+            CandidateSelectionStrategy = entity.CandidateSelectionStrategy,
             ConfigurationJson = entity.Configuration,
+            ResultsFilePath = entity.ResultsFilePath,
             CandidateLimit = entity.CandidateLimit,
             Status = entity.Status
         };
@@ -28,7 +31,10 @@ public static class ExperimentRunMappingExtensions
             StartTime = run.StartedAt,
             EndTime = run.CompletedAt,
             ProjectId = run.ProjectId,
+            Objective = run.Objective,
+            CandidateSelectionStrategy = run.CandidateSelectionStrategy,
             Configuration = run.ConfigurationJson,
+            ResultsFilePath = run.ResultsFilePath,
             CandidateLimit = run.CandidateLimit,
             Status = string.IsNullOrWhiteSpace(run.Status) ? "Completed" : run.Status
         };

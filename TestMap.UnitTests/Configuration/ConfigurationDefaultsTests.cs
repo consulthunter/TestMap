@@ -45,19 +45,50 @@ public sealed class ConfigurationDefaultsTests
         var provider = config.Provider;
         var mode = config.Mode;
         var strategy = config.Strategy;
+        var objective = config.Objective;
+        var metricsPath = config.MetricsPath;
         var executor = config.Executor;
-        var maxRetries = config.MaxRetries;
+        var budgetMode = config.BudgetMode;
+        var temperature = config.Temperature;
+        var stepErrorRetries = config.StepErrorRetries;
+        var stepRetryDelayMs = config.StepRetryDelayMs;
+        var contextMode = config.ContextMode;
+        var steps = config.Steps;
         var targetSelection = config.TargetSelection;
         var bootstrap = config.Bootstrap;
+        var acceptance = config.Acceptance;
 
         // Assert
+        Assert.Equal(TestGenerationObjective.TestSuiteExpansion, objective);
         Assert.Equal(AiProvider.OpenAi, provider);
         Assert.Equal(AiProviderMode.Chat, mode);
-        Assert.Equal(TestGenerationApproach.ActionAware, strategy);
-        Assert.Equal(TestActionExecutorMode.ActionAware, executor);
-        Assert.Equal(1, maxRetries);
+        Assert.Equal(TestGenerationApproach.MetricsDriven, strategy);
+        Assert.Equal(MetricsDrivenPath.CoverageAndMutation, metricsPath);
+        Assert.Equal(TestActionExecutorMode.BasicExtension, executor);
+        Assert.Equal(GenerationBudgetMode.PassAt1RepairAt5, budgetMode);
+        Assert.Equal(0.0, temperature);
+        Assert.Equal(0, stepErrorRetries);
+        Assert.Equal(1000, stepRetryDelayMs);
+        Assert.Equal(GenerationContextMode.ChainedHistory, contextMode);
+        Assert.NotNull(steps);
+        Assert.True(steps.EnableEvidencePackage);
+        Assert.False(steps.EnableContextGraph);
+        Assert.False(steps.EnableContextResolution);
+        Assert.True(steps.EnableScenario);
+        Assert.True(steps.EnableMethodName);
+        Assert.True(steps.EnableArrangePlan);
+        Assert.True(steps.EnableInputPlan);
+        Assert.True(steps.EnableActionPlan);
+        Assert.True(steps.EnableAssertionPlan);
+        Assert.True(steps.EnableFinalTest);
         Assert.NotNull(targetSelection);
         Assert.NotNull(bootstrap);
+        Assert.NotNull(acceptance);
+        Assert.True(acceptance.RequireCompilationSuccess);
+        Assert.True(acceptance.RequireTestsToRun);
+        Assert.True(acceptance.RequireAllTestsPass);
+        Assert.True(acceptance.RequireCoverageImprovement);
+        Assert.Equal(0.0, acceptance.MinCoverageImprovement);
     }
 
     /// <summary>
@@ -72,6 +103,14 @@ public sealed class ConfigurationDefaultsTests
 
         // Act
         var generationApproach = config.GenerationApproach;
+        var objective = config.Objective;
+        var approaches = config.Approaches;
+        var metricsPaths = config.MetricsPaths;
+        var budgetModes = config.BudgetModes;
+        var compareHistoryModes = config.CompareHistoryModes;
+        var contextModes = config.ContextModes;
+        var stepAblation = config.StepAblation;
+        var temperature = config.Temperature;
         var executor = config.Executor;
         var candidateLimit = config.CandidateLimit;
         var minCoverageThreshold = config.MinCoverageThreshold;
@@ -79,20 +118,32 @@ public sealed class ConfigurationDefaultsTests
         var includeDetailedErrors = config.IncludeDetailedErrors;
         var stepErrorRetries = config.StepErrorRetries;
         var stepRetryDelayMs = config.StepRetryDelayMs;
-        var strategies = config.Strategies;
+        var resume = config.Resume;
 
         // Assert
-        Assert.Equal(TestGenerationApproach.DefaultCoverageExtension, generationApproach);
-        Assert.Equal(TestActionExecutorMode.BasicCoverageExtension, executor);
+        Assert.Equal(TestGenerationObjective.TestSuiteExpansion, objective);
+        Assert.Equal(TestGenerationApproach.MetricsDriven, generationApproach);
+        Assert.Equal([TestGenerationApproach.MetricsDriven], approaches);
+        Assert.Equal([MetricsDrivenPath.CoverageAndMutation], metricsPaths);
+        Assert.Equal([GenerationBudgetMode.PassAt1], budgetModes);
+        Assert.False(compareHistoryModes);
+        Assert.Equal([GenerationContextMode.ChainedHistory], contextModes);
+        Assert.NotNull(stepAblation);
+        Assert.False(stepAblation.Enabled);
+        Assert.True(stepAblation.IncludeBaseline);
+        Assert.False(stepAblation.IncludeAllDisabled);
+        Assert.Equal(32, stepAblation.MaxVariants);
+        Assert.Empty(stepAblation.Steps);
+        Assert.Equal(0.0, temperature);
+        Assert.Equal(TestActionExecutorMode.BasicExtension, executor);
         Assert.Equal(3, candidateLimit);
         Assert.Equal(0.0, minCoverageThreshold);
         Assert.Equal(0.99, maxCoverageThreshold);
         Assert.True(includeDetailedErrors);
         Assert.Equal(0, stepErrorRetries);
         Assert.Equal(1000, stepRetryDelayMs);
-        Assert.Equal(
-            [GenerationStrategy.Pass1, GenerationStrategy.Pass5, GenerationStrategy.Repair5],
-            strategies);
+        Assert.True(resume.Enabled);
+        Assert.False(resume.RewriteResultsFileOnResume);
     }
 
     /// <summary>

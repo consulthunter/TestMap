@@ -16,7 +16,10 @@ public class ExperimentRunEntityConfiguration : IEntityTypeConfiguration<Experim
         builder.Property(x => x.StartTime).HasColumnName("start_time").IsRequired();
         builder.Property(x => x.EndTime).HasColumnName("end_time");
         builder.Property(x => x.ProjectId).HasColumnName("project_id").IsRequired();
+        builder.Property(x => x.Objective).HasColumnName("objective").IsRequired();
+        builder.Property(x => x.CandidateSelectionStrategy).HasColumnName("candidate_selection_strategy").IsRequired();
         builder.Property(x => x.Configuration).HasColumnName("configuration").IsRequired();
+        builder.Property(x => x.ResultsFilePath).HasColumnName("results_file_path").IsRequired();
         builder.Property(x => x.CandidateLimit).HasColumnName("candidate_limit").IsRequired();
         builder.Property(x => x.Status).HasColumnName("status").IsRequired();
 

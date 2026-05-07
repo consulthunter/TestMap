@@ -1,6 +1,9 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using TestMap.Models.Rules;
+using TestMap.Rules;
+using TestMap.Rules.Generation;
 using TestMap.Services.TestGeneration.TargetSelection;
 
 namespace TestMap.Services.TestGeneration.Editing;
@@ -48,16 +51,67 @@ public sealed class TestCodeEditService : ITestCodeEditService
 
     public bool AppendTestMethod(CandidateMethodContext context, string testMethodCode)
     {
-        if (!EnsureTestClassExists(context) || !TryParseMethod(testMethodCode, out var method)) return false;
+        return AppendTestMethodWithResult(context, testMethodCode).Success;
+    }
+
+    public TestMethodAppendResult AppendTestMethodWithResult(CandidateMethodContext context, string testMethodCode)
+    {
+        var decisions = new List<RuleDecisionRecord>();
+        if (!EnsureTestClassExists(context))
+            return Failure(
+                "Failed to ensure target test class exists.",
+                decisions);
+
+        if (!TryParseMethod(testMethodCode, out var method))
+        {
+            decisions.Add(Decision(
+                GenerationAppendRuleDefinitions.GeneratedMethodParseFailed,
+                "GeneratedMethodParseFailed",
+                RuleDecisionFactory.CreateEvidence("GeneratedTest", "ExpectedNodeKind", nameof(MethodDeclarationSyntax))));
+            return Failure("Generated test did not parse as a method declaration.", decisions);
+        }
+
+        decisions.Add(Decision(
+            GenerationAppendRuleDefinitions.GeneratedMethodParsed,
+            "GeneratedMethodParsed",
+            RuleDecisionFactory.CreateEvidence("GeneratedTest", "MethodName", method!.Identifier.Text),
+            RuleDecisionFactory.CreateEvidence("GeneratedTest", "ParsedNodeKind", method.Kind().ToString())));
 
         var root = ParseRoot(context.TestFilePath);
         var classNode = FindClass(root, context.TestClassName);
-        if (classNode == null) return false;
+        if (classNode == null)
+        {
+            decisions.Add(Decision(
+                GenerationAppendRuleDefinitions.AppendTargetMissing,
+                "AppendTargetMissing",
+                RuleDecisionFactory.CreateEvidence("AppendTarget", "ExpectedClassName", context.TestClassName),
+                RuleDecisionFactory.CreateEvidence("AppendTarget", "FilePath", context.TestFilePath)));
+            return Failure($"Target test class '{context.TestClassName}' was not found.", decisions);
+        }
+
+        decisions.Add(Decision(
+            GenerationAppendRuleDefinitions.AppendTargetSelected,
+            "AppendTargetSelected",
+            RuleDecisionFactory.CreateEvidence("AppendTarget", "ExpectedClassName", context.TestClassName),
+            RuleDecisionFactory.CreateEvidence("AppendTarget", "SelectedClassName", classNode.Identifier.Text),
+            RuleDecisionFactory.CreateEvidence("AppendTarget", "NodeKind", classNode.Kind().ToString()),
+            RuleDecisionFactory.CreateEvidence("AppendTarget", "FilePath", context.TestFilePath)));
 
         var updatedClassNode = classNode.AddMembers(method!);
         var updatedRoot = root.ReplaceNode(classNode, updatedClassNode);
         File.WriteAllText(context.TestFilePath, updatedRoot.NormalizeWhitespace().ToFullString());
-        return true;
+        decisions.Add(Decision(
+            GenerationAppendRuleDefinitions.GeneratedMethodInserted,
+            "GeneratedMethodInserted",
+            RuleDecisionFactory.CreateEvidence("GeneratedTest", "MethodName", method.Identifier.Text),
+            RuleDecisionFactory.CreateEvidence("AppendTarget", "SelectedClassName", classNode.Identifier.Text),
+            RuleDecisionFactory.CreateEvidence("AppendTarget", "InsideExpectedObject", "True")));
+
+        return new TestMethodAppendResult
+        {
+            Success = true,
+            RuleDecisions = decisions
+        };
     }
 
     public bool ReplaceTestMethod(CandidateMethodContext context, string existingMethodName,
@@ -99,6 +153,32 @@ public sealed class TestCodeEditService : ITestCodeEditService
     {
         method = SyntaxFactory.ParseMemberDeclaration(testMethodCode) as MethodDeclarationSyntax;
         return method != null;
+    }
+
+    private static TestMethodAppendResult Failure(
+        string errorMessage,
+        IReadOnlyList<RuleDecisionRecord> decisions)
+    {
+        return new TestMethodAppendResult
+        {
+            Success = false,
+            ErrorMessage = errorMessage,
+            RuleDecisions = decisions
+        };
+    }
+
+    private static RuleDecisionRecord Decision(
+        RuleDefinition rule,
+        string value,
+        params RuleEvidenceRecord[] evidence)
+    {
+        return RuleDecisionFactory.CreateDecision(
+            "GenerationAppend",
+            value,
+            rule,
+            RuleConfidence.High,
+            evidence,
+            rule.Description);
     }
 
     private static string BuildEmptyTestClass(CandidateMethodContext context)

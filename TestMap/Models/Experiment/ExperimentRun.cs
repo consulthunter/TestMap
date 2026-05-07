@@ -10,7 +10,10 @@ public class ExperimentRun
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int ProjectId { get; set; }
+    public string Objective { get; set; } = string.Empty;
+    public string CandidateSelectionStrategy { get; set; } = string.Empty;
     public string ConfigurationJson { get; set; } = string.Empty;
+    public string ResultsFilePath { get; set; } = string.Empty;
     public int CandidateLimit { get; set; }
     public string Status { get; set; } = string.Empty;
 

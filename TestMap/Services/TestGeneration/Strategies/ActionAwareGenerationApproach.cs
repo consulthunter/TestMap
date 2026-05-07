@@ -23,6 +23,16 @@ public sealed class ActionAwareGenerationApproach : ITestGenerationApproach
             MethodName = methodContext.Method.MethodName,
             MethodSignature = methodContext.MethodSignature,
             ContainingClass = methodContext.ContainingClass,
+            SourceFilePath = methodContext.SourceFilePath,
+            SourceProjectPath = methodContext.SourceProjectPath,
+            SolutionFilePath = methodContext.SolutionFilePath,
+            SourceStartLine = methodContext.SourceLocation.StartLine,
+            SourceEndLine = methodContext.SourceLocation.EndLine,
+            SourceStartPosition = methodContext.SourceLocation.StartPosition,
+            SourceEndPosition = methodContext.SourceLocation.EndPosition,
+            ExistingTestFilePath = methodContext.TestLocation?.TestFilePath,
+            ExistingTestStartLine = methodContext.TestLocation?.StartLine,
+            ExistingTestEndLine = methodContext.TestLocation?.EndLine,
             ExampleTest = methodContext.ExampleTest,
             ExampleTestMetadataSummary = CombineMetadata(
                 methodContext.ExampleTestMetadataSummary,
@@ -39,8 +49,7 @@ public sealed class ActionAwareGenerationApproach : ITestGenerationApproach
             Provider = context.Provider,
             Temperature = context.Temperature,
             StepErrorRetries = context.StepErrorRetries,
-            StepRetryDelayMs = context.StepRetryDelayMs,
-            EnableHistoryChaining = context.EnableHistoryChaining
+            StepRetryDelayMs = context.StepRetryDelayMs
         };
     }
 
@@ -72,8 +81,7 @@ public sealed class ActionAwareGenerationApproach : ITestGenerationApproach
             Temperature = context.Temperature,
             AttemptNumber = context.AttemptNumber,
             StepErrorRetries = context.StepErrorRetries,
-            StepRetryDelayMs = context.StepRetryDelayMs,
-            EnableHistoryChaining = context.EnableHistoryChaining
+            StepRetryDelayMs = context.StepRetryDelayMs
         };
     }
 

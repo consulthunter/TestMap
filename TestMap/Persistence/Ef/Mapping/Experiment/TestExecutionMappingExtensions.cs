@@ -9,10 +9,7 @@ public static class TestExecutionMappingExtensions
     public static TestExecution ToDomain(this TestExecutionEntity entity)
     {
         var structured = ParseStructuredErrors(entity.StructuredErrors);
-        var classification =
-            Enum.TryParse<TestClassification>(entity.TestClassification, true, out var parsedClassification)
-                ? parsedClassification
-                : TestClassification.Failed;
+        var classification = ParseClassification(entity.TestClassification);
         var failureKind = structured?.FailureKind is { } kindText &&
                           Enum.TryParse<TestFailureKind>(kindText, true, out var parsedFailureKind)
             ? parsedFailureKind
@@ -25,13 +22,19 @@ public static class TestExecutionMappingExtensions
             GeneratedTestCode = entity.GeneratedTestCode,
             GeneratedTestMethodName = entity.GeneratedTestMethodName,
             CompilationSuccess = entity.CompilationSucceeded,
-            TestPassed = entity.TestPassed,
+            TestsExecuted = InferTestsExecuted(entity),
+            TestPassed = entity.CompilationSucceeded && InferTestsExecuted(entity) && entity.TestPassed,
             CoverageAfter = entity.FinalCoverage,
             CoverageImprovement = entity.CoverageDelta,
             BaselineMutationScore = entity.BaselineMutationScore,
             MutationScoreAfter = entity.MutationScoreAfter,
             MutationScoreImprovement = entity.MutationScoreDelta,
             Classification = classification,
+            ValidationResultJson = entity.ValidationResultJson,
+            Accepted = entity.Accepted,
+            AcceptanceReason = EmptyToNull(entity.AcceptanceReason),
+            ValidationRuleDecisionJson = entity.ValidationRuleDecisionJson,
+            ClassificationRuleDecisionJson = entity.ClassificationRuleDecisionJson,
             FailureKind = failureKind,
             CompilationErrors = EmptyToNull(entity.CompilationErrors),
             RuntimeErrors = EmptyToNull(entity.RuntimeErrors),
@@ -84,7 +87,7 @@ public static class TestExecutionMappingExtensions
             GeneratedTestMethodName = execution.GeneratedTestMethodName ?? string.Empty,
             CompilationSucceeded = execution.CompilationSuccess,
             CompilationErrors = compilationErrors ?? string.Empty,
-            TestPassed = execution.TestPassed,
+            TestPassed = execution.CompilationSuccess && execution.TestsExecuted && execution.TestPassed,
             RuntimeErrors = runtimeErrors ?? string.Empty,
             AssertionErrors = assertionErrors ?? string.Empty,
             ExecutionTimeMs = execution.ExecutionTimeMs ?? 0,
@@ -97,6 +100,11 @@ public static class TestExecutionMappingExtensions
             MutationScoreDelta = execution.MutationScoreImprovement,
             NewLinesCovered = 0,
             TestClassification = classification.ToString(),
+            ValidationResultJson = execution.ValidationResultJson,
+            Accepted = execution.Accepted,
+            AcceptanceReason = execution.AcceptanceReason ?? string.Empty,
+            ValidationRuleDecisionJson = execution.ValidationRuleDecisionJson,
+            ClassificationRuleDecisionJson = execution.ClassificationRuleDecisionJson,
             ExecutionTime = execution.ExecutedAt == default ? DateTime.UtcNow : execution.ExecutedAt,
             StructuredErrors = SerializeStructuredErrors(execution)
         };
@@ -104,10 +112,18 @@ public static class TestExecutionMappingExtensions
 
     private static TestClassification ResolveClassification(TestExecution execution)
     {
-        if (execution.TestPassed)
-            return execution.CoverageImprovement > 0 ? TestClassification.Approved : TestClassification.Benign;
+        if (execution.Classification != TestClassification.ValidationFailed ||
+            execution.FailureKind == TestFailureKind.None && !execution.TestPassed)
+            return execution.Classification;
 
-        return execution.CoverageImprovement > 0 ? TestClassification.Candidate : TestClassification.Failed;
+        if (execution.TestPassed)
+            return execution.CoverageImprovement > 0
+                ? TestClassification.ValidatedEvidencePositive
+                : TestClassification.ValidatedLowImpact;
+
+        return execution.CoverageImprovement > 0
+            ? TestClassification.FailedEvidencePositive
+            : TestClassification.ValidationFailed;
     }
 
     private static TestFailureKind InferFailureKind(TestExecutionEntity entity)
@@ -119,6 +135,17 @@ public static class TestExecutionMappingExtensions
         if (!string.IsNullOrWhiteSpace(entity.RuntimeErrors)) return TestFailureKind.Runtime;
 
         return entity.TestPassed ? TestFailureKind.None : TestFailureKind.Unknown;
+    }
+
+    private static bool InferTestsExecuted(TestExecutionEntity entity)
+    {
+        if (!entity.CompilationSucceeded) return false;
+        if (entity.TestPassed) return true;
+        if (!string.IsNullOrWhiteSpace(entity.AssertionErrors)) return true;
+        if (!string.IsNullOrWhiteSpace(entity.RuntimeErrors)) return true;
+
+        var structured = ParseStructuredErrors(entity.StructuredErrors);
+        return structured?.Stage is "test" or "coverage";
     }
 
     private static string SerializeStructuredErrors(TestExecution execution)
@@ -153,6 +180,15 @@ public static class TestExecutionMappingExtensions
     private static string? EmptyToNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static TestClassification ParseClassification(string value)
+    {
+        if (Enum.TryParse<TestClassification>(value, true, out var parsedClassification))
+            return parsedClassification;
+
+        throw new InvalidOperationException(
+            $"Unknown generated test outcome '{value}'. Old classification labels are not supported.");
     }
 
     private sealed record StructuredFailurePayload(

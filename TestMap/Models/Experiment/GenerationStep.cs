@@ -8,6 +8,8 @@ public class GenerationStep
     public int Id { get; set; }
     public int GenerationAttemptId { get; set; }
     public GenerationStepType StepType { get; set; }
+    public GenerationStepStatus Status { get; set; } = GenerationStepStatus.Executed;
+    public string? SkipReason { get; set; }
     public string Prompt { get; set; } = string.Empty;
     public string Response { get; set; } = string.Empty;
     public int TokenCount { get; set; }
@@ -20,6 +22,9 @@ public class GenerationStep
     public string? StructuredResponseJson { get; set; }
     public string? PromptVersion { get; set; }
     public string? ValidationStatus { get; set; }
+    public int? InputTokens { get; set; }
+    public int? OutputTokens { get; set; }
+    public string RuleDecisionJson { get; set; } = string.Empty;
 
     public virtual GenerationAttempt? GenerationAttempt { get; set; }
 }

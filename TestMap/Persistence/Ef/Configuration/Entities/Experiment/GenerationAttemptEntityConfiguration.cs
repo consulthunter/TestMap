@@ -17,6 +17,16 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
         builder.Property(x => x.ProviderName).HasColumnName("provider_name").IsRequired();
         builder.Property(x => x.ModelName).HasColumnName("model_name").IsRequired();
         builder.Property(x => x.Strategy).HasColumnName("strategy").IsRequired();
+        builder.Property(x => x.Objective).HasColumnName("objective").IsRequired();
+        builder.Property(x => x.GenerationApproach).HasColumnName("generation_approach").IsRequired();
+        builder.Property(x => x.MetricsPath).HasColumnName("metrics_path").IsRequired();
+        builder.Property(x => x.ContextMode).HasColumnName("context_mode").IsRequired();
+        builder.Property(x => x.BudgetMode).HasColumnName("budget_mode").IsRequired();
+        builder.Property(x => x.AblationVariantId).HasColumnName("ablation_variant_id").IsRequired();
+        builder.Property(x => x.StepConfigJson).HasColumnName("step_config_json").IsRequired();
+        builder.Property(x => x.EffectiveProfileJson).HasColumnName("effective_profile_json").IsRequired();
+        builder.Property(x => x.EffectiveProfileHash).HasColumnName("effective_profile_hash").IsRequired();
+        builder.Property(x => x.Temperature).HasColumnName("temperature").IsRequired();
         builder.Property(x => x.AttemptNumber).HasColumnName("attempt_number").IsRequired();
         builder.Property(x => x.IsRepairAttempt).HasColumnName("is_repair_attempt").IsRequired();
         builder.Property(x => x.ParentAttemptId).HasColumnName("parent_attempt_id");
@@ -28,6 +38,7 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
         builder.Property(x => x.FailureStage).HasColumnName("failure_stage").IsRequired();
         builder.Property(x => x.FailureCategory).HasColumnName("failure_category").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message").IsRequired();
+        builder.Property(x => x.RuleDecisionJson).HasColumnName("rule_decision_json").IsRequired();
 
         builder.HasOne(x => x.ParentAttempt)
             .WithMany()

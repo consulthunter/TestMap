@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef.Entities.Experiment;
 
@@ -16,10 +17,28 @@ public static class GenerationAttemptMappingExtensions
                 ? provider
                 : AiProvider.OpenAi,
             ModelName = entity.ModelName,
-            Strategy = Enum.TryParse<GenerationStrategy>(entity.Strategy, true, out var strategy)
-                ? strategy
-                : GenerationStrategy.Pass1,
+            Objective = Enum.TryParse<TestGenerationObjective>(entity.Objective, true, out var objective)
+                ? objective
+                : TestGenerationObjective.TestSuiteExpansion,
+            GenerationApproach = Enum.TryParse<TestGenerationApproach>(entity.GenerationApproach, true, out var approach)
+                ? approach
+                : TestGenerationApproach.MetricsDriven,
+            MetricsPath = Enum.TryParse<MetricsDrivenPath>(entity.MetricsPath, true, out var metricsPath)
+                ? metricsPath
+                : null,
+            ContextMode = Enum.TryParse<GenerationContextMode>(entity.ContextMode, true, out var contextMode)
+                ? contextMode
+                : GenerationContextMode.ChainedHistory,
+            BudgetMode = ResolveBudgetMode(entity),
+            AblationVariantId = entity.AblationVariantId,
+            StepConfigJson = entity.StepConfigJson,
+            EffectiveProfileJson = entity.EffectiveProfileJson,
+            EffectiveProfileHash = entity.EffectiveProfileHash,
+            Temperature = entity.Temperature,
             AttemptNumber = entity.AttemptNumber,
+            IsRepairAttempt = entity.IsRepairAttempt,
+            ParentAttemptId = entity.ParentAttemptId,
+            RuleDecisionJson = entity.RuleDecisionJson,
             StartedAt = entity.StartTime,
             CompletedAt = entity.EndTime,
             TotalTokensUsed = entity.TotalTokensUsed,
@@ -44,9 +63,22 @@ public static class GenerationAttemptMappingExtensions
             CandidateMethodId = attempt.CandidateMethodId,
             ProviderName = attempt.Provider.ToString(),
             ModelName = attempt.ModelName ?? string.Empty,
-            Strategy = attempt.Strategy.ToString(),
+            Strategy = attempt.BudgetMode.ToString(),
+            Objective = attempt.Objective.ToString(),
+            GenerationApproach = attempt.GenerationApproach.ToString(),
+            MetricsPath = attempt.MetricsPath?.ToString() ?? string.Empty,
+            ContextMode = attempt.ContextMode.ToString(),
+            BudgetMode = attempt.BudgetMode.ToString(),
+            AblationVariantId = attempt.AblationVariantId,
+            StepConfigJson = attempt.StepConfigJson,
+            EffectiveProfileJson = attempt.EffectiveProfileJson,
+            EffectiveProfileHash = attempt.EffectiveProfileHash,
+            Temperature = attempt.Temperature,
             AttemptNumber = attempt.AttemptNumber,
-            IsRepairAttempt = attempt.Strategy == GenerationStrategy.Repair5 && attempt.AttemptNumber > 1,
+            IsRepairAttempt = attempt.IsRepairAttempt ||
+                              attempt.BudgetMode == GenerationBudgetMode.PassAt1RepairAt5 &&
+                              attempt.AttemptNumber > 1,
+            ParentAttemptId = attempt.ParentAttemptId,
             StartTime = attempt.StartedAt == default ? DateTime.UtcNow : attempt.StartedAt,
             EndTime = attempt.CompletedAt,
             TotalTokensUsed = attempt.TotalTokensUsed,
@@ -54,7 +86,8 @@ public static class GenerationAttemptMappingExtensions
             FailureKind = ResolveFailureKind(attempt).ToString(),
             FailureStage = ResolveFailureStage(attempt) ?? string.Empty,
             FailureCategory = ResolveFailureCategory(attempt) ?? string.Empty,
-            ErrorMessage = ResolvePersistedErrorMessage(attempt) ?? string.Empty
+            ErrorMessage = ResolvePersistedErrorMessage(attempt) ?? string.Empty,
+            RuleDecisionJson = attempt.RuleDecisionJson
         };
     }
 
@@ -118,5 +151,22 @@ public static class GenerationAttemptMappingExtensions
     private static string? EmptyToNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static GenerationBudgetMode ResolveBudgetMode(GenerationAttemptEntity entity)
+    {
+        if (Enum.TryParse<GenerationBudgetMode>(entity.BudgetMode, true, out var budgetMode))
+            return budgetMode;
+
+        if (Enum.TryParse<GenerationBudgetMode>(entity.Strategy, true, out var budgetModeFromLegacyStrategy))
+            return budgetModeFromLegacyStrategy;
+
+        return entity.Strategy switch
+        {
+            "Pass1" => GenerationBudgetMode.PassAt1,
+            "Pass5" => GenerationBudgetMode.PassAt5,
+            "Repair5" => GenerationBudgetMode.PassAt1RepairAt5,
+            _ => GenerationBudgetMode.PassAt1
+        };
     }
 }

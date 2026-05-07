@@ -171,7 +171,7 @@ public class SetupService
         _output.WriteLine("Starting Docker Desktop...");
         _processExecutor.Start(dockerDesktopPath, string.Empty, true);
 
-        WaitForDockerResponsive(TimeSpan.FromSeconds(30));
+        WaitForDockerResponsive(TimeSpan.FromSeconds(3));
     }
 
     private bool EnsureDockerContextReady(string contextName, string expectedOs)

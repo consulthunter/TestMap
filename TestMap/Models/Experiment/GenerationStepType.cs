@@ -5,7 +5,11 @@ namespace TestMap.Models.Experiment;
 /// </summary>
 public enum GenerationStepType
 {
+    EvidencePackage,
     Scenario,
+    ContextGraph,
+    ContextResolution,
+    RoslynValidation,
     MethodName,
     ArrangePlan,
     InputPlan,

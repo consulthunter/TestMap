@@ -72,10 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     targeted_stryker_parser = subparsers.add_parser(
         "dotnet-stryker-project",
-        help="Run Stryker for one source project using one test project.",
+        help="Run Stryker from one test project directory.",
     )
     targeted_stryker_parser.add_argument("--run-id", required=True)
-    targeted_stryker_parser.add_argument("--project", required=True, help="Source project path inside the container.")
+    targeted_stryker_parser.add_argument("--report-name", required=True,
+                                         help="Report directory prefix inside the mutation output directory.")
     targeted_stryker_parser.add_argument("--test-project", required=True,
                                          help="Test project path inside the container.")
     targeted_stryker_parser.set_defaults(func=run_dotnet_stryker_project)
@@ -343,37 +344,25 @@ def run_dotnet_stryker_project(args: argparse.Namespace) -> int:
     ensure_directory(paths.mutation_dir)
     ensure_directory(paths.project_dir)
 
-    project_path = Path(args.project)
-    if not project_path.is_absolute():
-        project_path = paths.project_dir / project_path
-
     test_project_path = Path(args.test_project)
     if not test_project_path.is_absolute():
         test_project_path = paths.project_dir / test_project_path
-
-    if not project_path.exists():
-        print(f"Source project not found in container: {project_path}")
-        return 1
 
     if not test_project_path.exists():
         print(f"Test project not found in container: {test_project_path}")
         return 1
 
-    output_dir = paths.mutation_dir / f"{project_path.stem}_{args.run_id}"
+    test_project_dir = test_project_path.parent
+    output_dir = paths.mutation_dir / f"{args.report_name}_{args.run_id}"
     ensure_directory(output_dir)
 
     print("=== Running Targeted Mutation Tests (dotnet-stryker) ===")
-    print(f"Source project: {project_path}")
     print(f"Test project: {test_project_path}")
 
     result = run_process(
         [
             "dotnet",
             "stryker",
-            "--project",
-            str(project_path),
-            "--test-projects",
-            str(test_project_path),
             "-r",
             "html",
             "-r",
@@ -383,14 +372,14 @@ def run_dotnet_stryker_project(args: argparse.Namespace) -> int:
             "--output",
             str(output_dir),
         ],
-        cwd=paths.project_dir,
+        cwd=test_project_dir,
         check=False,
     )
 
     if result.return_code == 0:
         print(f"Reports saved in: {output_dir}")
     else:
-        print(f"Stryker failed for source project: {project_path}")
+        print(f"Stryker failed for test project: {test_project_path}")
 
     print("=== Targeted Mutation Testing Complete ===")
     return result.return_code

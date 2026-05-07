@@ -1,67 +1,61 @@
 using System.Xml.Linq;
-using Microsoft.Build.Evaluation;
 using Microsoft.CodeAnalysis;
 using Newtonsoft.Json.Linq;
-using TestMap.App;
 using TestMap.Models.Code;
+using TestMap.Models.Rules;
+using TestMap.Rules.ProjectDiscovery;
 
 namespace TestMap.Services.ProjectDiscovery;
 
-public class ProjectBuildAnalysisService(ProjectContext context) : IProjectBuildAnalysisService
+public class ProjectBuildAnalysisService : IProjectBuildAnalysisService
 {
-    private static readonly string[] TestPackageMarkers =
-    [
-        "microsoft.net.test.sdk",
-        "xunit",
-        "nunit",
-        "mstest.testframework",
-        "mstest"
-    ];
-
-    public Task<ProjectBuildMetadataModel> AnalyzeAsync(Microsoft.CodeAnalysis.Project project)
+    public Task<ProjectBuildMetadataModel> AnalyzeAsync(Project project)
     {
         if (string.IsNullOrWhiteSpace(project.FilePath) || !File.Exists(project.FilePath))
             return Task.FromResult(new ProjectBuildMetadataModel
             {
+                RuleDecisions = [ProjectDiscoveryDecisionEngine.CreateMissingProjectFileDecision()],
                 Notes = "Project file path is missing."
             });
 
-        var packageReferences = ReadPackageReferences(project.FilePath);
+        var projectFile = ReadProjectFile(project.FilePath);
+        var packageReferences = projectFile.PackageReferences;
         var nearestGlobalJson = FindNearestGlobalJson(project.FilePath);
-        using var projectCollection = new ProjectCollection();
-        Microsoft.Build.Evaluation.Project? evaluatedProject = null;
 
-        try
-        {
-            evaluatedProject = projectCollection.LoadProject(project.FilePath);
-        }
-        catch (Exception ex)
-        {
-            context.Project.Logger?.Warning($"MSBuild evaluation failed for {project.FilePath}: {ex.Message}");
-        }
+        var buildTargetsDecision = ProjectDiscoveryDecisionEngine.SelectBuildTargets(projectFile, project.FilePath);
+        var buildTargets = SplitMultiValue(buildTargetsDecision.Value);
 
-        var targetFramework = GetEffectiveProperty(evaluatedProject, "TargetFramework");
-        var targetFrameworks = SplitMultiValue(GetEffectiveProperty(evaluatedProject, "TargetFrameworks"));
-        var buildTargets = !string.IsNullOrWhiteSpace(targetFramework)
-            ? new List<string> { targetFramework }
-            : targetFrameworks;
-
-        var runtimeIdentifier = GetEffectiveProperty(evaluatedProject, "RuntimeIdentifier");
-        var runtimeIdentifiers = SplitMultiValue(GetEffectiveProperty(evaluatedProject, "RuntimeIdentifiers"));
-        var targetPlatformIdentifier = GetEffectiveProperty(evaluatedProject, "TargetPlatformIdentifier");
-        var useWpf = IsTrue(GetEffectiveProperty(evaluatedProject, "UseWPF"));
-        var useWindowsForms = IsTrue(GetEffectiveProperty(evaluatedProject, "UseWindowsForms"));
+        var runtimeIdentifier = projectFile.GetProperty("RuntimeIdentifier");
+        var runtimeIdentifiers = SplitMultiValue(projectFile.GetProperty("RuntimeIdentifiers"));
+        var targetPlatformIdentifier = projectFile.GetProperty("TargetPlatformIdentifier");
+        var useWpf = IsTrue(projectFile.GetProperty("UseWPF"));
+        var useWindowsForms = IsTrue(projectFile.GetProperty("UseWindowsForms"));
         var usesWindowsDesktop = useWpf || useWindowsForms;
-        var isTestProject = DetectTestProject(project, packageReferences, evaluatedProject);
-        var windowsRequirement = DetermineWindowsRequirement(
+        var testProjectDecisions = ProjectDiscoveryDecisionEngine.DetectTestProject(project, packageReferences, projectFile);
+        var isTestProject = testProjectDecisions.Any(x => bool.Parse(x.Value));
+        var windowsRequirementDecisions = ProjectDiscoveryDecisionEngine.DetermineWindowsRequirement(
             buildTargets,
             runtimeIdentifier,
             runtimeIdentifiers,
             targetPlatformIdentifier,
             usesWindowsDesktop,
-            packageReferences);
-        var coverageCollector = DetermineCoverageCollector(packageReferences, isTestProject);
+            packageReferences,
+            project.FilePath);
+        var windowsRequirement = ProjectDiscoveryDecisionEngine.ResolveWindowsRequirement(windowsRequirementDecisions);
+        var coverageCollectorDecisions =
+            ProjectDiscoveryDecisionEngine.DetermineCoverageCollector(packageReferences, project.FilePath);
+        var coverageCollector = ProjectDiscoveryDecisionEngine.ResolveCoverageCollector(coverageCollectorDecisions);
         var sdkVersion = ReadSdkVersion(nearestGlobalJson);
+        var sdkDecision = ProjectDiscoveryDecisionEngine.CreateSdkDecision(sdkVersion, nearestGlobalJson);
+        var decisions = new List<RuleDecisionRecord>
+        {
+            ProjectDiscoveryDecisionEngine.CreateProjectFileDecision(projectFile, project.FilePath),
+            buildTargetsDecision,
+            sdkDecision
+        };
+        decisions.AddRange(testProjectDecisions);
+        decisions.AddRange(windowsRequirementDecisions);
+        decisions.AddRange(coverageCollectorDecisions);
 
         return Task.FromResult(new ProjectBuildMetadataModel
         {
@@ -76,31 +70,37 @@ public class ProjectBuildAnalysisService(ProjectContext context) : IProjectBuild
             UsesWindowsDesktop = usesWindowsDesktop,
             WindowsRequirement = windowsRequirement,
             CoverageCollector = coverageCollector,
+            RuleDecisions = decisions,
             Notes = BuildNotes(sdkVersion, nearestGlobalJson, buildTargets, coverageCollector, windowsRequirement)
         });
     }
 
-    private static string GetEffectiveProperty(Microsoft.Build.Evaluation.Project? project, string propertyName)
-    {
-        return project?.GetPropertyValue(propertyName)?.Trim() ?? string.Empty;
-    }
-
-    private static List<string> ReadPackageReferences(string projectFilePath)
+    private static ProjectFileAnalysis ReadProjectFile(string projectFilePath)
     {
         try
         {
             var doc = XDocument.Load(projectFilePath);
-            return doc.Descendants()
+            var properties = doc.Descendants()
+                .Where(x => x.Parent?.Name.LocalName == "PropertyGroup")
+                .Where(x => !x.HasElements)
+                .GroupBy(x => x.Name.LocalName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    x => x.Key,
+                    x => x.Last().Value.Trim(),
+                    StringComparer.OrdinalIgnoreCase);
+            var packageReferences = doc.Descendants()
                 .Where(x => x.Name.LocalName == "PackageReference")
                 .Select(x => x.Attribute("Include")?.Value ?? x.Attribute("Update")?.Value ?? string.Empty)
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            return new ProjectFileAnalysis(true, properties, packageReferences);
         }
         catch
         {
-            return new List<string>();
+            return ProjectFileAnalysis.Empty;
         }
     }
 
@@ -140,56 +140,6 @@ public class ProjectBuildAnalysisService(ProjectContext context) : IProjectBuild
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-    }
-
-    private static bool DetectTestProject(
-        Microsoft.CodeAnalysis.Project project,
-        List<string> packageReferences,
-        Microsoft.Build.Evaluation.Project? evaluatedProject)
-    {
-        if (IsTrue(GetEffectiveProperty(evaluatedProject, "IsTestProject"))) return true;
-
-        if (project.Name.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)) return true;
-
-        return packageReferences.Any(x => TestPackageMarkers.Any(marker =>
-            x.Contains(marker, StringComparison.OrdinalIgnoreCase)));
-    }
-
-    private static WindowsRequirementType DetermineWindowsRequirement(
-        List<string> buildTargets,
-        string runtimeIdentifier,
-        List<string> runtimeIdentifiers,
-        string targetPlatformIdentifier,
-        bool usesWindowsDesktop,
-        List<string> packageReferences)
-    {
-        if (usesWindowsDesktop ||
-            string.Equals(targetPlatformIdentifier, "Windows", StringComparison.OrdinalIgnoreCase) ||
-            buildTargets.Any(x => x.Contains("-windows", StringComparison.OrdinalIgnoreCase)))
-            return WindowsRequirementType.Required;
-
-        if ((!string.IsNullOrWhiteSpace(runtimeIdentifier) &&
-             runtimeIdentifier.StartsWith("win", StringComparison.OrdinalIgnoreCase)) ||
-            runtimeIdentifiers.Any(x => x.StartsWith("win", StringComparison.OrdinalIgnoreCase)) ||
-            packageReferences.Any(x =>
-                x.Contains("windowsdesktop", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("microsoft.windows", StringComparison.OrdinalIgnoreCase)))
-            return WindowsRequirementType.LikelyRequired;
-
-        return WindowsRequirementType.NotRequired;
-    }
-
-    private static CoverageCollectorType DetermineCoverageCollector(List<string> packageReferences, bool isTestProject)
-    {
-        if (packageReferences.Any(x => x.Equals("coverlet.collector", StringComparison.OrdinalIgnoreCase)))
-            return CoverageCollectorType.Coverlet;
-
-        if (packageReferences.Any(x =>
-                x.Equals("Microsoft.CodeCoverage", StringComparison.OrdinalIgnoreCase) ||
-                x.Equals("Microsoft.Testing.Extensions.CodeCoverage", StringComparison.OrdinalIgnoreCase)))
-            return CoverageCollectorType.MicrosoftCodeCoverage;
-
-        return CoverageCollectorType.Unknown;
     }
 
     private static string BuildNotes(

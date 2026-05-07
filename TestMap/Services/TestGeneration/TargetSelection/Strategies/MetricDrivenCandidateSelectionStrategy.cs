@@ -74,7 +74,12 @@ public sealed class MetricDrivenCandidateSelectionStrategy : ICandidateSelection
         var directTestSignalsByMemberId = await GetDirectTestSignalsAsync(memberIds, cancellationToken);
         var totalMutants = await _dbContext.Mutants.CountAsync(x => x.MemberId != null, cancellationToken);
         var totalSurvivingMutants = await _dbContext.Mutants.CountAsync(
-            x => x.MemberId != null && IsUndetectedMutantStatus(x.Status),
+            x => x.MemberId != null &&
+                 (x.Status == "Survived" ||
+                  x.Status == "survived" ||
+                  x.Status == "NoCoverage" ||
+                  x.Status == "noCoverage" ||
+                  x.Status == "nocoverage"),
             cancellationToken);
         var totalCoverageGaps = await _dbContext.CoverageGaps.CountAsync(cancellationToken);
         var latestCoverageRows = latestCoverageByMemberId.Values.ToList();

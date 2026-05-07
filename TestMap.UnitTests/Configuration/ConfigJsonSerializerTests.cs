@@ -27,10 +27,13 @@ public sealed class ConfigJsonSerializerTests
     [InlineData(AiProvider.CustomOpenAi, "\"custom-openai\"")]
     [InlineData(AiProvider.GoogleGemini, "\"google-gemini\"")]
     [InlineData(TargetSelectionStrategy.MetricDrivenImprovement, "\"metric-driven-improvement\"")]
-    [InlineData(TestGenerationApproach.DefaultCoverageExtension, "\"default-coverage-extension\"")]
-    [InlineData(TestActionExecutorMode.BasicCoverageExtension, "\"basic-coverage-extension\"")]
+    [InlineData(TestActionExecutorMode.BasicExtension, "\"basic-extension\"")]
     [InlineData(AiProviderMode.Chat, "\"chat\"")]
-    [InlineData(GenerationStrategy.Pass5, "\"pass5\"")]
+    [InlineData(TestGenerationObjective.TestSuiteExpansion, "\"test-suite-expansion\"")]
+    [InlineData(MetricsDrivenPath.CoverageAndMutation, "\"coverage-and-mutation\"")]
+    [InlineData(GenerationContextMode.ChainedHistory, "\"chained-history\"")]
+    [InlineData(GenerationBudgetMode.PassAt1RepairAt5, "\"pass-at1-repair-at5\"")]
+    [InlineData(GenerationStepStatus.Fallback, "\"fallback\"")]
     public void Serialize_EnumValue_WritesFriendlyAlias<TEnum>(TEnum value, string expectedJson)
         where TEnum : struct, Enum
     {
@@ -58,8 +61,18 @@ public sealed class ConfigJsonSerializerTests
     [InlineData("\"metric-driven-improvement\"", TargetSelectionStrategy.MetricDrivenImprovement)]
     [InlineData("\"ActionAware\"", TestGenerationApproach.ActionAware)]
     [InlineData("\"action-aware\"", TestGenerationApproach.ActionAware)]
-    [InlineData("\"BasicCoverageExtension\"", TestActionExecutorMode.BasicCoverageExtension)]
-    [InlineData("\"basic-coverage-extension\"", TestActionExecutorMode.BasicCoverageExtension)]
+    [InlineData("\"MetricsDriven\"", TestGenerationApproach.MetricsDriven)]
+    [InlineData("\"metrics-driven\"", TestGenerationApproach.MetricsDriven)]
+    [InlineData("\"BasicExtension\"", TestActionExecutorMode.BasicExtension)]
+    [InlineData("\"basic-extension\"", TestActionExecutorMode.BasicExtension)]
+    [InlineData("\"CoverageAndMutation\"", MetricsDrivenPath.CoverageAndMutation)]
+    [InlineData("\"coverage-and-mutation\"", MetricsDrivenPath.CoverageAndMutation)]
+    [InlineData("\"NoHistory\"", GenerationContextMode.NoHistory)]
+    [InlineData("\"no-history\"", GenerationContextMode.NoHistory)]
+    [InlineData("\"PassAt5\"", GenerationBudgetMode.PassAt5)]
+    [InlineData("\"pass-at5\"", GenerationBudgetMode.PassAt5)]
+    [InlineData("\"NotApplicable\"", GenerationStepStatus.NotApplicable)]
+    [InlineData("\"not-applicable\"", GenerationStepStatus.NotApplicable)]
     public void Deserialize_EnumValue_ReadsSupportedAliases<TEnum>(string json, TEnum expectedValue)
         where TEnum : struct, Enum
     {

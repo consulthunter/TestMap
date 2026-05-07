@@ -3,24 +3,24 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TestMap.App;
 using TestMap.Models.Configuration;
-using TestMap.Models.Configuration.AiProviders.Google;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Experiment;
 using TestMap.Models.RiskScoring;
-using TestMap.Models.Results;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.Experiment;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
 using TestMap.Services.Configuration;
-using TestMap.Services.StaticAnalysis;
-using TestMap.Services.StaticAnalysis.Enrichment;
+using TestMap.Services.Rules;
+using TestMap.Services.Experiment.Reporting;
+using TestMap.Services.TestExecution;
 using TestMap.Services.TestGeneration;
+using TestMap.Services.TestGeneration.Classification;
+using TestMap.Services.TestGeneration.Evidence;
 using TestMap.Services.TestGeneration.Execution;
 using TestMap.Services.TestGeneration.Strategies;
 using TestMap.Services.TestGeneration.TargetSelection;
+using TestMap.Services.TestGeneration.Validation;
 using TestMap.Services.TestGeneration.Workspace;
-using BuildTestService = TestMap.Services.TestExecution.BuildTestService;
-using BuildTestRunRequest = TestMap.Services.TestExecution.BuildTestRunRequest;
 using ExperimentTestExecution = TestMap.Models.Experiment.TestExecution;
 
 namespace TestMap.Services.Experiment.Execution;
@@ -31,68 +31,79 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     private readonly TestMap.Models.Configuration.TestMapConfig _config;
     private readonly IMethodSelectionService _methodSelection;
     private readonly ITestGenerationPipelineService _pipeline;
-    private readonly BuildTestService _buildTest;
     private readonly ExperimentRunRepository _experimentRunRepo;
+    private readonly ExperimentMatrixWorkItemRepository _workItemRepo;
     private readonly CandidateMethodRepository _candidateMethodRepo;
     private readonly GenerationAttemptRepository _attemptRepo;
     private readonly GenerationStepRepository _stepRepo;
     private readonly TestExecutionRepository _executionRepo;
     private readonly CandidateMethodRiskScoreRepository _riskScoreRepo;
-    private readonly IAnalyzeProjectService _analyzeProjectService;
-    private readonly ICodeMetricsService _codeMetricsService;
-    private readonly ITestSmellService _testSmellService;
+    private readonly IGeneratedTestExecutionService _generatedTestExecutionService;
+    private readonly IGenerationValidationService _generationValidationService;
+    private readonly IGenerationClassificationService _generationClassificationService;
+    private readonly IGenerationExperimentMatrixGenerator _matrixGenerator;
+    private readonly IGenerationBudgetExecutor _budgetExecutor;
+    private readonly IExperimentResumeService _resumeService;
+    private readonly IRuleDecisionRecorder _ruleDecisionRecorder;
+    private readonly IExperimentResultsWriter _resultsWriter;
+    private readonly ProjectArtifactCleanupService _artifactCleanupService;
     private readonly TestMapDbContext _dbContext;
 
     private readonly
         IReadOnlyDictionary<TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach,
             ITestGenerationApproach> _generationApproaches;
 
-    private readonly
-        IReadOnlyDictionary<TestMap.Models.Configuration.Testing.Generation.TestActionExecutorMode, ITestActionExecutor>
-        _actionExecutors;
-
     private readonly RollbackWorkspaceService _workspace;
     private ExperimentConfig? _activeExperimentConfig;
     private ITestGenerationApproach? _activeGenerationApproach;
-    private ITestActionExecutor? _activeActionExecutor;
 
     public ExperimentOrchestrationService(
         ProjectContext context,
         TestMap.Models.Configuration.TestMapConfig config,
         IMethodSelectionService methodSelection,
         ITestGenerationPipelineService pipeline,
-        BuildTestService buildTest,
         ExperimentRunRepository experimentRunRepo,
+        ExperimentMatrixWorkItemRepository workItemRepo,
         CandidateMethodRepository candidateMethodRepo,
         GenerationAttemptRepository attemptRepo,
         GenerationStepRepository stepRepo,
         TestExecutionRepository executionRepo,
         CandidateMethodRiskScoreRepository riskScoreRepo,
-        IAnalyzeProjectService analyzeProjectService,
-        ICodeMetricsService codeMetricsService,
-        ITestSmellService testSmellService,
+        IGeneratedTestExecutionService generatedTestExecutionService,
+        IGenerationValidationService generationValidationService,
+        IGenerationClassificationService generationClassificationService,
+        IGenerationExperimentMatrixGenerator matrixGenerator,
+        IGenerationBudgetExecutor budgetExecutor,
+        IExperimentResumeService resumeService,
+        IRuleDecisionRecorder ruleDecisionRecorder,
+        IExperimentResultsWriter resultsWriter,
+        ProjectArtifactCleanupService artifactCleanupService,
         TestMapDbContext dbContext,
         IEnumerable<ITestGenerationApproach> generationApproaches,
-        IEnumerable<ITestActionExecutor> actionExecutors,
         RollbackWorkspaceService workspace)
     {
         _context = context;
         _config = config;
         _methodSelection = methodSelection;
         _pipeline = pipeline;
-        _buildTest = buildTest;
         _experimentRunRepo = experimentRunRepo;
+        _workItemRepo = workItemRepo;
         _candidateMethodRepo = candidateMethodRepo;
         _attemptRepo = attemptRepo;
         _stepRepo = stepRepo;
         _executionRepo = executionRepo;
         _riskScoreRepo = riskScoreRepo;
-        _analyzeProjectService = analyzeProjectService;
-        _codeMetricsService = codeMetricsService;
-        _testSmellService = testSmellService;
+        _generatedTestExecutionService = generatedTestExecutionService;
+        _generationValidationService = generationValidationService;
+        _generationClassificationService = generationClassificationService;
+        _matrixGenerator = matrixGenerator;
+        _budgetExecutor = budgetExecutor;
+        _resumeService = resumeService;
+        _ruleDecisionRecorder = ruleDecisionRecorder;
+        _resultsWriter = resultsWriter;
+        _artifactCleanupService = artifactCleanupService;
         _dbContext = dbContext;
         _generationApproaches = generationApproaches.ToDictionary(x => x.Strategy);
-        _actionExecutors = actionExecutors.ToDictionary(x => x.Mode);
         _workspace = workspace;
     }
 
@@ -102,13 +113,13 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     {
         _activeExperimentConfig = config;
         _activeGenerationApproach = ResolveGenerationApproach(config.GenerationApproach);
-        _activeActionExecutor = ResolveActionExecutor(config.Executor);
         await _workspace.EnsureWorkspaceReadyAsync(cancellationToken);
+        _artifactCleanupService.CleanupProjectDirectory(false);
         var experimentStopwatch = Stopwatch.StartNew();
 
         _context.Project.Logger?.Information("=== Starting Experiment Run ===");
         _context.Project.Logger?.Information($"Providers: {string.Join(", ", config.IncludeProviders)}");
-        _context.Project.Logger?.Information($"Strategies: {string.Join(", ", config.Strategies)}");
+        _context.Project.Logger?.Information($"Budget Modes: {string.Join(", ", config.BudgetModes)}");
         _context.Project.Logger?.Information($"Generation approach: {config.GenerationApproach}");
         _context.Project.Logger?.Information($"Executor: {config.Executor}");
         _context.Project.Logger?.Information(
@@ -121,7 +132,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ConfigurationJson = JsonSerializer.Serialize(config),
             StartedAt = DateTime.UtcNow,
             ProjectId = _context.Project.DbId,
+            Objective = config.Objective.ToString(),
+            CandidateSelectionStrategy = config.CandidateSelectionStrategy?.ToString()
+                                         ?? config.GenerationApproach.ToString(),
             CandidateLimit = config.CandidateLimit,
+            ResultsFilePath = ResolveResultsFilePath(config),
             Status = "Running"
         };
 
@@ -140,6 +155,14 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             }
 
             var providers = GetProvidersToTest(config);
+            var matrix = _matrixGenerator.Generate(config, providers);
+            await _ruleDecisionRecorder.RecordAsync(
+                _context.Project.DbId,
+                RuleDecisionScope.ExperimentRun(experimentRun.Id),
+                matrix.RuleDecisions,
+                experimentRunId: experimentRun.Id,
+                cancellationToken: cancellationToken);
+            _context.Project.Logger?.Information("Expanded {MatrixCount} experiment matrix item(s).", matrix.Items.Count);
 
             foreach (var candidateMethod in candidateMethods)
             {
@@ -155,10 +178,15 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     continue;
                 }
 
-                if (GetActiveGenerationApproach().ShouldSkipGeneration(methodContext))
+                var matrixApproaches = matrix.Items
+                    .Select(x => x.Approach)
+                    .Distinct()
+                    .ToList();
+                if (matrixApproaches.Count > 0 &&
+                    matrixApproaches.All(x => ResolveGenerationApproach(x).ShouldSkipGeneration(methodContext)))
                 {
                     _context.Project.Logger?.Information(
-                        "Skipping method {MethodName} because the active generation approach marked it as skip.",
+                        "Skipping method {MethodName} because every matrix generation approach marked it as skip.",
                         candidateMethod.MethodName);
                     continue;
                 }
@@ -167,35 +195,89 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 candidateMethod.ExistingTestMethodName = methodContext.Method.ExistingTestMethodName;
                 await _candidateMethodRepo.UpdateAsync(candidateMethod, cancellationToken);
 
-                foreach (var provider in providers)
+                foreach (var matrixItem in matrix.Items)
                 {
-                    _context.Project.Logger?.Information($"\n  Provider: {provider}");
+                    var workItem = await EnsureWorkItemAsync(
+                        experimentRun,
+                        candidateMethod,
+                        matrixItem,
+                        cancellationToken);
+                    var resumeDecision = _resumeService.Evaluate(workItem, config.Resume, DateTime.UtcNow);
+                    workItem = resumeDecision.WorkItem;
+                    await _ruleDecisionRecorder.RecordAsync(
+                        _context.Project.DbId,
+                        RuleDecisionScope.ExperimentMatrixWorkItem(workItem.Id),
+                        resumeDecision.RuleDecisions,
+                        experimentRunId: experimentRun.Id,
+                        candidateMethodId: candidateMethod.Id,
+                        cancellationToken: cancellationToken);
 
-                    foreach (var strategy in config.Strategies)
+                    if (!resumeDecision.ShouldExecute)
                     {
-                        _context.Project.Logger?.Information($"    Strategy: {strategy}");
+                        await _workItemRepo.UpsertAsync(workItem, cancellationToken);
+                        continue;
+                    }
 
-                        try
+                    _context.Project.Logger?.Information(
+                        "  Variant: {VariantId}",
+                        matrixItem.VariantId);
+
+                    try
+                    {
+                        await _workItemRepo.UpdateStatusAsync(
+                            workItem.Id,
+                            ExperimentMatrixWorkItemStatus.Running,
+                            cancellationToken: cancellationToken);
+
+                        var attempts = await ExecuteGenerationAttemptAsync(
+                            candidateMethod.Id,
+                            methodContext,
+                            matrixItem,
+                            cancellationToken);
+
+                        var persistedAttemptIdsByAttemptNumber = new Dictionary<int, int>();
+                        foreach (var attempt in attempts)
                         {
-                            var attempts = await ExecuteGenerationAttemptAsync(
-                                candidateMethod,
-                                methodContext,
-                                provider,
-                                strategy,
+                            if (attempt.ParentAttemptNumber.HasValue &&
+                                persistedAttemptIdsByAttemptNumber.TryGetValue(
+                                    attempt.ParentAttemptNumber.Value,
+                                    out var parentAttemptId))
+                                attempt.ParentAttemptId = parentAttemptId;
+
+                            var persistedAttemptId = await SaveGenerationAttemptAsync(
+                                experimentRun.Id,
+                                candidateMethod.Id,
+                                attempt,
                                 cancellationToken);
+                            persistedAttemptIdsByAttemptNumber[attempt.AttemptNumber] = persistedAttemptId;
+                            await _resultsWriter.AppendAsync(
+                                experimentRun,
+                                await CreateResultFileRowAsync(
+                                    experimentRun,
+                                    candidateMethod,
+                                    attempt,
+                                    workItem.StableKey,
+                                    cancellationToken),
+                                cancellationToken);
+                        }
 
-                            foreach (var attempt in attempts)
-                                await SaveGenerationAttemptAsync(attempt, cancellationToken);
-                        }
-                        catch (Exception ex)
-                        {
-                            _context.Project.Logger?.Error(
-                                ex,
-                                "Failed to execute {Provider}/{Strategy} for {MethodName}",
-                                provider,
-                                strategy,
-                                candidateMethod.MethodName);
-                        }
+                        await _workItemRepo.UpdateStatusAsync(
+                            workItem.Id,
+                            ExperimentMatrixWorkItemStatus.Completed,
+                            cancellationToken: cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        await _workItemRepo.UpdateStatusAsync(
+                            workItem.Id,
+                            ExperimentMatrixWorkItemStatus.Failed,
+                            ex.Message,
+                            cancellationToken);
+                        _context.Project.Logger?.Error(
+                            ex,
+                            "Failed to execute {VariantId} for {MethodName}",
+                            matrixItem.VariantId,
+                            candidateMethod.MethodName);
                     }
                 }
             }
@@ -221,46 +303,313 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         }
     }
 
+    private async Task<ExperimentMatrixWorkItem> EnsureWorkItemAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        GenerationExperimentMatrixItem matrixItem,
+        CancellationToken cancellationToken)
+    {
+        var resumeGroupId = string.IsNullOrWhiteSpace(_activeExperimentConfig?.Resume.ResumeRunId)
+            ? experimentRun.Id.ToString()
+            : _activeExperimentConfig!.Resume.ResumeRunId!;
+        var repositoryIdentity = $"{_context.Project.Owner}/{_context.Project.RepoName}";
+        var commitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty;
+        var candidateWorkItem = _resumeService.CreateWorkItem(
+            experimentRun.Id,
+            resumeGroupId,
+            repositoryIdentity,
+            commitHash,
+            GetActiveObjective(),
+            candidateMethod,
+            matrixItem);
+        var existing = await _workItemRepo.GetByStableKeyAsync(candidateWorkItem.StableKey, cancellationToken);
+        if (existing != null) return existing;
+
+        candidateWorkItem.Id = await _workItemRepo.UpsertAsync(candidateWorkItem, cancellationToken);
+        return candidateWorkItem;
+    }
+
+    private async Task<ExperimentResultFileRow> CreateResultFileRowAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        GenerationAttempt attempt,
+        string stableKey,
+        CancellationToken cancellationToken)
+    {
+        var execution = attempt.TestExecution;
+        var generatedTestMemberId = await ResolveLatestTestMemberIdAsync(
+            execution?.GeneratedTestMethodName,
+            cancellationToken);
+        var generatedTestCompiled = execution?.CompilationSuccess ?? false;
+        var generatedTestExecuted = generatedTestCompiled && (execution?.TestsExecuted ?? false);
+        var generatedTestPassed = generatedTestCompiled && generatedTestExecuted && (execution?.TestPassed ?? false);
+        var sourceMetrics = await GetMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
+        var baselineMetrics = await GetMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
+        var generatedMetrics = await GetMemberCodeMetricsAsync(generatedTestMemberId, cancellationToken);
+
+        return new ExperimentResultFileRow
+        {
+            ExperimentRunId = experimentRun.Id,
+            RepoUrl = _context.Project.GitHubUrl,
+            RepoOwner = _context.Project.Owner,
+            RepoName = _context.Project.RepoName,
+            CommitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty,
+            RunDate = DateTime.UtcNow,
+            Objective = experimentRun.Objective,
+            TargetSelectionStrategy = experimentRun.CandidateSelectionStrategy,
+            GenerationApproach = attempt.GenerationApproach,
+            MetricsPath = attempt.MetricsPath,
+            SourceMethodMaintainabilityIndex = sourceMetrics?.MaintainabilityIndex,
+            SourceMethodCyclomaticComplexity = sourceMetrics?.CyclomaticComplexity,
+            SourceMethodClassCoupling = sourceMetrics?.ClassCoupling,
+            SourceMethodDepthOfInheritance = sourceMetrics?.DepthOfInheritance,
+            SourceMethodSourceLinesOfCode = sourceMetrics?.SourceLinesOfCode,
+            SourceMethodExecutableLinesOfCode = sourceMetrics?.ExecutableLinesOfCode,
+            BaselineTestMaintainabilityIndex = baselineMetrics?.MaintainabilityIndex,
+            BaselineTestCyclomaticComplexity = baselineMetrics?.CyclomaticComplexity,
+            BaselineTestClassCoupling = baselineMetrics?.ClassCoupling,
+            BaselineTestDepthOfInheritance = baselineMetrics?.DepthOfInheritance,
+            BaselineTestSourceLinesOfCode = baselineMetrics?.SourceLinesOfCode,
+            BaselineTestExecutableLinesOfCode = baselineMetrics?.ExecutableLinesOfCode,
+            GeneratedTestMaintainabilityIndex = generatedMetrics?.MaintainabilityIndex,
+            GeneratedTestCyclomaticComplexity = generatedMetrics?.CyclomaticComplexity,
+            GeneratedTestClassCoupling = generatedMetrics?.ClassCoupling,
+            GeneratedTestDepthOfInheritance = generatedMetrics?.DepthOfInheritance,
+            GeneratedTestSourceLinesOfCode = generatedMetrics?.SourceLinesOfCode,
+            GeneratedTestExecutableLinesOfCode = generatedMetrics?.ExecutableLinesOfCode,
+            BaselineTestSmells = await GetTestSmellSummaryAsync(
+                candidateMethod.ExistingTestMethodName,
+                candidateMethod.ExistingTestMemberId,
+                cancellationToken),
+            GeneratedTestSmells = await GetTestSmellSummaryAsync(
+                execution?.GeneratedTestMethodName,
+                generatedTestMemberId,
+                cancellationToken),
+            Provider = attempt.Provider,
+            Model = attempt.ModelName ?? string.Empty,
+            ContextMode = attempt.ContextMode,
+            BudgetMode = attempt.BudgetMode,
+            AblationVariantId = attempt.AblationVariantId,
+            StepsIncluded = attempt.StepConfigJson,
+            AttemptNumber = attempt.AttemptNumber,
+            RepairAttemptNumber = attempt.IsRepairAttempt ? attempt.AttemptNumber : null,
+            SourceMemberId = candidateMethod.MemberId,
+            SourceMethodName = candidateMethod.MethodName,
+            SourceMethodSignature = candidateMethod.Signature,
+            SourceMethodBaselineCoverage = candidateMethod.BaselineCoverage,
+            SourceMethodComplexity = candidateMethod.ComplexityScore,
+            BaselineTestState = candidateMethod.TestState.ToString(),
+            BaselineTestMethod = candidateMethod.ExistingTestMethodName ?? string.Empty,
+            GeneratedTestMethodName = execution?.GeneratedTestMethodName ?? string.Empty,
+            GeneratedTestCompiled = generatedTestCompiled,
+            GeneratedTestExecuted = generatedTestExecuted,
+            GeneratedTestPassed = generatedTestPassed,
+            CoverageBefore = candidateMethod.BaselineCoverage,
+            CoverageAfter = execution?.CoverageAfter ?? 0,
+            CoverageDelta = execution?.CoverageImprovement ?? 0,
+            MutationScoreBefore = execution?.BaselineMutationScore,
+            MutationScoreAfter = execution?.MutationScoreAfter,
+            MutationScoreDelta = execution?.MutationScoreImprovement,
+            MutantKilled = execution?.MutationScoreImprovement is > 0,
+            ToolObservedOutcome = execution?.Classification.ToString() ?? TestClassification.ValidationFailed.ToString(),
+            AcceptedByNormalPolicy = execution?.Accepted,
+            FailureKind = execution?.FailureKind.ToString() ?? string.Empty,
+            FailureStage = execution?.FailureStage ?? string.Empty,
+            FailureCategory = execution?.FailureCategory ?? string.Empty,
+            FailureSummary = execution?.FailureSummary ?? string.Empty,
+            RoslynValidationSucceeded = execution?.RoslynValidationSucceeded ?? true,
+            RoslynValidationSkipped = execution?.RoslynValidationSkipped ?? false,
+            RoslynDiagnosticsBeforeCount = execution?.RoslynDiagnosticsBeforeCount ?? 0,
+            RoslynDiagnosticsAfterCount = execution?.RoslynDiagnosticsAfterCount ?? 0,
+            NewRoslynDiagnosticsCount = execution?.NewRoslynDiagnosticsCount ?? 0,
+            NewRoslynDiagnostics = execution?.NewRoslynDiagnostics ?? string.Empty,
+            TotalTokens = attempt.TotalTokensUsed,
+            TotalDurationSeconds = attempt.TotalDurationSeconds,
+            PromptVersion = attempt.GenerationSteps.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.PromptVersion))?.PromptVersion ?? string.Empty,
+            GenerationAttemptId = attempt.Id,
+            TestExecutionId = execution?.Id,
+            ResumeStableKey = stableKey
+        };
+    }
+
+    private async Task<int?> ResolveLatestTestMemberIdAsync(
+        string? testName,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(testName)) return null;
+
+        return await (
+                from member in _dbContext.Members
+                where member.IsTestMember
+                      && (
+                          member.Name == testName ||
+                          EF.Functions.Like(member.Name, "%" + testName))
+                orderby member.Id descending
+                select (int?)member.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<MemberCodeMetricColumns?> GetMemberCodeMetricsAsync(
+        int? memberId,
+        CancellationToken cancellationToken)
+    {
+        if (!memberId.HasValue) return null;
+
+        var metric = await _dbContext.CodeMetrics
+            .Where(x => x.EntityType == "member" && x.EntityId == memberId.Value)
+            .OrderByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return metric == null
+            ? null
+            : new MemberCodeMetricColumns(
+                metric.MaintainabilityIndex,
+                metric.CyclomaticComplexity,
+                metric.ClassCoupling,
+                metric.DepthOfInheritance,
+                metric.SourceLinesOfCode,
+                metric.ExecutableLinesOfCode);
+    }
+
+    private async Task<string> GetTestSmellSummaryAsync(
+        string? testName,
+        int? memberId,
+        CancellationToken cancellationToken)
+    {
+        if (_context.Project.DbId == 0 && !memberId.HasValue && string.IsNullOrWhiteSpace(testName))
+            return string.Empty;
+
+        var query = _dbContext.TestSmells.AsQueryable();
+
+        if (memberId.HasValue)
+            query = query.Where(x => x.MemberId == memberId.Value);
+        else if (!string.IsNullOrWhiteSpace(testName))
+            query = query.Where(x => x.TestMethodName == testName);
+        else
+            return string.Empty;
+
+        var smells = await query
+            .Where(x => _context.Project.DbId == 0 || x.ProjectId == _context.Project.DbId)
+            .GroupBy(x => x.SmellName)
+            .Select(x => new { Name = x.Key, Count = x.Count() })
+            .OrderByDescending(x => x.Count)
+            .ThenBy(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+        return smells.Count == 0
+            ? "None"
+            : string.Join("; ", smells.Select(x => $"{x.Name}={x.Count}"));
+    }
+
+    private static string ResolveResultsFilePath(ExperimentConfig config)
+    {
+        return ExperimentResultsWriter.ResolveResultsFilePath(config);
+    }
+
     public async Task<IReadOnlyList<GenerationAttempt>> ExecuteGenerationAttemptAsync(
         CandidateMethod candidateMethod,
         CandidateMethodContext context,
         AiProvider provider,
-        GenerationStrategy strategy,
+        TestMap.Models.Configuration.Testing.Generation.GenerationBudgetMode budgetMode,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            return strategy switch
+            var item = new GenerationExperimentMatrixItem
             {
-                GenerationStrategy.Pass1 =>
-                    [await ExecutePass1Async(candidateMethod.Id, context, provider, cancellationToken)],
-                GenerationStrategy.Pass5 => await ExecutePass5Async(candidateMethod.Id, context, provider,
-                    cancellationToken),
-                GenerationStrategy.Repair5 => await ExecuteRepair5Async(candidateMethod.Id, context, provider,
-                    cancellationToken),
-                _ => throw new InvalidOperationException($"Unsupported strategy: {strategy}")
+                VariantId = $"{provider}__{GetActiveGenerationApproach().Strategy}__{budgetMode}__baseline",
+                Provider = provider,
+                ModelName = ResolveModelName(provider),
+                Approach = GetActiveGenerationApproach().Strategy,
+                MetricsPath = _activeExperimentConfig?.MetricsPaths.FirstOrDefault(),
+                ContextMode = _config.TestingConfig.GenerationConfig.ContextMode,
+                BudgetMode = budgetMode,
+                Steps = _config.TestingConfig.GenerationConfig.Steps,
+                Temperature = _activeExperimentConfig?.Temperature ?? 0.0
             };
+            item = new GenerationExperimentMatrixItem
+            {
+                VariantId = item.VariantId,
+                Provider = item.Provider,
+                ModelName = item.ModelName,
+                Approach = item.Approach,
+                MetricsPath = item.MetricsPath,
+                ContextMode = item.ContextMode,
+                BudgetMode = item.BudgetMode,
+                Steps = item.Steps,
+                Temperature = item.Temperature,
+                EffectiveProfile = GenerationProfileResolver.ResolveEffectiveProfile(
+                    _config.TestingConfig.GenerationConfig,
+                    _activeExperimentConfig ?? new ExperimentConfig(),
+                    item)
+            };
+
+            return await ExecuteGenerationAttemptAsync(candidateMethod.Id, context, item, cancellationToken);
         }
         catch (Exception ex)
         {
             _context.Project.Logger?.Error(ex, "Generation attempt failed.");
-            return [CreateFailedAttempt(candidateMethod.Id, provider, strategy, 1, ex.Message)];
+            return [CreateFailedAttempt(candidateMethod.Id, provider, budgetMode, 1, ex.Message)];
         }
     }
 
-    private async Task<GenerationAttempt> ExecutePass1Async(
+    private Task<IReadOnlyList<GenerationAttempt>> ExecuteGenerationAttemptAsync(
         int candidateMethodId,
         CandidateMethodContext context,
-        AiProvider provider,
+        GenerationExperimentMatrixItem matrixItem,
+        CancellationToken cancellationToken = default)
+    {
+        return ExecuteBudgetAsync(candidateMethodId, context, matrixItem, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<GenerationAttempt>> ExecuteBudgetAsync(
+        int candidateMethodId,
+        CandidateMethodContext context,
+        GenerationExperimentMatrixItem matrixItem,
         CancellationToken cancellationToken)
     {
-        var attempt = CreateAttempt(candidateMethodId, provider, GenerationStrategy.Pass1, 1);
+        var evaluations = await _budgetExecutor.ExecuteAsync(
+            new GenerationBudgetExecutionRequest
+            {
+                BudgetMode = matrixItem.BudgetMode,
+                GenerateAsync = (attemptNumber, token) =>
+                    ExecuteSingleGenerationAttemptAsync(candidateMethodId, context, matrixItem, attemptNumber, token),
+                RepairAsync = (previousAttempt, attemptNumber, token) =>
+                    ExecuteSingleRepairAttemptAsync(candidateMethodId, context, matrixItem, previousAttempt, attemptNumber, token),
+                ShouldStopRepair = attempt =>
+                    attempt.TestExecution is { TestPassed: true, CoverageImprovement: > 0 },
+                RollbackAsync = token => _workspace.RollbackChangesAsync(token)
+            },
+            cancellationToken);
+
+        return evaluations.Select(x =>
+        {
+            x.Attempt.IsRepairAttempt = x.IsRepairAttempt;
+            x.Attempt.ParentAttemptNumber = x.ParentAttemptNumber;
+            return x.Attempt;
+        }).ToList();
+    }
+
+    private async Task<GenerationAttempt> ExecuteSingleGenerationAttemptAsync(
+        int candidateMethodId,
+        CandidateMethodContext context,
+        GenerationExperimentMatrixItem matrixItem,
+        int attemptNumber,
+        CancellationToken cancellationToken)
+    {
+            var attempt = CreateAttempt(
+                candidateMethodId,
+                matrixItem.Provider,
+                matrixItem.BudgetMode,
+                attemptNumber,
+                matrixItem);
         var stopwatch = Stopwatch.StartNew();
 
         try
         {
-            var result =
-                await _pipeline.GenerateTestAsync(CreateGenerationRequest(context, provider), cancellationToken);
+            var result = await _pipeline.GenerateTestAsync(
+                CreateGenerationRequest(context, matrixItem),
+                cancellationToken);
             attempt.GenerationSteps = MapSteps(result);
             attempt.TotalTokensUsed = result.TotalTokens;
 
@@ -275,6 +624,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 result.GeneratedTest!,
                 result.TestMethodName!,
                 context,
+                matrixItem,
                 cancellationToken);
 
             return attempt;
@@ -287,189 +637,86 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         }
     }
 
-    private async Task<IReadOnlyList<GenerationAttempt>> ExecutePass5Async(
+    private async Task<GenerationAttempt> ExecuteSingleRepairAttemptAsync(
         int candidateMethodId,
         CandidateMethodContext context,
-        AiProvider provider,
+        GenerationExperimentMatrixItem matrixItem,
+        GenerationAttempt previousAttempt,
+        int attemptNumber,
         CancellationToken cancellationToken)
     {
-        var attempts = new List<GenerationAttempt>();
+        var attempt = CreateAttempt(
+            candidateMethodId,
+            matrixItem.Provider,
+            matrixItem.BudgetMode,
+            attemptNumber,
+            matrixItem);
+        attempt.IsRepairAttempt = true;
+        attempt.ParentAttemptNumber = previousAttempt.AttemptNumber;
+        var stopwatch = Stopwatch.StartNew();
 
-        for (var i = 1; i <= 5; i++)
+        try
         {
-            _context.Project.Logger?.Information($"      Attempt {i}/5");
-            var attempt = CreateAttempt(candidateMethodId, provider, GenerationStrategy.Pass5, i);
-            var stopwatch = Stopwatch.StartNew();
-
-            try
+            if (previousAttempt.TestExecution?.GeneratedTestCode == null)
             {
-                var result = await _pipeline.GenerateTestAsync(
-                    CreateGenerationRequest(context, provider, 0.7),
-                    cancellationToken);
+                attempt.ErrorMessage = "No previous attempt available for repair.";
+                attempt.TestExecution = CreateFailedExecution(TestFailureKind.Generation, attempt.ErrorMessage);
+                return attempt;
+            }
 
-                attempt.GenerationSteps = MapSteps(result);
-                attempt.TotalTokensUsed = result.TotalTokens;
+            var repairRequest = CreateRepairRequest(
+                context,
+                previousAttempt.TestExecution.GeneratedTestCode,
+                previousAttempt.TestExecution.ErrorLogs ?? "Test failed",
+                previousAttempt.TestExecution.StructuredErrors,
+                null,
+                matrixItem,
+                attemptNumber);
 
-                if (!result.Success || string.IsNullOrEmpty(result.GeneratedTest))
-                {
-                    attempt.ErrorMessage = result.ErrorMessage ?? $"Generation {i} failed";
-                    attempt.TestExecution = CreateFailedExecution(TestFailureKind.Generation, attempt.ErrorMessage);
-                }
-                else
-                {
-                    attempt.TestExecution = await ExecuteAndTestAsync(
-                        result.GeneratedTest!,
-                        result.TestMethodName!,
-                        context,
-                        cancellationToken);
-                }
-            }
-            catch (Exception ex)
+            var result = await _pipeline.RepairTestAsync(repairRequest, cancellationToken);
+            attempt.GenerationSteps = MapSteps(result);
+            attempt.TotalTokensUsed = result.TotalTokens;
+
+            if (!result.Success || string.IsNullOrEmpty(result.GeneratedTest))
             {
-                attempt.ErrorMessage = ex.Message;
-                attempt.TestExecution = CreateFailedExecution(TestFailureKind.Generation, ex.Message);
-                _context.Project.Logger?.Error(ex, "Pass5 attempt {AttemptNumber} failed.", i);
+                attempt.ErrorMessage = result.ErrorMessage ?? $"Repair {attemptNumber} failed";
+                attempt.TestExecution = CreateFailedExecution(TestFailureKind.Generation, attempt.ErrorMessage);
+                return attempt;
             }
-            finally
-            {
-                stopwatch.Stop();
-                attempt.CompletedAt = DateTime.UtcNow;
-                attempt.TotalDurationSeconds = stopwatch.Elapsed.TotalSeconds;
-                attempts.Add(attempt);
-                await _workspace.RollbackChangesAsync(cancellationToken);
-            }
+
+            attempt.TestExecution = await ExecuteAndTestAsync(
+                result.GeneratedTest!,
+                result.TestMethodName ?? context.Method.MethodName,
+                context,
+                matrixItem,
+                cancellationToken);
+
+            return attempt;
         }
-
-        var best = attempts
-            .Where(x => x.TestExecution != null)
-            .OrderByDescending(x => x.TestExecution!.TestPassed)
-            .ThenByDescending(x => x.TestExecution!.CoverageImprovement)
-            .FirstOrDefault();
-
-        if (best?.TestExecution != null)
-            _context.Project.Logger?.Information(
-                $"      Best: Passed={best.TestExecution.TestPassed}, Coverage={best.TestExecution.CoverageImprovement:P}");
-
-        return attempts;
-    }
-
-    private async Task<IReadOnlyList<GenerationAttempt>> ExecuteRepair5Async(
-        int candidateMethodId,
-        CandidateMethodContext context,
-        AiProvider provider,
-        CancellationToken cancellationToken)
-    {
-        string? currentTest = null;
-        string? currentTestMethodName = null;
-        string? currentConversationTranscript = null;
-        ExperimentTestExecution? lastExecution = null;
-        var attempts = new List<GenerationAttempt>();
-
-        for (var i = 1; i <= 5; i++)
+        finally
         {
-            _context.Project.Logger?.Information($"      Attempt {i}/5");
-            var attempt = CreateAttempt(candidateMethodId, provider, GenerationStrategy.Repair5, i);
-            var stopwatch = Stopwatch.StartNew();
-
-            try
-            {
-                TestGenerationResult result;
-
-                if (i == 1)
-                {
-                    result = await _pipeline.GenerateTestAsync(CreateGenerationRequest(context, provider),
-                        cancellationToken);
-                }
-                else
-                {
-                    if (currentTest == null || lastExecution == null)
-                    {
-                        attempt.ErrorMessage = "No previous attempt available for repair.";
-                        attempt.TestExecution = CreateFailedExecution(TestFailureKind.Generation, attempt.ErrorMessage);
-                        attempts.Add(attempt);
-                        break;
-                    }
-
-                    var repairRequest = CreateRepairRequest(
-                        context,
-                        currentTest,
-                        lastExecution.ErrorLogs ?? "Test failed",
-                        lastExecution.StructuredErrors,
-                        currentConversationTranscript,
-                        provider,
-                        i);
-
-                    result = await _pipeline.RepairTestAsync(repairRequest, cancellationToken);
-                }
-
-                attempt.GenerationSteps = MapSteps(result);
-                attempt.TotalTokensUsed = result.TotalTokens;
-
-                if (!result.Success || string.IsNullOrEmpty(result.GeneratedTest))
-                {
-                    attempt.ErrorMessage = result.ErrorMessage ?? $"Repair {i} failed";
-                    attempt.TestExecution = CreateFailedExecution(TestFailureKind.Generation, attempt.ErrorMessage);
-                    attempts.Add(attempt);
-                    break;
-                }
-
-                currentTest = result.GeneratedTest;
-                currentTestMethodName = result.TestMethodName;
-                currentConversationTranscript = result.ConversationTranscript;
-                lastExecution = await ExecuteAndTestAsync(
-                    currentTest,
-                    currentTestMethodName ?? context.Method.MethodName,
-                    context,
-                    cancellationToken);
-
-                attempt.TestExecution = lastExecution;
-
-                if (lastExecution.TestPassed && lastExecution.CoverageImprovement > 0)
-                {
-                    _context.Project.Logger?.Information($"      Success on attempt {i}");
-                    attempts.Add(attempt);
-                    break;
-                }
-
-                _context.Project.Logger?.Warning(
-                    $"      Attempt {i} failed: Passed={lastExecution.TestPassed}, Coverage={lastExecution.CoverageImprovement:P}");
-            }
-            catch (Exception ex)
-            {
-                attempt.ErrorMessage = ex.Message;
-                attempt.TestExecution = CreateFailedExecution(TestFailureKind.Generation, ex.Message);
-                _context.Project.Logger?.Error(ex, "Repair5 attempt {AttemptNumber} failed.", i);
-            }
-            finally
-            {
-                stopwatch.Stop();
-                attempt.CompletedAt = DateTime.UtcNow;
-                attempt.TotalDurationSeconds = stopwatch.Elapsed.TotalSeconds;
-                if (!attempts.Contains(attempt))
-                    attempts.Add(attempt);
-                await _workspace.RollbackChangesAsync(cancellationToken);
-            }
+            stopwatch.Stop();
+            attempt.CompletedAt = DateTime.UtcNow;
+            attempt.TotalDurationSeconds = stopwatch.Elapsed.TotalSeconds;
         }
-
-        return attempts;
     }
 
     private TestGenerationRequest CreateGenerationRequest(
         CandidateMethodContext context,
-        AiProvider provider,
-        double temperature = 0.0)
+        GenerationExperimentMatrixItem matrixItem)
     {
         var experimentConfig = _activeExperimentConfig;
 
-        return GetActiveGenerationApproach().CreateGenerationRequest(new TestGenerationApproachContext
+        var request = ResolveGenerationApproach(matrixItem.Approach).CreateGenerationRequest(new TestGenerationApproachContext
         {
             MethodContext = context,
-            Provider = provider,
-            Temperature = temperature,
+            Provider = matrixItem.Provider,
+            Temperature = matrixItem.Temperature,
             StepErrorRetries = Math.Max(0, experimentConfig?.StepErrorRetries ?? 0),
-            StepRetryDelayMs = Math.Max(0, experimentConfig?.StepRetryDelayMs ?? 1000),
-            EnableHistoryChaining = _config.TestingConfig.GenerationConfig.EnableHistoryChaining
+            StepRetryDelayMs = Math.Max(0, experimentConfig?.StepRetryDelayMs ?? 1000)
         });
+
+        return ApplyMatrixItem(request, matrixItem);
     }
 
     private TestRepairRequest CreateRepairRequest(
@@ -478,190 +725,193 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         string errorLogs,
         string? structuredErrors,
         string? priorConversationTranscript,
-        AiProvider provider,
+        GenerationExperimentMatrixItem matrixItem,
         int attemptNumber,
         double temperature = 0.0)
     {
         var experimentConfig = _activeExperimentConfig;
 
-        return GetActiveGenerationApproach().CreateRepairRequest(new TestRepairApproachContext
+        var request = ResolveGenerationApproach(matrixItem.Approach).CreateRepairRequest(new TestRepairApproachContext
         {
             MethodContext = context,
             GeneratedTest = generatedTest,
             ErrorLogs = errorLogs,
             StructuredErrors = structuredErrors,
             PriorConversationTranscript = priorConversationTranscript,
-            Provider = provider,
-            Temperature = temperature,
+            Provider = matrixItem.Provider,
+            Temperature = matrixItem.Temperature,
             AttemptNumber = attemptNumber,
             StepErrorRetries = Math.Max(0, experimentConfig?.StepErrorRetries ?? 0),
-            StepRetryDelayMs = Math.Max(0, experimentConfig?.StepRetryDelayMs ?? 1000),
-            EnableHistoryChaining = _config.TestingConfig.GenerationConfig.EnableHistoryChaining
+            StepRetryDelayMs = Math.Max(0, experimentConfig?.StepRetryDelayMs ?? 1000)
         });
+
+        return ApplyMatrixItem(request, matrixItem);
     }
 
     private async Task<ExperimentTestExecution> ExecuteAndTestAsync(
         string generatedTest,
         string testMethodName,
         CandidateMethodContext context,
+        GenerationExperimentMatrixItem matrixItem,
         CancellationToken cancellationToken)
     {
-        var execution = new ExperimentTestExecution
+        var execution = await _generatedTestExecutionService.ExecuteAsync(
+            context,
+            generatedTest,
+            testMethodName,
+            GenerationObjectivePolicy.ResolveExecutor(GetActiveObjective()),
+            cancellationToken);
+        var validation = _generationValidationService.Validate(
+            execution,
+            context,
+            CreateValidationEvidence(context, matrixItem));
+        var classification = _generationClassificationService.Classify(validation);
+
+        return new ExperimentTestExecution
         {
             GeneratedTestCode = generatedTest,
             GeneratedTestMethodName = testMethodName,
-            ExecutedAt = DateTime.UtcNow
+            ExecutedAt = execution.ExecutedAt,
+            CompilationSuccess = execution.CompilationSucceeded,
+            TestsExecuted = execution.TestsExecuted,
+            TestPassed = execution.CompilationSucceeded && execution.TestsExecuted && execution.AllTestsPassed,
+            CoverageAfter = execution.CoverageAfter,
+            CoverageImprovement = execution.CoverageImprovement,
+            BaselineMutationScore = execution.BaselineMutationScore,
+            MutationScoreAfter = execution.MutationScoreAfter,
+            MutationScoreImprovement = execution.MutationScoreImprovement,
+            Classification = MapClassification(classification.Classification),
+            ValidationResultJson = JsonSerializer.Serialize(validation),
+            ValidationRuleDecisionJson = _ruleDecisionRecorder.CreateSnapshotJson(validation.RuleDecisions),
+            ClassificationRuleDecisionJson = _ruleDecisionRecorder.CreateSnapshotJson(classification.RuleDecisions),
+            FailureKind = execution.FailureKind,
+            CompilationErrors = execution.CompilationErrors,
+            RuntimeErrors = execution.RuntimeErrors,
+            AssertionErrors = execution.AssertionErrors,
+            StructuredErrors = execution.StructuredErrors,
+            ErrorLogs = execution.ErrorLogs,
+            FailureStage = execution.FailureStage,
+            FailureCategory = execution.FailureCategory,
+            FailureSummary = execution.FailureSummary,
+            RoslynValidationSucceeded = execution.RoslynValidationSucceeded,
+            RoslynValidationSkipped = execution.RoslynValidationSkipped,
+            RoslynDiagnosticsBeforeCount = execution.RoslynDiagnosticsBefore.Count,
+            RoslynDiagnosticsAfterCount = execution.RoslynDiagnosticsAfter.Count,
+            NewRoslynDiagnosticsCount = execution.NewRoslynDiagnostics.Count,
+            NewRoslynDiagnostics = FormatRoslynDiagnostics(execution.NewRoslynDiagnostics)
         };
-
-        try
-        {
-            var actionResult = await GetActiveActionExecutor().ExecuteAsync(
-                context,
-                generatedTest,
-                testMethodName,
-                cancellationToken);
-
-            if (!actionResult.Success)
-                throw new InvalidOperationException(
-                    actionResult.ErrorMessage ??
-                    $"Failed to apply generated test into {context.TestFilePath} for class {context.TestClassName}.");
-
-            var validationResult = await _buildTest.ValidateBuildAsync(
-                context.TestProjectPath,
-                cancellationToken);
-
-            if (!validationResult.IsSuccess)
-            {
-                execution.CompilationSuccess = false;
-                execution.TestPassed = false;
-                execution.FailureKind = TestFailureKind.Compilation;
-                execution.CompilationErrors = validationResult.LogText;
-                execution.StructuredErrors = validationResult.StructuredErrors;
-                execution.ErrorLogs = validationResult.LogText;
-                execution.FailureStage = "build";
-                execution.FailureCategory = "docker_compilation_validation_failed";
-                execution.FailureSummary = "Docker build validation failed before test execution.";
-                return execution;
-            }
-
-            await RefreshProjectMetadataAsync(context.TestProjectPath);
-
-            var buildResult = await _buildTest.BuildTestAsync(
-                BuildTestRunRequest.CreateIteration(
-                    context.TestProjectPath,
-                    context.TargetBuildFramework,
-                    context.Method.MethodName,
-                    context.SourceProjectPath));
-
-            execution.CompilationSuccess = DidCompilationSucceed(buildResult);
-            execution.TestPassed = execution.CompilationSuccess &&
-                                   buildResult.Results.Count > 0 &&
-                                   buildResult.Results.All(r => r.Outcome == "Passed");
-            execution.CoverageAfter = buildResult is GeneratedTestRunModel generatedRun
-                ? generatedRun.MethodCoverage
-                : buildResult.Coverage / 100.0;
-            execution.CoverageImprovement = execution.CoverageAfter - context.Method.BaselineCoverage;
-            execution.BaselineMutationScore = await GetLatestBaselineMutationScoreAsync(cancellationToken);
-            execution.MutationScoreAfter = buildResult.MutationScore;
-            execution.MutationScoreImprovement =
-                execution.MutationScoreAfter.HasValue && execution.BaselineMutationScore.HasValue
-                    ? execution.MutationScoreAfter.Value - execution.BaselineMutationScore.Value
-                    : null;
-            execution.Classification = execution.TestPassed
-                ? execution.CoverageImprovement > 0 ? TestClassification.Approved : TestClassification.Benign
-                : execution.CoverageImprovement > 0
-                    ? TestClassification.Candidate
-                    : TestClassification.Failed;
-
-            if (!execution.CompilationSuccess)
-            {
-                execution.TestPassed = false;
-                execution.FailureKind = buildResult.FailureAnalysis != null
-                    ? MapFailureKind(buildResult.FailureAnalysis)
-                    : TestFailureKind.Compilation;
-                execution.CompilationErrors = buildResult.FailureAnalysis?.Evidence;
-                execution.ErrorLogs = await ReadExecutionLogAsync(buildResult.LogPath, cancellationToken)
-                                      ?? buildResult.FailureAnalysis?.Evidence;
-                execution.FailureStage = buildResult.FailureAnalysis?.Stage ?? "build";
-                execution.FailureCategory = buildResult.FailureAnalysis?.Category ?? "build_failed";
-                execution.FailureSummary =
-                    buildResult.FailureAnalysis?.Summary ?? "Build failed before test execution.";
-            }
-            else if (buildResult.FailureAnalysis != null && buildResult.Results.Count == 0)
-            {
-                execution.TestPassed = false;
-                execution.FailureKind = MapFailureKind(buildResult.FailureAnalysis);
-                execution.RuntimeErrors = buildResult.FailureAnalysis.Evidence;
-                execution.ErrorLogs = await ReadExecutionLogAsync(buildResult.LogPath, cancellationToken)
-                                      ?? buildResult.FailureAnalysis.Evidence;
-                execution.FailureStage = buildResult.FailureAnalysis.Stage;
-                execution.FailureCategory = buildResult.FailureAnalysis.Category;
-                execution.FailureSummary = buildResult.FailureAnalysis.Summary;
-            }
-            else if (!execution.TestPassed)
-            {
-                execution.FailureKind = TestFailureKind.Runtime;
-                execution.RuntimeErrors = string.Join(
-                    "\n",
-                    buildResult.Results.Where(r => r.Outcome != "Passed").Select(r => r.ErrorMessage));
-                execution.AssertionErrors = execution.RuntimeErrors;
-                execution.ErrorLogs = execution.RuntimeErrors;
-            }
-            else
-            {
-                execution.FailureKind = TestFailureKind.None;
-            }
-
-            _context.Project.Logger?.Information(
-                $"      Compiled: {execution.CompilationSuccess}, Passed: {execution.TestPassed}, Coverage: {execution.CoverageAfter:P}");
-        }
-        catch (Exception ex)
-        {
-            execution.CompilationSuccess = false;
-            execution.TestPassed = false;
-            execution.FailureKind = TestFailureKind.Infrastructure;
-            execution.RuntimeErrors = ex.Message;
-            execution.ErrorLogs = ex.ToString();
-            execution.FailureStage = "execution";
-            execution.FailureCategory = "unexpected_execution_exception";
-            execution.FailureSummary = "An unexpected exception occurred while executing the generated test.";
-            _context.Project.Logger?.Error(ex, "      Execution failed.");
-        }
-
-        return execution;
     }
 
-    private async Task RefreshProjectMetadataAsync(string testProjectPath)
+    private GenerationEvidencePackage CreateValidationEvidence(
+        CandidateMethodContext context,
+        GenerationExperimentMatrixItem matrixItem)
     {
-        var analysisProject = _context.Project.Projects.FirstOrDefault(x =>
-            string.Equals(Path.GetFullPath(x.FilePath), Path.GetFullPath(testProjectPath),
-                StringComparison.OrdinalIgnoreCase));
-
-        if (analysisProject == null)
+        return new GenerationEvidencePackage
         {
-            _context.Project.Logger?.Warning(
-                "Skipping metadata refresh because test project was not found in loaded project metadata: {TestProjectPath}",
-                testProjectPath);
-            return;
-        }
-
-        await _analyzeProjectService.AnalyzeProjectAsync(analysisProject);
-        await _codeMetricsService.CollectCodeMetricsAsync(analysisProject);
-
-        if (_context.Project.DbId != 0) await _testSmellService.CollectAsync(testProjectPath, _context.Project.DbId);
+            Objective = GetActiveObjective(),
+            Approach = matrixItem.Approach,
+            MetricsPath = matrixItem.MetricsPath,
+            CandidateContext = context,
+            StrategyInstruction = string.Empty
+        };
     }
 
-    private async Task<double?> GetLatestBaselineMutationScoreAsync(CancellationToken cancellationToken)
+    private static TestClassification MapClassification(
+        GeneratedTestClassification classification)
     {
-        if (_context.Project.DbId == 0) return null;
+        return classification switch
+        {
+            GeneratedTestClassification.ValidatedEvidencePositive => TestClassification.ValidatedEvidencePositive,
+            GeneratedTestClassification.FailedEvidencePositive => TestClassification.FailedEvidencePositive,
+            GeneratedTestClassification.ValidatedLowImpact => TestClassification.ValidatedLowImpact,
+            _ => TestClassification.ValidationFailed
+        };
+    }
 
-        return await _dbContext.TestRuns
-            .Where(x => x.ProjectId == _context.Project.DbId)
-            .Where(x => x.RunId.StartsWith("baseline_"))
-            .Where(x => x.MutationScore != null)
-            .OrderByDescending(x => x.CreatedAt)
-            .Select(x => x.MutationScore)
-            .FirstOrDefaultAsync(cancellationToken);
+    private static string FormatRoslynDiagnostics(IReadOnlyList<RoslynDiagnosticSnapshot> diagnostics)
+    {
+        if (diagnostics.Count == 0) return string.Empty;
+
+        return string.Join(
+            Environment.NewLine,
+            diagnostics.Select(x =>
+                $"{x.Id} {x.Severity} {x.FilePath ?? string.Empty}({x.StartLine + 1},{x.StartColumn + 1}): {x.Message}"));
+    }
+
+    private static TestGenerationRequest ApplyMatrixItem(
+        TestGenerationRequest request,
+        GenerationExperimentMatrixItem matrixItem)
+    {
+        return new TestGenerationRequest
+        {
+            Objective = request.Objective,
+            Approach = matrixItem.Approach,
+            MetricsPath = matrixItem.MetricsPath,
+            ContextMode = matrixItem.ContextMode,
+            Steps = matrixItem.Steps,
+            ExperimentVariantId = matrixItem.VariantId,
+            MethodBody = request.MethodBody,
+            MethodName = request.MethodName,
+            MethodSignature = request.MethodSignature,
+            ContainingClass = request.ContainingClass,
+            SourceFilePath = request.SourceFilePath,
+            SourceProjectPath = request.SourceProjectPath,
+            SolutionFilePath = request.SolutionFilePath,
+            SourceStartLine = request.SourceStartLine,
+            SourceEndLine = request.SourceEndLine,
+            SourceStartPosition = request.SourceStartPosition,
+            SourceEndPosition = request.SourceEndPosition,
+            ExistingTestFilePath = request.ExistingTestFilePath,
+            ExistingTestStartLine = request.ExistingTestStartLine,
+            ExistingTestEndLine = request.ExistingTestEndLine,
+            ExampleTest = request.ExampleTest,
+            ExampleTestMetadataSummary = request.ExampleTestMetadataSummary,
+            ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
+            TestClass = request.TestClass,
+            TestFileContents = request.TestFileContents,
+            TestSupportContext = request.TestSupportContext,
+            TestFramework = request.TestFramework,
+            TestDependencies = request.TestDependencies,
+            CoverageGapSummary = request.CoverageGapSummary,
+            Provider = request.Provider,
+            Temperature = request.Temperature,
+            StepErrorRetries = request.StepErrorRetries,
+            StepRetryDelayMs = request.StepRetryDelayMs
+        };
+    }
+
+    private static TestRepairRequest ApplyMatrixItem(
+        TestRepairRequest request,
+        GenerationExperimentMatrixItem matrixItem)
+    {
+        return new TestRepairRequest
+        {
+            Objective = request.Objective,
+            Approach = matrixItem.Approach,
+            MetricsPath = matrixItem.MetricsPath,
+            ContextMode = matrixItem.ContextMode,
+            Steps = matrixItem.Steps,
+            ExperimentVariantId = matrixItem.VariantId,
+            MethodBody = request.MethodBody,
+            MethodName = request.MethodName,
+            GeneratedTest = request.GeneratedTest,
+            TestClass = request.TestClass,
+            TestFramework = request.TestFramework,
+            TestDependencies = request.TestDependencies,
+            TestFileContents = request.TestFileContents,
+            TestSupportContext = request.TestSupportContext,
+            ExampleTestMetadataSummary = request.ExampleTestMetadataSummary,
+            ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
+            CoverageGapSummary = request.CoverageGapSummary,
+            ErrorLogs = request.ErrorLogs,
+            StructuredErrors = request.StructuredErrors,
+            PriorConversationTranscript = request.PriorConversationTranscript,
+            Provider = request.Provider,
+            Temperature = request.Temperature,
+            AttemptNumber = request.AttemptNumber,
+            StepErrorRetries = request.StepErrorRetries,
+            StepRetryDelayMs = request.StepRetryDelayMs
+        };
     }
 
     private List<AiProvider> GetProvidersToTest(ExperimentConfig config)
@@ -706,37 +956,110 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return provider;
     }
 
-    private async Task SaveGenerationAttemptAsync(GenerationAttempt attempt, CancellationToken cancellationToken)
+    private string ResolveModelName(AiProvider provider)
+    {
+        return _config.AiProviderConfig.GetProviderConfig(provider)?.Model ?? string.Empty;
+    }
+
+    private async Task<int> SaveGenerationAttemptAsync(
+        int experimentRunId,
+        int candidateMethodId,
+        GenerationAttempt attempt,
+        CancellationToken cancellationToken)
     {
         try
         {
             attempt.Id = await _attemptRepo.InsertAsync(attempt, cancellationToken);
+            await RecordSnapshotDecisionsAsync(
+                RuleDecisionScope.GenerationAttempt(attempt.Id),
+                attempt.RuleDecisionJson,
+                experimentRunId,
+                candidateMethodId,
+                generationAttemptId: attempt.Id,
+                testExecutionId: null,
+                cancellationToken);
 
             foreach (var step in attempt.GenerationSteps)
             {
                 step.GenerationAttemptId = attempt.Id;
-                await _stepRepo.InsertAsync(step, cancellationToken);
+                step.Id = await _stepRepo.InsertAsync(step, cancellationToken);
+                await RecordSnapshotDecisionsAsync(
+                    RuleDecisionScope.GenerationStep(step.Id),
+                    step.RuleDecisionJson,
+                    experimentRunId,
+                    candidateMethodId,
+                    generationAttemptId: attempt.Id,
+                    testExecutionId: null,
+                    cancellationToken);
             }
 
             if (attempt.TestExecution != null)
             {
                 attempt.TestExecution.GenerationAttemptId = attempt.Id;
-                await _executionRepo.InsertAsync(attempt.TestExecution, cancellationToken);
+                attempt.TestExecution.Id = await _executionRepo.InsertAsync(attempt.TestExecution, cancellationToken);
+                var executionDecisions = ParseRuleDecisions(attempt.TestExecution.ValidationRuleDecisionJson)
+                    .Concat(ParseRuleDecisions(attempt.TestExecution.ClassificationRuleDecisionJson))
+                    .ToList();
+                await _ruleDecisionRecorder.RecordAsync(
+                    _context.Project.DbId,
+                    RuleDecisionScope.TestExecution(attempt.TestExecution.Id),
+                    executionDecisions,
+                    experimentRunId,
+                    candidateMethodId,
+                    attempt.Id,
+                    attempt.TestExecution.Id,
+                    cancellationToken);
             }
+
+            return attempt.Id;
         }
         catch (DbUpdateException ex)
         {
             var detail = BuildPersistenceErrorDetails(ex);
             _context.Project.Logger?.Error(
-                "Failed to persist generation attempt {CandidateMethodId}/{Provider}/{Strategy}/{AttemptNumber}: {Details}",
+                "Failed to persist generation attempt {CandidateMethodId}/{Provider}/{BudgetMode}/{AttemptNumber}: {Details}",
                 attempt.CandidateMethodId,
                 attempt.Provider,
-                attempt.Strategy,
+                attempt.BudgetMode,
                 attempt.AttemptNumber,
                 detail);
             throw new InvalidOperationException(
-                $"Failed to persist generation attempt {attempt.CandidateMethodId}/{attempt.Provider}/{attempt.Strategy}/{attempt.AttemptNumber}: {detail}",
+                $"Failed to persist generation attempt {attempt.CandidateMethodId}/{attempt.Provider}/{attempt.BudgetMode}/{attempt.AttemptNumber}: {detail}",
                 ex);
+        }
+    }
+
+    private async Task RecordSnapshotDecisionsAsync(
+        RuleDecisionScope scope,
+        string decisionJson,
+        int experimentRunId,
+        int candidateMethodId,
+        int? generationAttemptId,
+        int? testExecutionId,
+        CancellationToken cancellationToken)
+    {
+        await _ruleDecisionRecorder.RecordAsync(
+            _context.Project.DbId,
+            scope,
+            ParseRuleDecisions(decisionJson),
+            experimentRunId,
+            candidateMethodId,
+            generationAttemptId,
+            testExecutionId,
+            cancellationToken);
+    }
+
+    private static IReadOnlyList<TestMap.Models.Rules.RuleDecisionRecord> ParseRuleDecisions(string? decisionJson)
+    {
+        if (string.IsNullOrWhiteSpace(decisionJson)) return [];
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<TestMap.Models.Rules.RuleDecisionRecord>>(decisionJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
         }
     }
 
@@ -758,27 +1081,55 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             cancellationToken);
     }
 
-    private GenerationAttempt CreateAttempt(int candidateMethodId, AiProvider provider, GenerationStrategy strategy,
-        int attemptNumber)
+    private GenerationAttempt CreateAttempt(
+        int candidateMethodId,
+        AiProvider provider,
+        TestMap.Models.Configuration.Testing.Generation.GenerationBudgetMode budgetMode,
+        int attemptNumber, GenerationExperimentMatrixItem? matrixItem = null)
     {
         return new GenerationAttempt
         {
             CandidateMethodId = candidateMethodId,
             Provider = provider,
-            Strategy = strategy,
+            ModelName = matrixItem?.ModelName ?? ResolveModelName(provider),
+            Objective = _activeExperimentConfig?.Objective
+                        ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion,
+            GenerationApproach = matrixItem?.Approach
+                                 ?? _activeGenerationApproach?.Strategy
+                                 ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach.MetricsDriven,
+            MetricsPath = matrixItem?.MetricsPath,
+            ContextMode = matrixItem?.ContextMode
+                          ?? _config.TestingConfig.GenerationConfig.ContextMode,
+            BudgetMode = matrixItem?.BudgetMode ?? budgetMode,
+            AblationVariantId = matrixItem?.Steps.VariantId ?? "baseline",
+            StepConfigJson = matrixItem?.Steps == null
+                ? string.Empty
+                : JsonSerializer.Serialize(matrixItem.Steps),
+            EffectiveProfileJson = matrixItem?.EffectiveProfile?.ToStableJson() ?? string.Empty,
+            EffectiveProfileHash = matrixItem?.EffectiveProfile?.ToStableHash() ?? string.Empty,
+            Temperature = matrixItem?.Temperature ?? _activeExperimentConfig?.Temperature ?? 0.0,
             AttemptNumber = attemptNumber,
             StartedAt = DateTime.UtcNow
         };
     }
 
-    private GenerationAttempt CreateFailedAttempt(int candidateMethodId, AiProvider provider,
-        GenerationStrategy strategy, int attemptNumber, string errorMessage)
+    private GenerationAttempt CreateFailedAttempt(
+        int candidateMethodId,
+        AiProvider provider,
+        TestMap.Models.Configuration.Testing.Generation.GenerationBudgetMode budgetMode,
+        int attemptNumber,
+        string errorMessage)
     {
         return new GenerationAttempt
         {
             CandidateMethodId = candidateMethodId,
             Provider = provider,
-            Strategy = strategy,
+            Objective = _activeExperimentConfig?.Objective
+                        ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion,
+            GenerationApproach = _activeGenerationApproach?.Strategy
+                                 ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach.MetricsDriven,
+            BudgetMode = budgetMode,
+            AblationVariantId = "baseline",
             AttemptNumber = attemptNumber,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow,
@@ -792,6 +1143,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return new ExperimentTestExecution
         {
             CompilationSuccess = false,
+            TestsExecuted = false,
             TestPassed = false,
             FailureKind = failureKind,
             ErrorLogs = errorMessage,
@@ -819,30 +1171,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             StartedAt = s.StartedAt,
             CompletedAt = s.CompletedAt,
             Success = s.Success,
-            ErrorMessage = s.ErrorMessage
+            ErrorMessage = s.ErrorMessage,
+            Status = s.Status,
+            SkipReason = s.SkipReason
         }).ToList();
-    }
-
-    private static TestFailureKind MapFailureKind(FailureAnalysisModel failureAnalysis)
-    {
-        return failureAnalysis.Stage switch
-        {
-            "restore" or "build" => TestFailureKind.Compilation,
-            "test" or "coverage" => TestFailureKind.Runtime,
-            "infrastructure" => TestFailureKind.Infrastructure,
-            _ => TestFailureKind.Unknown
-        };
-    }
-
-    private static bool DidCompilationSucceed(TestRunModel buildResult)
-    {
-        if (buildResult.Results.Count == 0 && buildResult.Coverage == 0) return false;
-
-        return buildResult.FailureAnalysis?.Stage switch
-        {
-            "restore" or "build" or "infrastructure" or "unknown" => false,
-            _ => true
-        };
     }
 
     private static string BuildPersistenceErrorDetails(DbUpdateException exception)
@@ -860,13 +1192,6 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return string.Join(" | ", messages.Distinct());
     }
 
-    private static async Task<string?> ReadExecutionLogAsync(string? logPath, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(logPath) || !File.Exists(logPath)) return null;
-
-        return await File.ReadAllTextAsync(logPath, cancellationToken);
-    }
-
     private ITestGenerationApproach ResolveGenerationApproach(
         TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach strategy)
     {
@@ -882,18 +1207,18 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                    "No active generation approach has been configured for the experiment run.");
     }
 
-    private ITestActionExecutor ResolveActionExecutor(
-        TestMap.Models.Configuration.Testing.Generation.TestActionExecutorMode mode)
+    private TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective GetActiveObjective()
     {
-        if (_actionExecutors.TryGetValue(mode, out var executor)) return executor;
-
-        throw new InvalidOperationException($"No test action executor is registered for '{mode}'.");
+        return _activeExperimentConfig?.Objective
+               ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion;
     }
 
-    private ITestActionExecutor GetActiveActionExecutor()
-    {
-        return _activeActionExecutor
-               ?? throw new InvalidOperationException(
-                   "No active test action executor has been configured for the experiment run.");
-    }
+    private sealed record MemberCodeMetricColumns(
+        int MaintainabilityIndex,
+        int CyclomaticComplexity,
+        int ClassCoupling,
+        int DepthOfInheritance,
+        int SourceLinesOfCode,
+        int ExecutableLinesOfCode);
+
 }

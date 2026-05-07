@@ -1,4 +1,5 @@
 using TestMap.App;
+using TestMap.Rules.TestExecution;
 
 namespace TestMap.Services.TestExecution;
 
@@ -13,7 +14,8 @@ public class ProjectArtifactCleanupService
 
     public void CleanupProjectDirectory(bool preserveArtifacts)
     {
-        if (preserveArtifacts)
+        var decision = TestExecutionDecisionEngine.DecideArtifactCleanup(preserveArtifacts);
+        if (decision.RuleId == TestExecutionRuleDefinitions.CleanupPreserveArtifacts.Id)
         {
             _context.Project.Logger?.Information(
                 "Preserving coverage and mutation directories for failed run diagnostics.");

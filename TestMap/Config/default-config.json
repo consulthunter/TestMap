@@ -39,17 +39,42 @@
   },
   "TestingConfig": {
     "GenerationConfig": {
+      "Objective": "test-suite-expansion",
       "Provider": "openai",
       "Mode": "chat",
-      "MaxRetries": 1,
-      "EnableHistoryChaining": true
+      "MetricsPath": "coverage-and-mutation",
+      "BudgetMode": "pass-at1-repair-at5",
+      "Temperature": 0,
+      "StepErrorRetries": 0,
+      "StepRetryDelayMs": 1000,
+      "ContextMode": "chained-history",
+      "Steps": {
+        "EnableEvidencePackage": true,
+        "EnableContextGraph": true,
+        "EnableContextResolution": true,
+        "EnableRoslynValidation": true,
+        "EnableScenario": true,
+        "EnableMethodName": true,
+        "EnableArrangePlan": true,
+        "EnableInputPlan": true,
+        "EnableActionPlan": true,
+        "EnableAssertionPlan": true,
+        "EnableFinalTest": true
+      },
+      "Acceptance": {
+        "RequireCompilationSuccess": true,
+        "RequireTestsToRun": true,
+        "RequireAllTestsPass": true,
+        "RequireCoverageImprovement": true,
+        "MinCoverageImprovement": 0
+      }
     },
     "MetadataEnrichmentConfig": {
       "Enabled": true,
-      "UseModel": false,
-      "Provider": "openai",
+      "UseModel": true,
+      "Provider": "custom-openai",
       "Mode": "chat",
-      "Temperature": 0,
+      "Temperature": 0.8,
       "MaxCategories": 3,
       "PromptVersion": "test-metadata-v1"
     },
@@ -113,7 +138,7 @@
       "Model": "gpt-oss-120b",
       "OrgId": "",
       "ApiKey": "",
-      "Endpoint": "http://localhost:8080/",
+      "Endpoint": "https://llm-api.arc.vt.edu/api/",
       "Provider": "custom-openai"
     },
     "Ollama": {
@@ -156,21 +181,55 @@
     ]
   },
   "ExperimentConfig": {
+    "Objective": "test-suite-expansion",
+    "CandidateSelectionStrategy": "metric-driven-improvement",
+    "GenerationApproach": "metrics-driven",
+    "Executor": "basic-extension",
+    "Approaches": [
+      "metrics-driven"
+    ],
+    "MetricsPaths": [
+      "coverage-and-mutation"
+    ],
+    "BudgetModes": [
+      "pass-at1",
+      "pass-at5",
+      "pass-at1-repair-at5"
+    ],
+    "CompareHistoryModes": false,
+    "ContextModes": [
+      "chained-history"
+    ],
+    "StepAblation": {
+      "Enabled": false,
+      "Steps": [
+        "evidence-package",
+        "context-graph",
+        "context-resolution",
+        "roslyn-validation",
+        "scenario",
+        "method-name",
+        "arrange-plan",
+        "input-plan",
+        "action-plan",
+        "assertion-plan",
+        "final-test"
+      ],
+      "IncludeBaseline": true,
+      "IncludeAllDisabled": false,
+      "MaxVariants": 32
+    },
+    "Temperature": 0,
     "IncludeProviders": [
       "CustomOpenAi"
     ],
     "PreferredProvider": "CustomOpenAi",
     "CandidateLimit": 3,
-    "Strategies": [
-      "Pass1",
-      "Pass5",
-      "Repair5"
-    ],
     "MinCoverageThreshold": 0.0,
     "MaxCoverageThreshold": 0.99,
     "StepErrorRetries": 3,
     "StepRetryDelayMs": 2000,
-    "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output\\experiment-results.csv",
+    "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output",
     "IncludeDetailedErrors": true
   }
 }

@@ -22,7 +22,6 @@ public sealed class TestGenerationApproachContext
     public double Temperature { get; init; }
     public int StepErrorRetries { get; init; }
     public int StepRetryDelayMs { get; init; } = 1000;
-    public bool EnableHistoryChaining { get; init; }
 }
 
 public sealed class TestRepairApproachContext
@@ -37,5 +36,4 @@ public sealed class TestRepairApproachContext
     public int AttemptNumber { get; init; }
     public int StepErrorRetries { get; init; }
     public int StepRetryDelayMs { get; init; } = 1000;
-    public bool EnableHistoryChaining { get; init; }
 }

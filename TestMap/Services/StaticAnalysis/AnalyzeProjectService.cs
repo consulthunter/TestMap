@@ -4,6 +4,8 @@ using Microsoft.CodeAnalysis.MSBuild;
 using TestMap.App;
 using TestMap.Models.Code;
 using TestMap.Persistence.Ef.Repositories.Code;
+using TestMap.Persistence.Ef.Repositories.Rules;
+using TestMap.Rules;
 
 namespace TestMap.Services.StaticAnalysis;
 
@@ -21,6 +23,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private readonly ObjectRelationshipRepository _objectRelationshipRepository;
     private readonly MemberRelationshipRepository _memberRelationshipRepository;
     private readonly InvocationRepository _invocationRepository;
+    private readonly RuleAuditRepository _ruleAuditRepository;
     private readonly IStaticAnalysisWorkspace _staticAnalysisWorkspace;
 
     public AnalyzeProjectService(
@@ -33,6 +36,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         ObjectRelationshipRepository objectRelationshipRepository,
         MemberRelationshipRepository memberRelationshipRepository,
         InvocationRepository invocationRepository,
+        RuleAuditRepository ruleAuditRepository,
         IStaticAnalysisWorkspace staticAnalysisWorkspace)
     {
         _context = context;
@@ -44,6 +48,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         _objectRelationshipRepository = objectRelationshipRepository;
         _memberRelationshipRepository = memberRelationshipRepository;
         _invocationRepository = invocationRepository;
+        _ruleAuditRepository = ruleAuditRepository;
         _staticAnalysisWorkspace = staticAnalysisWorkspace;
     }
 
@@ -51,7 +56,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     {
         await EnsureProjectPersistedAsync(analysisProject);
 
-        var project = await _staticAnalysisWorkspace.OpenProjectAsync(analysisProject.FilePath);
+        var project = await _staticAnalysisWorkspace.RefreshProjectAsync(analysisProject.FilePath);
         project = RemoveSourceGenerators(project);
 
         var compilation = await project.GetCompilationAsync();
@@ -62,15 +67,22 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             return;
         }
 
+        analysisProject.DocumentFilePaths = project.Documents
+            .Select(x => x.FilePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         var projectDocumentPaths = new HashSet<string>(
-            analysisProject.DocumentFilePaths.Where(path => !string.IsNullOrWhiteSpace(path)),
+            analysisProject.DocumentFilePaths,
             StringComparer.OrdinalIgnoreCase);
 
         var state = new AnalysisState(projectDocumentPaths);
 
         foreach (var document in project.Documents)
         {
-            if (!ShouldAnalyzeDocument(document.FilePath)) continue;
+            if (!CSharpAnalysisRules.ShouldAnalyzeDocument(document.FilePath)) continue;
 
             await AnalyzeDocumentAsync(document, compilation, analysisProject, state);
         }
@@ -102,6 +114,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         solutionModel.Id = analysisProject.SolutionId;
 
         analysisProject.Id = await _cSharpProjectRepository.InsertOrUpdateAsync(analysisProject);
+        await _ruleAuditRepository.UpsertRuleDefinitionsAsync(RuleDefinitionRegistry.All);
+        await _ruleAuditRepository.ReplaceProjectDecisionsAsync(
+            _context.Project.DbId,
+            analysisProject.Id,
+            analysisProject.BuildMetadata.RuleDecisions);
     }
 
     private async Task AnalyzeDocumentAsync(
@@ -210,7 +227,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             fileId: fileId,
             @namespace: symbol.ContainingNamespace?.ToDisplayString() ?? string.Empty,
             name: symbol.Name,
-            kind: GetObjectKind(symbol),
+            kind: CSharpAnalysisRules.GetObjectKind(symbol),
             docString: symbol.GetDocumentationCommentXml() ?? string.Empty,
             fullString: declaration.ToFullString().Trim(),
             isTestObject: members.Any(IsTestMember),
@@ -261,7 +278,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     GetSymbolKey(memberSymbol),
                     memberSymbol,
                     CreateMemberModel(declaration, memberSymbol, objectId, memberSymbol.Name,
-                        GetMemberKind(memberSymbol)));
+                        CSharpAnalysisRules.GetMemberKind(memberSymbol)));
                 yield break;
             }
         }
@@ -347,7 +364,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             if (node is InvocationExpressionSyntax assertionInvocation &&
                 isTestMember &&
                 (symbol == null || !state.IsProjectSymbol(symbol)) &&
-                IsAssertionInvocation(assertionInvocation, symbol))
+                CSharpAnalysisRules.IsAssertionInvocation(assertionInvocation, symbol))
             {
                 state.Invocations.Add(new PendingInvocation(
                     memberKey,
@@ -360,7 +377,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
             if (symbol == null || !state.IsProjectSymbol(symbol)) continue;
 
-            var relationshipType = GetMemberRelationshipType(node, symbol);
+            var relationshipType = CSharpAnalysisRules.GetMemberRelationshipType(node, symbol);
             if (relationshipType != null)
             {
                 var targetMemberKey = GetSymbolKey(symbol);
@@ -372,7 +389,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                         targetMemberKey,
                         node.ToFullString().Trim(),
                         CreateLocation(node),
-                        isTestMember && IsAssertionInvocation(invocationExpression, symbol)));
+                        isTestMember && CSharpAnalysisRules.IsAssertionInvocation(invocationExpression, symbol)));
             }
 
             if (symbol.ContainingType != null && state.IsProjectSymbol(symbol.ContainingType))
@@ -516,120 +533,6 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         };
     }
 
-    private static string? GetMemberRelationshipType(SyntaxNode node, ISymbol symbol)
-    {
-        return node switch
-        {
-            InvocationExpressionSyntax when symbol is IMethodSymbol => "calls",
-            ObjectCreationExpressionSyntax when symbol is IMethodSymbol => "creates",
-            IdentifierNameSyntax when symbol is IFieldSymbol or IPropertySymbol or IEventSymbol => "references",
-            MemberAccessExpressionSyntax when symbol is IFieldSymbol or IPropertySymbol or IEventSymbol => "references",
-            _ => null
-        };
-    }
-
-    private static bool IsAssertionInvocation(InvocationExpressionSyntax invocation, ISymbol? symbol)
-    {
-        var methodSymbol = symbol as IMethodSymbol;
-        var containingTypeName = methodSymbol?.ContainingType?.Name ?? string.Empty;
-        var containingNamespace = methodSymbol?.ContainingNamespace?.ToDisplayString() ?? string.Empty;
-        var methodName = methodSymbol?.Name ?? ExtractInvocationMethodName(invocation);
-
-        if (containingTypeName.Contains("Assert", StringComparison.OrdinalIgnoreCase) ||
-            containingTypeName.Contains("Assertion", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (containingNamespace.Contains("FluentAssertions", StringComparison.OrdinalIgnoreCase) ||
-            containingNamespace.Contains("Shouldly", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return methodName switch
-        {
-            "True" or
-                "False" or
-                "Equal" or
-                "NotEqual" or
-                "Same" or
-                "NotSame" or
-                "Null" or
-                "NotNull" or
-                "Empty" or
-                "NotEmpty" or
-                "Contains" or
-                "DoesNotContain" or
-                "StartsWith" or
-                "EndsWith" or
-                "Matches" or
-                "Throws" or
-                "ThrowsAsync" or
-                "Throw" or
-                "ThrowAsync" or
-                "Fail" or
-                "That" or
-                "ShouldBe" or
-                "ShouldNotBe" or
-                "ShouldContain" or
-                "ShouldNotContain" or
-                "Be" or
-                "BeTrue" or
-                "BeFalse" or
-                "BeNull" or
-                "NotBeNull" or
-                "BeEquivalentTo" or
-                "ContainSingle" => true,
-            _ => invocation.ToFullString().Contains("Assert.", StringComparison.Ordinal)
-        };
-    }
-
-    private static string ExtractInvocationMethodName(InvocationExpressionSyntax invocation)
-    {
-        return invocation.Expression switch
-        {
-            IdentifierNameSyntax identifierName => identifierName.Identifier.Text,
-            MemberAccessExpressionSyntax memberAccessExpression => memberAccessExpression.Name.Identifier.Text,
-            _ => string.Empty
-        };
-    }
-
-    private static string GetObjectKind(INamedTypeSymbol symbol)
-    {
-        if (symbol.IsRecord) return symbol.TypeKind == TypeKind.Struct ? "record_struct" : "record";
-
-        return symbol.TypeKind switch
-        {
-            TypeKind.Class => "class",
-            TypeKind.Struct => "struct",
-            TypeKind.Interface => "interface",
-            TypeKind.Enum => "enum",
-            TypeKind.Delegate => "delegate",
-            _ => symbol.TypeKind.ToString().ToLowerInvariant()
-        };
-    }
-
-    private static string GetMemberKind(ISymbol symbol)
-    {
-        return symbol switch
-        {
-            IMethodSymbol methodSymbol => methodSymbol.MethodKind switch
-            {
-                MethodKind.Constructor => "constructor",
-                MethodKind.StaticConstructor => "static_constructor",
-                MethodKind.Destructor => "destructor",
-                MethodKind.PropertyGet => "property_getter",
-                MethodKind.PropertySet => "property_setter",
-                MethodKind.EventAdd => "event_adder",
-                MethodKind.EventRemove => "event_remover",
-                MethodKind.UserDefinedOperator => "operator",
-                MethodKind.Conversion => "conversion_operator",
-                _ => "method"
-            },
-            IPropertySymbol => "property",
-            IFieldSymbol => "field",
-            IEventSymbol => "event",
-            _ => symbol.Kind.ToString().ToLowerInvariant()
-        };
-    }
-
     private static SyntaxTokenList GetModifiers(MemberDeclarationSyntax declaration)
     {
         return declaration switch
@@ -667,16 +570,6 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     {
         return symbol.GetDocumentationCommentId()
                ?? $"{symbol.Kind}:{symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}";
-    }
-
-    private static bool ShouldAnalyzeDocument(string? filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath) ||
-            !filePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) return false;
-
-        return !filePath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)
-               && !filePath.EndsWith("AssemblyInfo.cs", StringComparison.OrdinalIgnoreCase)
-               && !filePath.EndsWith("AssemblyAttributes.cs", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class AnalysisState

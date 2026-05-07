@@ -23,6 +23,11 @@ public class TestExecutionEntity
     public double? MutationScoreDelta { get; set; }
     public int NewLinesCovered { get; set; }
     [MaxLength(50)] public string TestClassification { get; set; } = string.Empty;
+    public string ValidationResultJson { get; set; } = string.Empty;
+    public bool? Accepted { get; set; }
+    public string AcceptanceReason { get; set; } = string.Empty;
+    public string ValidationRuleDecisionJson { get; set; } = string.Empty;
+    public string ClassificationRuleDecisionJson { get; set; } = string.Empty;
     public DateTime ExecutionTime { get; set; }
     public string StructuredErrors { get; set; } = string.Empty;
 

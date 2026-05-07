@@ -161,6 +161,24 @@ public class MethodSelectionService : IMethodSelectionService
             TestNamespace = ResolveTestNamespace(testContext, sourceObject.Namespace, project),
             TestClassName = ResolveTestClassName(testContext, sourceObject.Name),
             TestFilePath = ResolveTestFilePath(testContext, sourceFile.FilePath, sourceObject.Name, project),
+            SourceFilePath = sourceFile.FilePath,
+            SourceLocation = new CandidateSourceLocation
+            {
+                SourceFilePath = sourceFile.FilePath,
+                StartLine = member.Location.StartLineNumber,
+                EndLine = member.Location.EndLineNumber,
+                StartPosition = member.Location.BodyStartPosition,
+                EndPosition = member.Location.BodyEndPosition
+            },
+            TestLocation = testContext?.ExampleTestMemberLocation == null
+                ? null
+                : new CandidateTestLocation
+                {
+                    TestFilePath = testContext.TestFile.FilePath,
+                    TestProjectPath = testContext.Project.FilePath,
+                    StartLine = testContext.ExampleTestMemberLocation.StartLineNumber,
+                    EndLine = testContext.ExampleTestMemberLocation.EndLineNumber
+                },
             SourceProjectPath = project.FilePath,
             TestProjectPath = ResolveTestProjectPath(testContext, project),
             TargetBuildFramework = ResolveTargetBuildFramework(testContext?.Project, project),
@@ -458,6 +476,7 @@ public class MethodSelectionService : IMethodSelectionService
             ExampleTestMemberId = selectedExample?.Id,
             ExampleTestMethodName = selectedExample?.Name,
             ExampleTest = selectedExample?.FullString,
+            ExampleTestMemberLocation = selectedExample?.Location,
             ExampleTestMetadataSummary = BuildExampleTestMetadataSummary(selectedExample),
             ExampleTestMetadataConfidence = selectedExample?.TestMetadataConfidence,
             ProjectTestMetadataSummary = BuildProjectTestMetadataSummary(exampleCandidates),
@@ -763,6 +782,7 @@ using System;"
         public int? ExampleTestMemberId { get; init; }
         public string? ExampleTestMethodName { get; init; }
         public string? ExampleTest { get; init; }
+        public Models.Code.Location? ExampleTestMemberLocation { get; init; }
         public string? ExampleTestMetadataSummary { get; init; }
         public double? ExampleTestMetadataConfidence { get; init; }
         public string? ProjectTestMetadataSummary { get; init; }

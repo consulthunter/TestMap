@@ -8,7 +8,10 @@ public class ExperimentRunEntity
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public int ProjectId { get; set; }
+    [MaxLength(100)] public string Objective { get; set; } = string.Empty;
+    [MaxLength(100)] public string CandidateSelectionStrategy { get; set; } = string.Empty;
     [MaxLength(4000)] public string Configuration { get; set; } = string.Empty;
+    public string ResultsFilePath { get; set; } = string.Empty;
     public int CandidateLimit { get; set; }
     [MaxLength(50)] public string Status { get; set; } = string.Empty;
 

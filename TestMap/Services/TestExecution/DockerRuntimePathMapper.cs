@@ -1,3 +1,5 @@
+using TestMap.Rules.TestExecution;
+
 namespace TestMap.Services.TestExecution;
 
 public class DockerRuntimePathMapper
@@ -10,23 +12,16 @@ public class DockerRuntimePathMapper
 
     public string GetContainerPath(string hostPath, string projectDirectory, string dockerContext)
     {
-        var projectRoot = Path.GetFullPath(projectDirectory);
-        var fullPath = Path.GetFullPath(hostPath);
-
-        if (!fullPath.StartsWith(projectRoot, StringComparison.OrdinalIgnoreCase))
+        var decision = TestExecutionDecisionEngine.DecideContainerPath(hostPath, projectDirectory, dockerContext);
+        if (decision.RuleId == TestExecutionRuleDefinitions.ContainerPathOutsideProject.Id)
             throw new InvalidOperationException($"Path '{hostPath}' is outside the mounted project directory.");
 
-        var relativePath = Path.GetRelativePath(projectRoot, fullPath);
-        return IsWindowsContext(dockerContext)
-            ? $@"{WindowsProjectRoot}\{relativePath.Replace('/', '\\')}"
-            : $"{LinuxProjectRoot}/{relativePath.Replace('\\', '/')}";
+        return decision.Value;
     }
 
     public string GetMountArgument(string projectDirectory, string dockerContext)
     {
-        return IsWindowsContext(dockerContext)
-            ? $"-v \"{projectDirectory}:{WindowsProjectRoot}\""
-            : $"-v \"{projectDirectory}:{LinuxProjectRoot}\"";
+        return TestExecutionDecisionEngine.DecideMountArgument(projectDirectory, dockerContext).Value;
     }
 
     public bool IsWindowsContext(string dockerContext)
@@ -36,6 +31,6 @@ public class DockerRuntimePathMapper
 
     public string ResolveExpectedOs(string dockerContext)
     {
-        return IsWindowsContext(dockerContext) ? "windows" : "linux";
+        return TestExecutionDecisionEngine.DecideExpectedOs(dockerContext).Value;
     }
 }

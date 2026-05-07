@@ -10,13 +10,19 @@ public class TestExecution
     public string? GeneratedTestCode { get; set; }
     public string? GeneratedTestMethodName { get; set; }
     public bool CompilationSuccess { get; set; }
+    public bool TestsExecuted { get; set; }
     public bool TestPassed { get; set; }
     public double CoverageAfter { get; set; }
     public double CoverageImprovement { get; set; }
     public double? BaselineMutationScore { get; set; }
     public double? MutationScoreAfter { get; set; }
     public double? MutationScoreImprovement { get; set; }
-    public TestClassification Classification { get; set; } = TestClassification.Failed;
+    public TestClassification Classification { get; set; } = TestClassification.ValidationFailed;
+    public string ValidationResultJson { get; set; } = string.Empty;
+    public bool? Accepted { get; set; }
+    public string? AcceptanceReason { get; set; }
+    public string ValidationRuleDecisionJson { get; set; } = string.Empty;
+    public string ClassificationRuleDecisionJson { get; set; } = string.Empty;
     public TestFailureKind FailureKind { get; set; } = TestFailureKind.None;
     public string? CompilationErrors { get; set; }
     public string? RuntimeErrors { get; set; }
@@ -26,6 +32,12 @@ public class TestExecution
     public string? FailureSummary { get; set; }
     public string? StructuredErrors { get; set; }
     public string? ErrorLogs { get; set; }
+    public bool RoslynValidationSucceeded { get; set; } = true;
+    public bool RoslynValidationSkipped { get; set; }
+    public int RoslynDiagnosticsBeforeCount { get; set; }
+    public int RoslynDiagnosticsAfterCount { get; set; }
+    public int NewRoslynDiagnosticsCount { get; set; }
+    public string? NewRoslynDiagnostics { get; set; }
     public long? ExecutionTimeMs { get; set; }
     public DateTime ExecutedAt { get; set; }
 

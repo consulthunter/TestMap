@@ -14,16 +14,13 @@ namespace TestMap.Execution.Steps;
 public class RunExperimentStep : IPipelineStep
 {
     private readonly IExperimentOrchestrationService _orchestrationService;
-    private readonly IExperimentAnalysisService _analysisService;
     private readonly IConfigurationService _configurationService;
 
     public RunExperimentStep(
         IExperimentOrchestrationService orchestrationService,
-        IExperimentAnalysisService analysisService,
         IConfigurationService configurationService)
     {
         _orchestrationService = orchestrationService;
-        _analysisService = analysisService;
         _configurationService = configurationService;
     }
 
@@ -33,24 +30,15 @@ public class RunExperimentStep : IPipelineStep
 
         ValidateExperimentConfiguration(experimentConfig);
 
-        var experimentRun = await _orchestrationService.RunExperimentAsync(experimentConfig);
-
-        if (!string.IsNullOrWhiteSpace(experimentConfig.OutputPath))
-        {
-            var outputDir = Path.GetDirectoryName(experimentConfig.OutputPath);
-            if (!string.IsNullOrWhiteSpace(outputDir)) Directory.CreateDirectory(outputDir);
-
-            await _analysisService.ExportToCsvAsync(experimentRun.Id, experimentConfig.OutputPath);
-        }
+        await _orchestrationService.RunExperimentAsync(experimentConfig);
     }
 
     private void ValidateExperimentConfiguration(ExperimentConfig experimentConfig)
     {
+        ExperimentConfigurationValidator.ValidateMatrixSettings(experimentConfig);
+
         if (experimentConfig.CandidateLimit <= 0)
             throw new InvalidOperationException("ExperimentConfig.CandidateLimit must be greater than 0.");
-
-        if (experimentConfig.Strategies == null || experimentConfig.Strategies.Count == 0)
-            throw new InvalidOperationException("ExperimentConfig.Strategies must contain at least one strategy.");
 
         var usableProviders = _configurationService.Config.AiProviderConfig.ProviderConfigs
             .Where(AiProviderConfigurationRules.IsUsable)
@@ -97,7 +85,8 @@ public class RunExperimentStep : IPipelineStep
 
         if (!string.IsNullOrWhiteSpace(experimentConfig.OutputPath))
         {
-            var outputDir = Path.GetDirectoryName(experimentConfig.OutputPath);
+            var resultsFilePath = ExperimentResultsWriter.ResolveResultsFilePath(experimentConfig);
+            var outputDir = Path.GetDirectoryName(resultsFilePath);
             if (!string.IsNullOrWhiteSpace(outputDir)) Directory.CreateDirectory(outputDir);
         }
     }

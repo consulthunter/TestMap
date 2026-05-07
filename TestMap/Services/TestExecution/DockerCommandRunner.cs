@@ -120,7 +120,7 @@ public sealed class DockerCommandRunner
             UseShellExecute = true
         });
 
-        await WaitForDockerResponsiveAsync(TimeSpan.FromMinutes(2));
+        await WaitForDockerResponsiveAsync(TimeSpan.FromSeconds(5));
     }
 
     private async Task SwitchDockerDesktopEngineAsync(string expectedOs)

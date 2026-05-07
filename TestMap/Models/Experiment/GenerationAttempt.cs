@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Testing.Generation;
 
 namespace TestMap.Models.Experiment;
 
@@ -12,8 +13,21 @@ public class GenerationAttempt
     public int CandidateMethodId { get; set; }
     public AiProvider Provider { get; set; }
     public string? ModelName { get; set; }
-    public GenerationStrategy Strategy { get; set; }
+    public TestGenerationObjective Objective { get; set; } = TestGenerationObjective.TestSuiteExpansion;
+    public TestGenerationApproach GenerationApproach { get; set; } = TestGenerationApproach.MetricsDriven;
+    public MetricsDrivenPath? MetricsPath { get; set; }
+    public GenerationContextMode ContextMode { get; set; } = GenerationContextMode.ChainedHistory;
+    public GenerationBudgetMode BudgetMode { get; set; } = GenerationBudgetMode.PassAt1;
+    public string AblationVariantId { get; set; } = string.Empty;
+    public string StepConfigJson { get; set; } = string.Empty;
+    public string EffectiveProfileJson { get; set; } = string.Empty;
+    public string EffectiveProfileHash { get; set; } = string.Empty;
+    public double Temperature { get; set; }
     public int AttemptNumber { get; set; }
+    public bool IsRepairAttempt { get; set; }
+    public int? ParentAttemptId { get; set; }
+    public int? ParentAttemptNumber { get; set; }
+    public string RuleDecisionJson { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int TotalTokensUsed { get; set; }

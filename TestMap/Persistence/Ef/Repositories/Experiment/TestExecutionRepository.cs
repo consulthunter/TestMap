@@ -17,6 +17,7 @@ public class TestExecutionRepository
     public async Task<TestExecution?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _context.TestExecutions
+            .AsNoTracking()
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
         return entity?.ToDomain();
     }
@@ -24,6 +25,7 @@ public class TestExecutionRepository
     public async Task<TestExecution?> GetByAttemptIdAsync(int attemptId, CancellationToken cancellationToken = default)
     {
         var entity = await _context.TestExecutions
+            .AsNoTracking()
             .FirstOrDefaultAsync(t => t.GenerationAttemptId == attemptId, cancellationToken);
         return entity?.ToDomain();
     }
@@ -37,6 +39,7 @@ public class TestExecutionRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.TestExecutions
+            .AsNoTracking()
             .Where(t => t.GenerationAttempt != null &&
                         t.GenerationAttempt.CandidateMethod != null &&
                         t.GenerationAttempt.CandidateMethod.ExperimentRunId == experimentRunId)
@@ -52,6 +55,7 @@ public class TestExecutionRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.TestExecutions
+            .AsNoTracking()
             .Where(t => t.GenerationAttempt != null &&
                         t.GenerationAttempt.CandidateMethod != null &&
                         t.GenerationAttempt.CandidateMethod.ExperimentRunId == experimentRunId)
@@ -65,6 +69,7 @@ public class TestExecutionRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.TestExecutions
+            .AsNoTracking()
             .Where(t => t.GenerationAttempt != null &&
                         t.GenerationAttempt.CandidateMethod != null &&
                         t.GenerationAttempt.CandidateMethod.ExperimentRunId == experimentRunId)
@@ -77,7 +82,8 @@ public class TestExecutionRepository
         var compilationErrors = executions.Count(e => e.FailureKind == TestFailureKind.Compilation);
         var runtimeErrors = executions.Count(e =>
             e.FailureKind is TestFailureKind.Runtime or TestFailureKind.Assertion or TestFailureKind.Infrastructure);
-        var coverageImprovements = executions.Count(e => e.Classification == TestClassification.Approved);
+        var coverageImprovements = executions.Count(e =>
+            e.Classification == TestClassification.ValidatedEvidencePositive);
 
         return new ExecutionStatistics
         {
@@ -96,6 +102,7 @@ public class TestExecutionRepository
         CancellationToken cancellationToken = default)
     {
         var entities = await _context.TestExecutions
+            .AsNoTracking()
             .Where(t => t.GenerationAttempt != null &&
                         t.GenerationAttempt.CandidateMethod != null &&
                         t.GenerationAttempt.CandidateMethod.ExperimentRunId == experimentRunId)
@@ -116,8 +123,15 @@ public class TestExecutionRepository
 
     public async Task UpdateAsync(TestExecution execution, CancellationToken cancellationToken = default)
     {
-        var entity = execution.ToEntity();
-        _context.TestExecutions.Update(entity);
+        _context.ChangeTracker.Clear();
+
+        var entity = await _context.TestExecutions
+            .FirstOrDefaultAsync(t => t.Id == execution.Id, cancellationToken);
+
+        if (entity == null)
+            throw new InvalidOperationException($"Test execution '{execution.Id}' was not found.");
+
+        _context.Entry(entity).CurrentValues.SetValues(execution.ToEntity());
         await _context.SaveChangesAsync(cancellationToken);
     }
 

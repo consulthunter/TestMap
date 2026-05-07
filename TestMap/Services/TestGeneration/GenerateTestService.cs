@@ -5,12 +5,16 @@ using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Experiment;
 using TestMap.Models.Results;
 using TestMap.Services.Configuration;
+using TestMap.Services.Experiment.Execution;
 using TestMap.Services.StaticAnalysis;
 using TestMap.Services.TestExecution;
+using TestMap.Services.TestGeneration.Acceptance;
 using TestMap.Services.TestGeneration.Bootstrap;
+using TestMap.Services.TestGeneration.Evidence;
 using TestMap.Services.TestGeneration.Execution;
 using TestMap.Services.TestGeneration.Strategies;
 using TestMap.Services.TestGeneration.TargetSelection;
+using TestMap.Services.TestGeneration.Validation;
 using TestMap.Services.TestGeneration.Workspace;
 
 namespace TestMap.Services.TestGeneration;
@@ -33,10 +37,9 @@ public class GenerateTestService : IGenerateTestService
         IReadOnlyDictionary<Models.Configuration.Testing.Generation.TestGenerationApproach, ITestGenerationApproach>
         _generationApproaches;
 
-    private readonly
-        IReadOnlyDictionary<Models.Configuration.Testing.Generation.TestActionExecutorMode, ITestActionExecutor>
-        _actionExecutors;
-
+    private readonly IGeneratedTestExecutionService _generatedTestExecutionService;
+    private readonly IGenerationValidationService _generationValidationService;
+    private readonly IGenerationAcceptanceService _generationAcceptanceService;
     private readonly BranchWorkspaceService _workspace;
 
     public GenerateTestService(
@@ -48,7 +51,9 @@ public class GenerateTestService : IGenerateTestService
         IMethodSelectionService methodSelectionService,
         IAnalyzeProjectService analyzeProjectService,
         IEnumerable<ITestGenerationApproach> generationApproaches,
-        IEnumerable<ITestActionExecutor> actionExecutors,
+        IGeneratedTestExecutionService generatedTestExecutionService,
+        IGenerationValidationService generationValidationService,
+        IGenerationAcceptanceService generationAcceptanceService,
         BranchWorkspaceService workspace)
     {
         _context = context;
@@ -59,7 +64,9 @@ public class GenerateTestService : IGenerateTestService
         _methodSelectionService = methodSelectionService;
         _analyzeProjectService = analyzeProjectService;
         _generationApproaches = generationApproaches.ToDictionary(x => x.Strategy);
-        _actionExecutors = actionExecutors.ToDictionary(x => x.Mode);
+        _generatedTestExecutionService = generatedTestExecutionService;
+        _generationValidationService = generationValidationService;
+        _generationAcceptanceService = generationAcceptanceService;
         _workspace = workspace;
     }
 
@@ -69,11 +76,21 @@ public class GenerateTestService : IGenerateTestService
 
         var generationConfig = _config.TestingConfig.GenerationConfig;
         var provider = generationConfig.Provider;
-        var maxRetries = generationConfig.MaxRetries;
+        var budgetMode = generationConfig.BudgetMode;
+        var temperature = generationConfig.Temperature;
+        var stepErrorRetries = generationConfig.StepErrorRetries;
+        var stepRetryDelayMs = generationConfig.StepRetryDelayMs;
         var generationApproach = ResolveGenerationApproach(generationConfig.Strategy);
-        var actionExecutor = ResolveActionExecutor(generationConfig.Executor);
+        var actionExecutorMode = GenerationObjectivePolicy.ResolveExecutor(generationConfig.Objective);
 
-        ValidateGenerationConfiguration(provider, maxRetries);
+        ValidateGenerationConfiguration(
+            provider,
+            generationConfig.Strategy,
+            generationConfig.Executor,
+            budgetMode,
+            temperature,
+            stepErrorRetries,
+            stepRetryDelayMs);
         await EnsureBootstrapInfrastructureAsync();
         await _workspace.EnsureWorkspaceReadyAsync();
 
@@ -113,9 +130,12 @@ public class GenerateTestService : IGenerateTestService
                 methodContext,
                 candidateInfo,
                 provider,
-                maxRetries,
+                budgetMode,
+                temperature,
+                stepErrorRetries,
+                stepRetryDelayMs,
                 generationApproach,
-                actionExecutor);
+                actionExecutorMode);
             if (succeeded) successCount++;
         }
 
@@ -132,35 +152,44 @@ public class GenerateTestService : IGenerateTestService
         CandidateMethodContext methodContext,
         CandidateMethodInfo method,
         AiProvider provider,
-        int maxRetries,
+        Models.Configuration.Testing.Generation.GenerationBudgetMode budgetMode,
+        double temperature,
+        int stepErrorRetries,
+        int stepRetryDelayMs,
         ITestGenerationApproach generationApproach,
-        ITestActionExecutor actionExecutor,
+        Models.Configuration.Testing.Generation.TestActionExecutorMode actionExecutorMode,
         CancellationToken cancellationToken = default)
     {
         string? candidateTest = null;
         string? resultHistory = null;
+        var generationConfig = _config.TestingConfig.GenerationConfig;
+        var attempts = GenerationBudgetPlanner.Plan(budgetMode);
 
-        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        foreach (var attempt in attempts)
         {
             _context.Project.Logger?.Information(
-                "[Attempt {Attempt}/{MaxRetries}] Generating test for {MethodName}",
-                attempt,
-                maxRetries,
+                "[Attempt {Attempt}/{AttemptCount}] Generating test for {MethodName} using {BudgetMode}",
+                attempt.AttemptNumber,
+                attempts.Count,
+                budgetMode,
                 method.MethodName);
 
             TestGenerationResult result;
 
-            if (attempt == 1)
+            if (!attempt.IsRepair)
             {
                 var request = generationApproach.CreateGenerationRequest(new TestGenerationApproachContext
                 {
                     MethodContext = methodContext,
                     Provider = provider,
-                    Temperature = 0.0,
-                    EnableHistoryChaining = _config.TestingConfig.GenerationConfig.EnableHistoryChaining
+                    Temperature = temperature,
+                    StepErrorRetries = stepErrorRetries,
+                    StepRetryDelayMs = stepRetryDelayMs
                 });
 
-                result = await _pipelineService.GenerateTestAsync(request, cancellationToken);
+                result = await _pipelineService.GenerateTestAsync(
+                    ApplyGenerationConfiguration(request, generationConfig),
+                    cancellationToken);
             }
             else
             {
@@ -172,12 +201,15 @@ public class GenerateTestService : IGenerateTestService
                     StructuredErrors = await ReadLatestStructuredErrorsAsync(cancellationToken),
                     PriorConversationTranscript = resultHistory,
                     Provider = provider,
-                    Temperature = 0.0,
-                    AttemptNumber = attempt,
-                    EnableHistoryChaining = _config.TestingConfig.GenerationConfig.EnableHistoryChaining
+                    Temperature = temperature,
+                    AttemptNumber = attempt.AttemptNumber,
+                    StepErrorRetries = stepErrorRetries,
+                    StepRetryDelayMs = stepRetryDelayMs
                 });
 
-                result = await _pipelineService.RepairTestAsync(repairRequest, cancellationToken);
+                result = await _pipelineService.RepairTestAsync(
+                    ApplyGenerationConfiguration(repairRequest, generationConfig),
+                    cancellationToken);
             }
 
             if (!result.Success || string.IsNullOrWhiteSpace(result.GeneratedTest))
@@ -205,67 +237,37 @@ public class GenerateTestService : IGenerateTestService
                 result.TotalDurationSeconds,
                 result.TotalTokens);
 
-            var actionResult = await actionExecutor.ExecuteAsync(
+            var executionResult = await _generatedTestExecutionService.ExecuteAsync(
                 methodContext,
                 candidateTest,
                 testMethodName,
+                actionExecutorMode,
                 cancellationToken);
 
-            if (!actionResult.Success)
+            if (!executionResult.ApplicationSucceeded || !File.Exists(method.TestFilePath))
             {
                 _context.Project.Logger?.Warning(
-                    "{ErrorMessage}",
-                    actionResult.ErrorMessage ?? $"Failed to apply generated test for {method.MethodName}.");
+                    "Generated test for {MethodName} could not be applied or verified in {TestFilePath}. Reason={Reason}",
+                    method.MethodName,
+                    method.TestFilePath,
+                    executionResult.FailureSummary ?? executionResult.ErrorLogs ?? "Application failed.");
                 await _workspace.RollbackChangesAsync(cancellationToken);
                 continue;
             }
 
-            if (!File.Exists(method.TestFilePath))
-            {
-                _context.Project.Logger?.Warning(
-                    "Expected test file for {MethodName} was not found after applying changes: {TestFilePath}",
-                    method.MethodName,
-                    method.TestFilePath);
-                await _workspace.RollbackChangesAsync(cancellationToken);
-                continue;
-            }
+            var evidence = CreateValidationEvidence(methodContext, generationConfig);
+            var validation = _generationValidationService.Validate(executionResult, methodContext, evidence);
+            var acceptance = _generationAcceptanceService.Evaluate(
+                validation,
+                _config.TestingConfig.GenerationConfig.Acceptance);
 
-            var validationResult = await _buildTestService.ValidateBuildAsync(
-                method.TestProjectPath,
-                cancellationToken);
-
-            if (!validationResult.IsSuccess)
-            {
-                _context.Project.Logger?.Warning(
-                    "Docker compilation validation failed for {MethodName}: {Errors}",
-                    method.MethodName,
-                    validationResult.LogText);
-                await _workspace.RollbackChangesAsync(cancellationToken);
-                continue;
-            }
-
-            await RefreshProjectMetadataAsync(method.TestProjectPath);
-
-            var buildResult = await _buildTestService.BuildTestAsync(
-                BuildTestRunRequest.CreateIteration(
-                    method.TestProjectPath,
-                    method.TargetBuildFramework,
-                    method.MethodName,
-                    method.SourceProjectPath));
-
-            var compilationSucceeded = DidCompilationSucceed(buildResult);
-            var failedTests = buildResult.Results.Where(r => r.Outcome != "Passed").ToList();
-            var newCoverage = buildResult is GeneratedTestRunModel generatedRun
-                ? generatedRun.MethodCoverage
-                : buildResult.Coverage / 100.0;
-            var coverageImproved = newCoverage > method.BaselineCoverage;
-
-            if (compilationSucceeded && buildResult.Results.Count > 0 && !failedTests.Any() && coverageImproved)
+            if (acceptance.Accepted)
             {
                 _context.Project.Logger?.Information(
-                    "Test passed and improved coverage from {BaselineCoverage:P} to {NewCoverage:P}",
+                    "Generated test accepted. Reason={Reason}, BaselineCoverage={BaselineCoverage:P}, NewCoverage={NewCoverage:P}",
+                    acceptance.Reason,
                     method.BaselineCoverage,
-                    newCoverage);
+                    executionResult.CoverageAfter);
                 await _workspace.PersistAcceptedChangesAsync(
                     $"Add generated test for {method.MethodName}",
                     cancellationToken);
@@ -273,21 +275,22 @@ public class GenerateTestService : IGenerateTestService
             }
 
             _context.Project.Logger?.Warning(
-                "Generated test for {MethodName} did not meet criteria. Compiled={Compiled}, Passed={Passed}, CoverageImproved={CoverageImproved}, Baseline={BaselineCoverage:P}, Current={NewCoverage:P}",
+                "Generated test for {MethodName} did not meet criteria. Reason={Reason}, Compiled={Compiled}, Passed={Passed}, CoverageImproved={CoverageImproved}, Baseline={BaselineCoverage:P}, Current={NewCoverage:P}",
                 method.MethodName,
-                compilationSucceeded,
-                compilationSucceeded && buildResult.Results.Count > 0 && !failedTests.Any(),
-                coverageImproved,
+                acceptance.Reason,
+                validation.CompilationSucceeded,
+                validation.AllTestsPassed,
+                validation.CoverageImproved,
                 method.BaselineCoverage,
-                newCoverage);
+                executionResult.CoverageAfter);
 
             await _workspace.RollbackChangesAsync(cancellationToken);
         }
 
         _context.Project.Logger?.Error(
-            "Failed to generate a valid test for {MethodName} after {MaxRetries} attempts",
+            "Failed to generate a valid test for {MethodName} after {AttemptCount} attempts",
             method.MethodName,
-            maxRetries);
+            attempts.Count);
         return false;
     }
 
@@ -321,18 +324,30 @@ public class GenerateTestService : IGenerateTestService
         throw new InvalidOperationException($"No generation approach is registered for '{strategy}'.");
     }
 
-    private ITestActionExecutor ResolveActionExecutor(
-        Models.Configuration.Testing.Generation.TestActionExecutorMode mode)
+    private void ValidateGenerationConfiguration(
+        AiProvider provider,
+        Models.Configuration.Testing.Generation.TestGenerationApproach approach,
+        Models.Configuration.Testing.Generation.TestActionExecutorMode executor,
+        Models.Configuration.Testing.Generation.GenerationBudgetMode budgetMode,
+        double temperature,
+        int stepErrorRetries,
+        int stepRetryDelayMs)
     {
-        if (_actionExecutors.TryGetValue(mode, out var executor)) return executor;
+        ExperimentConfigurationValidator.ValidateGenerationConfig(_config.TestingConfig.GenerationConfig.Objective, approach, executor);
 
-        throw new InvalidOperationException($"No test action executor is registered for '{mode}'.");
-    }
+        _ = GenerationBudgetPlanner.Plan(budgetMode);
 
-    private void ValidateGenerationConfiguration(AiProvider provider, int maxRetries)
-    {
-        if (maxRetries <= 0)
-            throw new InvalidOperationException("TestingConfig.GenerationConfig.MaxRetries must be greater than 0.");
+        if (temperature is < 0.0 or > 2.0)
+            throw new InvalidOperationException(
+                "TestingConfig.GenerationConfig.Temperature must be between 0.0 and 2.0.");
+
+        if (stepErrorRetries < 0)
+            throw new InvalidOperationException(
+                "TestingConfig.GenerationConfig.StepErrorRetries must be greater than or equal to 0.");
+
+        if (stepRetryDelayMs < 0)
+            throw new InvalidOperationException(
+                "TestingConfig.GenerationConfig.StepRetryDelayMs must be greater than or equal to 0.");
 
         var providerConfig = _config.AiProviderConfig.GetProviderConfig(provider);
         if (providerConfig == null) throw new InvalidOperationException($"Provider '{provider}' is not configured.");
@@ -366,23 +381,6 @@ public class GenerateTestService : IGenerateTestService
         return Task.FromResult(_buildTestService.LatestStructuredErrors);
     }
 
-    private async Task RefreshProjectMetadataAsync(string testProjectPath)
-    {
-        var analysisProject = _context.Project.Projects.FirstOrDefault(x =>
-            string.Equals(Path.GetFullPath(x.FilePath), Path.GetFullPath(testProjectPath),
-                StringComparison.OrdinalIgnoreCase));
-
-        if (analysisProject == null)
-        {
-            _context.Project.Logger?.Warning(
-                "Skipping metadata refresh because test project was not found in loaded project metadata: {TestProjectPath}",
-                testProjectPath);
-            return;
-        }
-
-        await _analyzeProjectService.AnalyzeProjectAsync(analysisProject);
-    }
-
     private static CandidateMethodInfo ToCandidateMethodInfo(CandidateMethodContext context)
     {
         return new CandidateMethodInfo(
@@ -408,14 +406,97 @@ public class GenerateTestService : IGenerateTestService
             context.Method.BaselineCoverage);
     }
 
-    private static bool DidCompilationSucceed(TestRunModel buildResult)
+    private static GenerationEvidencePackage CreateValidationEvidence(
+        CandidateMethodContext context,
+        Models.Configuration.Testing.Generation.GenerationConfig generationConfig)
     {
-        if (buildResult.Results.Count == 0 && buildResult.Coverage == 0) return false;
-
-        return buildResult.FailureAnalysis?.Stage switch
+        return new GenerationEvidencePackage
         {
-            "restore" or "build" or "infrastructure" or "unknown" => false,
-            _ => true
+            Objective = generationConfig.Objective,
+            Approach = generationConfig.Strategy,
+            MetricsPath = generationConfig.Strategy == Models.Configuration.Testing.Generation.TestGenerationApproach.Naive
+                ? null
+                : generationConfig.MetricsPath,
+            CandidateContext = context,
+            StrategyInstruction = string.Empty
+        };
+    }
+
+    private static TestGenerationRequest ApplyGenerationConfiguration(
+        TestGenerationRequest request,
+        Models.Configuration.Testing.Generation.GenerationConfig generationConfig)
+    {
+        return new TestGenerationRequest
+        {
+            Objective = generationConfig.Objective,
+            Approach = generationConfig.Strategy,
+            MetricsPath = generationConfig.Strategy == Models.Configuration.Testing.Generation.TestGenerationApproach.Naive
+                ? null
+                : generationConfig.MetricsPath,
+            ContextMode = generationConfig.ContextMode,
+            Steps = generationConfig.Steps,
+            MethodBody = request.MethodBody,
+            MethodName = request.MethodName,
+            MethodSignature = request.MethodSignature,
+            ContainingClass = request.ContainingClass,
+            SourceFilePath = request.SourceFilePath,
+            SourceProjectPath = request.SourceProjectPath,
+            SolutionFilePath = request.SolutionFilePath,
+            SourceStartLine = request.SourceStartLine,
+            SourceEndLine = request.SourceEndLine,
+            SourceStartPosition = request.SourceStartPosition,
+            SourceEndPosition = request.SourceEndPosition,
+            ExistingTestFilePath = request.ExistingTestFilePath,
+            ExistingTestStartLine = request.ExistingTestStartLine,
+            ExistingTestEndLine = request.ExistingTestEndLine,
+            ExampleTest = request.ExampleTest,
+            ExampleTestMetadataSummary = request.ExampleTestMetadataSummary,
+            ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
+            TestClass = request.TestClass,
+            TestFileContents = request.TestFileContents,
+            TestSupportContext = request.TestSupportContext,
+            TestFramework = request.TestFramework,
+            TestDependencies = request.TestDependencies,
+            CoverageGapSummary = request.CoverageGapSummary,
+            Provider = request.Provider,
+            Temperature = request.Temperature,
+            StepErrorRetries = request.StepErrorRetries,
+            StepRetryDelayMs = request.StepRetryDelayMs
+        };
+    }
+
+    private static TestRepairRequest ApplyGenerationConfiguration(
+        TestRepairRequest request,
+        Models.Configuration.Testing.Generation.GenerationConfig generationConfig)
+    {
+        return new TestRepairRequest
+        {
+            Objective = generationConfig.Objective,
+            Approach = generationConfig.Strategy,
+            MetricsPath = generationConfig.Strategy == Models.Configuration.Testing.Generation.TestGenerationApproach.Naive
+                ? null
+                : generationConfig.MetricsPath,
+            ContextMode = generationConfig.ContextMode,
+            Steps = generationConfig.Steps,
+            MethodBody = request.MethodBody,
+            MethodName = request.MethodName,
+            GeneratedTest = request.GeneratedTest,
+            TestClass = request.TestClass,
+            TestFramework = request.TestFramework,
+            TestDependencies = request.TestDependencies,
+            TestFileContents = request.TestFileContents,
+            TestSupportContext = request.TestSupportContext,
+            ExampleTestMetadataSummary = request.ExampleTestMetadataSummary,
+            ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
+            CoverageGapSummary = request.CoverageGapSummary,
+            ErrorLogs = request.ErrorLogs,
+            StructuredErrors = request.StructuredErrors,
+            PriorConversationTranscript = request.PriorConversationTranscript,
+            Provider = request.Provider,
+            Temperature = request.Temperature,
+            AttemptNumber = request.AttemptNumber,
+            StepErrorRetries = request.StepErrorRetries,
+            StepRetryDelayMs = request.StepRetryDelayMs
         };
     }
 }

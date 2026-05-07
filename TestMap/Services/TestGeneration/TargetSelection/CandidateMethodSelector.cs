@@ -39,8 +39,7 @@ public sealed class CandidateMethodSelector
         var targetSelection = ResolveTargetSelectionConfig(config);
         var effectiveLimit = Math.Max(1, config.CandidateLimit);
         var usesScoredSelection = targetSelection.Strategy is TargetSelectionStrategy.RiskWeighted
-            or TargetSelectionStrategy.MetricDrivenImprovement
-            or TargetSelectionStrategy.TestSuiteImprovements;
+            or TargetSelectionStrategy.MetricDrivenImprovement;
         var candidatePoolLimit = usesScoredSelection
             ? Math.Clamp(Math.Max(effectiveLimit * 20, targetSelection.CandidateLimit * 2), effectiveLimit, 1000)
             : effectiveLimit;
@@ -81,7 +80,6 @@ public sealed class CandidateMethodSelector
             CandidateLimit = configuredSelection.CandidateLimit,
             RiskWeights = configuredSelection.RiskWeights,
             MetricDrivenImprovement = configuredSelection.MetricDrivenImprovement,
-            TestSuiteImprovement = configuredSelection.TestSuiteImprovement,
             FailOnMissingRiskInputs = configuredSelection.FailOnMissingRiskInputs
         };
     }

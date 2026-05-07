@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 
 namespace TestMap.Services.Experiment.Reporting;
@@ -48,7 +49,7 @@ public class ExperimentAnalysisReport
 {
     public required ExperimentRun ExperimentRun { get; init; }
     public required List<ProviderPerformance> ProviderPerformance { get; init; }
-    public required List<StrategyPerformance> StrategyPerformance { get; init; }
+    public required List<BudgetModePerformance> BudgetModePerformance { get; init; }
     public required ExperimentSummary Summary { get; init; }
     public required List<ExperimentProjectRow> Projects { get; init; }
     public required List<ExperimentResultRow> DetailedResults { get; init; }
@@ -72,11 +73,11 @@ public class ProviderPerformance
 }
 
 /// <summary>
-/// Performance metrics for a specific generation strategy.
+/// Performance metrics for a specific generation budget mode.
 /// </summary>
-public class StrategyPerformance
+public class BudgetModePerformance
 {
-    public required GenerationStrategy Strategy { get; init; }
+    public required GenerationBudgetMode BudgetMode { get; init; }
     public int TotalAttempts { get; init; }
     public int SuccessfulTests { get; init; }
     public double SuccessRate => TotalAttempts > 0 ? (double)SuccessfulTests / TotalAttempts : 0.0;
@@ -98,9 +99,9 @@ public class ExperimentSummary
     public int TotalTokensUsed { get; init; }
     public double TotalDurationSeconds { get; init; }
     public AiProvider? BestProvider { get; init; }
-    public GenerationStrategy? BestStrategy { get; init; }
+    public GenerationBudgetMode? BestBudgetMode { get; init; }
     public double BestProviderSuccessRate { get; init; }
-    public double BestStrategySuccessRate { get; init; }
+    public double BestBudgetModeSuccessRate { get; init; }
 }
 
 public class ExperimentResultRow
@@ -118,12 +119,13 @@ public class ExperimentResultRow
     public string? GeneratedTestName { get; init; }
     public double? ExampleTestExecutionTimeMs { get; init; }
     public double? GeneratedTestExecutionTimeMs { get; init; }
+    public string SourceMethodCodeMetrics { get; init; } = string.Empty;
     public string ExampleTestCodeMetrics { get; init; } = string.Empty;
     public string GeneratedTestCodeMetrics { get; init; } = string.Empty;
     public string ExampleTestSmells { get; init; } = string.Empty;
     public string GeneratedTestSmells { get; init; } = string.Empty;
     public required AiProvider Provider { get; init; }
-    public required GenerationStrategy Strategy { get; init; }
+    public required GenerationBudgetMode BudgetMode { get; init; }
     public int AttemptNumber { get; init; }
     public bool CompilationSuccess { get; init; }
     public bool TestPassed { get; init; }

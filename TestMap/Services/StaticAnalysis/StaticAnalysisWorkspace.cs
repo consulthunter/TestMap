@@ -5,9 +5,22 @@ namespace TestMap.Services.StaticAnalysis;
 
 public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposable
 {
-    private readonly MSBuildWorkspace _workspace = MSBuildWorkspace.Create();
+    private MSBuildWorkspace _workspace;
     private readonly Dictionary<string, Task<Solution>> _solutionsByPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Task<Project>> _projectsByPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _workspaceFailures = new();
+
+    public StaticAnalysisWorkspace()
+    {
+        _workspace = CreateWorkspace();
+    }
+
+    public IReadOnlyList<string> WorkspaceFailures => _workspaceFailures;
+
+    public void ClearWorkspaceFailures()
+    {
+        _workspaceFailures.Clear();
+    }
 
     public Task<Solution> OpenSolutionAsync(string solutionPath, CancellationToken cancellationToken = default)
     {
@@ -44,9 +57,40 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
         return await projectTask;
     }
 
+    public async Task<Project> RefreshProjectAsync(
+        string projectPath,
+        CancellationToken cancellationToken = default)
+    {
+        ResetWorkspace();
+        var normalizedProjectPath = NormalizePath(projectPath);
+        var projectTask = OpenSanitizedProjectAsync(normalizedProjectPath, cancellationToken);
+        _projectsByPath[normalizedProjectPath] = projectTask;
+        return await projectTask;
+    }
+
     public void Dispose()
     {
         _workspace.Dispose();
+    }
+
+    private MSBuildWorkspace CreateWorkspace()
+    {
+        var workspace = MSBuildWorkspace.Create();
+        workspace.RegisterWorkspaceFailedHandler(args =>
+        {
+            _workspaceFailures.Add($"{args.Diagnostic.Kind}: {args.Diagnostic.Message}");
+        });
+
+        return workspace;
+    }
+
+    private void ResetWorkspace()
+    {
+        _workspace.Dispose();
+        _workspace = CreateWorkspace();
+        _solutionsByPath.Clear();
+        _projectsByPath.Clear();
+        _workspaceFailures.Clear();
     }
 
     private static string NormalizePath(string path)

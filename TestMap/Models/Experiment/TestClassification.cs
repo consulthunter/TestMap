@@ -1,27 +1,27 @@
 namespace TestMap.Models.Experiment;
 
 /// <summary>
-/// Classification of generated tests based on execution and coverage results.
+/// Tool-observed outcome for generated tests based on validation and configured evidence.
 /// </summary>
 public enum TestClassification
 {
     /// <summary>
-    /// Test passes AND improves coverage (coverage delta > 0%)
+    /// Validation passed and at least one configured evidence signal improved.
     /// </summary>
-    Approved,
+    ValidatedEvidencePositive,
 
     /// <summary>
-    /// Test fails BUT improves coverage (exercises new code)
+    /// Validation passed, but configured evidence signal was absent or below threshold.
     /// </summary>
-    Candidate,
+    ValidatedLowImpact,
 
     /// <summary>
-    /// Test passes BUT does not improve coverage
+    /// Validation failed, but partial evidence indicates the artifact may still be useful.
     /// </summary>
-    Benign,
+    FailedEvidencePositive,
 
     /// <summary>
-    /// Test fails AND does not improve coverage
+    /// Validation failed and no useful configured evidence was observed.
     /// </summary>
-    Failed
+    ValidationFailed
 }
