@@ -141,6 +141,9 @@ public class SqliteSchemaCompatibilityService
         string columnName,
         string alterSql)
     {
+        if (!await TableExistsAsync(connection, tableName))
+            return;
+
         await using var pragma = connection.CreateCommand();
         pragma.CommandText = $"PRAGMA table_info({tableName});";
         await using var reader = await pragma.ExecuteReaderAsync();
@@ -154,6 +157,15 @@ public class SqliteSchemaCompatibilityService
         await using var alter = connection.CreateCommand();
         alter.CommandText = alterSql;
         await alter.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<bool> TableExistsAsync(SqliteConnection connection, string tableName)
+    {
+        await using var check = connection.CreateCommand();
+        check.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = $tableName;";
+        check.Parameters.Add(new SqliteParameter("$tableName", tableName));
+        var exists = await check.ExecuteScalarAsync();
+        return exists != null;
     }
 
     private static async Task EnsureInvocationsSupportExternalAssertionsAsync(SqliteConnection connection)

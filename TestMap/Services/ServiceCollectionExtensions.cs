@@ -327,6 +327,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(config);
         services.AddScoped<ProjectContext>(_ => context);
         services.AddScoped<SqliteSchemaCompatibilityService>();
+        services.AddScoped<TestMapDatabaseInitializer>();
 
         // Add database
         services.AddTestMapDatabase(context);

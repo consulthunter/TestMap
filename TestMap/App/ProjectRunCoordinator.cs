@@ -77,9 +77,8 @@ public class ProjectRunCoordinator
         using (var scope = provider.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<TestMapDbContext>();
-            var schemaCompatibility = scope.ServiceProvider.GetRequiredService<SqliteSchemaCompatibilityService>();
-            db.Database.Migrate();
-            await schemaCompatibility.EnsureCompatibleAsync(db);
+            var databaseInitializer = scope.ServiceProvider.GetRequiredService<TestMapDatabaseInitializer>();
+            await databaseInitializer.InitializeAsync(db);
         }
 
         var runFactory = provider.GetRequiredService<IPipelineRunFactory>();
