@@ -11,7 +11,7 @@ using TestMap.Persistence.Ef;
 namespace TestMap.Migrations
 {
     [DbContext(typeof(TestMapDbContext))]
-    [Migration("20260424134725_InitialCreate")]
+    [Migration("20260507205004_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -727,6 +727,123 @@ namespace TestMap.Migrations
                     b.ToTable("candidate_methods", (string)null);
                 });
 
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.ExperimentMatrixWorkItemEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AblationVariantId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("ablation_variant_id");
+
+                    b.Property<string>("Approach")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("approach");
+
+                    b.Property<string>("BudgetMode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("budget_mode");
+
+                    b.Property<int>("CandidateMethodId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("candidate_method_id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("ContextMode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("context_mode");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_message");
+
+                    b.Property<int>("ExperimentRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("experiment_run_id");
+
+                    b.Property<DateTime?>("LastHeartbeatAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_heartbeat_at");
+
+                    b.Property<int>("MemberId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("MetricsPath")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("metrics_path");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("model_name");
+
+                    b.Property<string>("Objective")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("objective");
+
+                    b.Property<string>("ProviderName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider_name");
+
+                    b.Property<string>("StableKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("stable_key");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StepConfigJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("step_config_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CandidateMethodId");
+
+                    b.HasIndex("StableKey")
+                        .IsUnique();
+
+                    b.HasIndex("ExperimentRunId", "Status");
+
+                    b.ToTable("experiment_matrix_work_items", (string)null);
+                });
+
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.ExperimentRunEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -738,6 +855,12 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("candidate_limit");
 
+                    b.Property<string>("CandidateSelectionStrategy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("candidate_selection_strategy");
+
                     b.Property<string>("Configuration")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -748,9 +871,20 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("end_time");
 
+                    b.Property<string>("Objective")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("objective");
+
                     b.Property<int>("ProjectId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("project_id");
+
+                    b.Property<string>("ResultsFilePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("results_file_path");
 
                     b.Property<DateTime>("StartTime")
                         .HasColumnType("TEXT")
@@ -774,13 +908,42 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("id");
 
+                    b.Property<string>("AblationVariantId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("ablation_variant_id");
+
                     b.Property<int>("AttemptNumber")
                         .HasColumnType("INTEGER")
                         .HasColumnName("attempt_number");
 
+                    b.Property<string>("BudgetMode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("budget_mode");
+
                     b.Property<int>("CandidateMethodId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("candidate_method_id");
+
+                    b.Property<string>("ContextMode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("context_mode");
+
+                    b.Property<string>("EffectiveProfileHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("effective_profile_hash");
+
+                    b.Property<string>("EffectiveProfileJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("effective_profile_json");
 
                     b.Property<DateTime?>("EndTime")
                         .HasColumnType("TEXT")
@@ -809,15 +972,33 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("failure_stage");
 
+                    b.Property<string>("GenerationApproach")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("generation_approach");
+
                     b.Property<bool>("IsRepairAttempt")
                         .HasColumnType("INTEGER")
                         .HasColumnName("is_repair_attempt");
+
+                    b.Property<string>("MetricsPath")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("metrics_path");
 
                     b.Property<string>("ModelName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("TEXT")
                         .HasColumnName("model_name");
+
+                    b.Property<string>("Objective")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("objective");
 
                     b.Property<int?>("ParentAttemptId")
                         .HasColumnType("INTEGER")
@@ -829,6 +1010,11 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("provider_name");
 
+                    b.Property<string>("RuleDecisionJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rule_decision_json");
+
                     b.Property<DateTime>("StartTime")
                         .HasColumnType("TEXT")
                         .HasColumnName("start_time");
@@ -839,11 +1025,20 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("status");
 
+                    b.Property<string>("StepConfigJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("step_config_json");
+
                     b.Property<string>("Strategy")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("TEXT")
                         .HasColumnName("strategy");
+
+                    b.Property<double>("Temperature")
+                        .HasColumnType("REAL")
+                        .HasColumnName("temperature");
 
                     b.Property<int>("TotalTokensUsed")
                         .HasColumnType("INTEGER")
@@ -878,6 +1073,14 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("generation_attempt_id");
 
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("input_tokens");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("output_tokens");
+
                     b.Property<string>("Prompt")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -888,9 +1091,25 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("response");
 
+                    b.Property<string>("RuleDecisionJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rule_decision_json");
+
+                    b.Property<string>("SkipReason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("skip_reason");
+
                     b.Property<DateTime>("StartTime")
                         .HasColumnType("TEXT")
                         .HasColumnName("start_time");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
 
                     b.Property<string>("StepName")
                         .IsRequired()
@@ -929,6 +1148,15 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("id");
 
+                    b.Property<string>("AcceptanceReason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("acceptance_reason");
+
+                    b.Property<bool?>("Accepted")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("accepted");
+
                     b.Property<string>("AssertionErrors")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -937,6 +1165,11 @@ namespace TestMap.Migrations
                     b.Property<double?>("BaselineMutationScore")
                         .HasColumnType("REAL")
                         .HasColumnName("baseline_mutation_score");
+
+                    b.Property<string>("ClassificationRuleDecisionJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("classification_rule_decision_json");
 
                     b.Property<string>("CompilationErrors")
                         .IsRequired()
@@ -1017,6 +1250,16 @@ namespace TestMap.Migrations
                     b.Property<bool>("TestPassed")
                         .HasColumnType("INTEGER")
                         .HasColumnName("test_passed");
+
+                    b.Property<string>("ValidationResultJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("validation_result_json");
+
+                    b.Property<string>("ValidationRuleDecisionJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("validation_rule_decision_json");
 
                     b.HasKey("Id");
 
@@ -1511,6 +1754,149 @@ namespace TestMap.Migrations
                     b.ToTable("candidate_method_risk_scores", (string)null);
                 });
 
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Rules.RuleDecisionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("CSharpProjectId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("csharp_project_id");
+
+                    b.Property<int?>("CandidateMethodId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("candidate_method_id");
+
+                    b.Property<string>("Confidence")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("confidence");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DecisionKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("decision_kind");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("evidence");
+
+                    b.Property<int?>("ExperimentRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("experiment_run_id");
+
+                    b.Property<int?>("GenerationAttemptId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("generation_attempt_id");
+
+                    b.Property<string>("Notes")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("notes");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("RuleId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("RuleVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rule_version");
+
+                    b.Property<string>("ScopeId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scope_id");
+
+                    b.Property<string>("ScopeKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scope_kind");
+
+                    b.Property<int?>("TestExecutionId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("test_execution_id");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CSharpProjectId");
+
+                    b.HasIndex("CandidateMethodId");
+
+                    b.HasIndex("ExperimentRunId");
+
+                    b.HasIndex("GenerationAttemptId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("TestExecutionId");
+
+                    b.HasIndex("RuleId", "RuleVersion");
+
+                    b.HasIndex("ScopeKind", "ScopeId");
+
+                    b.ToTable("rule_decisions", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Rules.RuleDefinitionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<string>("RuleId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("RuleVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("rule_version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Category");
+
+                    b.HasIndex("RuleId", "RuleVersion")
+                        .IsUnique();
+
+                    b.ToTable("rule_definitions", (string)null);
+                });
+
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Testing.TestResultEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1771,6 +2157,25 @@ namespace TestMap.Migrations
                         .HasForeignKey("ExperimentRunId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ExperimentRun");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.ExperimentMatrixWorkItemEntity", b =>
+                {
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.CandidateMethodEntity", "CandidateMethod")
+                        .WithMany()
+                        .HasForeignKey("CandidateMethodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.ExperimentRunEntity", "ExperimentRun")
+                        .WithMany()
+                        .HasForeignKey("ExperimentRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CandidateMethod");
 
                     b.Navigation("ExperimentRun");
                 });
