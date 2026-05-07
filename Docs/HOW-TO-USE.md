@@ -1,125 +1,119 @@
-﻿# How To Use
+# How To Use
 
-TestMap is can be used to collect tests from C# repositories.
+## 1. Generate a config file
 
-## Generate Configuration File
+Run from the repository root:
 
-Within the ```/TestMap/TestMap/``` directory run
 ```sh
-./TestMap.exe setup
+dotnet run --project ./TestMap/TestMap.csproj -- setup
 ```
-This will generate the file ```./Config/default-config.json``` with default values. This will hold the configuration for running the rest of the project.
 
-## Specify Frameworks
+This creates `./TestMap/Config/default-config.json`.
 
-By default, we have defined some attributes across three popular testing frameworks in the ```default-config.json```
+## 2. Update the config
 
-Current targets:
-- MSTest
-- NUnit
-- xUnit
+The main config sections are:
 
-You should define the frameworks you want to target under the ```Frameworks``` in the ```default-config.json```
+- `RuntimeConfig`
+- `TestingConfig`
+- `AiProviderConfig`
+- `ExperimentConfig`
 
-First define the name of the framework as it would appear in the ```usings statments``` such as ```using Xunit;```
+Important fields:
 
-Next define the attribute you want to look at, for ```xUnit``` this could be ```[Fact]```, ```[Theory]```, etc.
+- `RuntimeConfig.FilePaths.TargetFilePath`
+- `RuntimeConfig.FilePaths.LogsDirPath`
+- `RuntimeConfig.FilePaths.TempDirPath`
+- `RuntimeConfig.FilePaths.OutputDirPath`
+- `RuntimeConfig.Frameworks`
+- `TestingConfig.GenerationConfig`
+- `AiProviderConfig.OpenAi`
+- `AiProviderConfig.GoogleGemini`
+- `AiProviderConfig.GoogleCloud`
+- `AiProviderConfig.CustomOpenAi`
+- `AiProviderConfig.Ollama`
+- `AiProviderConfig.Amazon`
 
-The framework and its attributes should look something like this:
+Use the JSON config as the source of truth. The CLI does not provide experiment-specific overrides.
+
+## 3. Run a pipeline
+
+```sh
+dotnet run --project ./TestMap/TestMap.csproj -- collect-tests --config ./TestMap/Config/default-config.json
+dotnet run --project ./TestMap/TestMap.csproj -- generate-tests --config ./TestMap/Config/default-config.json
+dotnet run --project ./TestMap/TestMap.csproj -- experiment --config ./TestMap/Config/default-config.json
+dotnet run --project ./TestMap/TestMap.csproj -- experiment --config ./TestMap/Config/default-config.json --experiment-config ./TestMap/Config/experiment-config.json
+```
+
+Supporting commands:
+
+```sh
+dotnet run --project ./TestMap/TestMap.csproj -- check-projects --config ./TestMap/Config/default-config.json
+```
+
+## Supported AI providers
+
+Use the enum names from code in both `TestingConfig.GenerationConfig.Provider` and `ExperimentConfig.IncludeProviders`:
+
+- `Amazon`
+- `GoogleGemini`
+- `GoogleCloud`
+- `CustomOpenAi`
+- `Ollama`
+- `OpenAi`
+
+## Provider config shape
+
+`AiProviderConfig` is strongly typed by provider. `GoogleGemini` and `GoogleCloud` are separate configs and can use different endpoints and credentials.
 
 ```json
-  "Frameworks": {
-    "NUnit": [
-      "Test",
-      "Theory"
-    ],
-    "xUnit": [
-      "Fact",
-      "Theory"
-    ],
-    "MSTest": [
-      "TestMethod",
-      "DataSource"
-    ],
-    "Microsoft.VisualStudio.TestTools.UnitTesting": [
-      "TestMethod",
-      "DataSource"
-    ]
-  },
+{
+  "AiProviderConfig": {
+    "GoogleGemini": {
+      "Model": "gemini-1.5-flash",
+      "ApiKey": "gemini-key",
+      "Endpoint": ""
+    },
+    "GoogleCloud": {
+      "Model": "gemini-1.5-flash",
+      "ProjectId": "my-gcp-project",
+      "Location": "us-central1",
+      "ApiKey": "vertex-key",
+      "AccessToken": "",
+      "TokenPath": "",
+      "Endpoint": ""
+    }
+  }
+}
 ```
 
-You can modify this list to add or remove frameworks.
+Notes:
 
-Likewise, you can modify the attributes from the framework. 
+- `GoogleGemini` targets the Gemini API endpoint.
+- `GoogleCloud` targets Vertex AI / Google Cloud endpoints.
+- `GoogleCloud` can authenticate with its own `ApiKey`, `AccessToken`, `TokenPath`, or application default credentials.
 
-### Run Collect-Tests
+## Experiment config
 
-Assuming that you have completed the installation from the [README.md](../README.md) and you have defined the list of repositories and testing frameworks in the ```default-config.json```, you can now run the program:
-
-```sh
-dotnet run --project ./TestMap/TestMap.csproj collect-tests --config ./TestMap/Config/default-config.json
-```
-```sh
-./TestMap.exe collect-tests --config ./TestMap/Config/default-config.json
-```
-
-## Generating Tests
-Once the repositories are collected and the tests are extracted from their respective programs, we can generate our own tests to compare.
-
-### Configure AI Model
-
-Within the generated ```/Config/default-config.json``` modify the respective ```Generation``` section:
-
-```Provider``` - This is the provider of the model. Supported providers include:
-- openai - models such as GPT
-- ollama - locally hosted models
-- google - models such as gemini
-- amazon - used for antrophic models and others hosted through amazon bedrock
-- custom - used for any other custom hosted models
-
-```Model``` - This is the name of the model using
-
-```MaxRetries``` - This is the number of retry requests the program will send to the model before abandoning request
-
-__NOTE__: Each Provider requires a different section for parameters to be added below in the configuration file. Each section will be input in the following section:
 ```json
-"PROVIDER-SECTION-TITLE": {
-    "PARAMETER": "PARAMETER-VALUE"
-    ...
-  },
+{
+  "ExperimentConfig": {
+    "IncludeProviders": ["OpenAi", "GoogleGemini"],
+    "PreferredProvider": "OpenAi",
+    "CandidateLimit": 5,
+    "Strategies": ["Pass1", "Pass5", "Repair5"],
+    "MinCoverageThreshold": 0.0,
+    "MaxCoverageThreshold": 0.99,
+    "OutputPath": "D:\\Output\\experiment-results.csv",
+    "IncludeDetailedErrors": true
+  }
+}
 ```
 
-| Provider       | Section Title | Required Parameter | Description                                        |
-| -------------- | ------------- | ------------------ | -------------------------------------------------- |
-| ```openai```   | OpenAI        | ApiKey             | OpenAI API key                                     |
-|                |               | OrgId              | OpenAI organization id                             |
-| ```amazon```   | Amazon        | AwsAccessKey       | AWS Access Key ID                                  |
-|                |               | AwsSecretKey       | AWS Secret Key ID                                  |
-|                |               | AwsRegion          | Region to connect to. See connected regions below. |
-| ```google```   | Google        | ApiKey             | Google Gemini API key                              |
-| ```ollama```   | Ollama        | Endpoint           | Enpoint to the hosted service                      |
-| ```custom```   | Custom        | ApiKey             | Key to use the API                                 |
-|                |               | OrgId              | Organization ID                                    |
-|                |               | Endpoint           | Endpoint to the service                            |
+Notes:
 
-
-<details>
-  <summary>Supported AWS Regions</summary>
-
-*   us-east-1
-*   us-east-2
-*   us-west-1
-*   us-west-2
-*   ca-central-1
-*   mx-central-1
-</details>
-
-### Run Generate
-
-Once the model parameters are correctly set the following command can be executed to generate and analyze the tests.
-
-```sh
-./TestMap.exe generate-tests --config ./TestMap/Config/default-config.json
-```
-
-[OUTPUT STUFF]
+- If `IncludeProviders` is empty, experiment mode uses the usable providers configured in `AiProviderConfig.ProviderConfigs`.
+- `PreferredProvider` is used to order providers first when it is configured and usable.
+- `CandidateLimit` must be greater than `0`, and at least one strategy must be configured.
+- `IncludeDetailedErrors` controls whether error text is written to CSV.
+- `experiment --config` always points to the main TestMap config. Use `--experiment-config` only if you want to split the experiment section into a separate file.

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2024-11-07
  * Initial entry point for the tool
@@ -6,187 +6,209 @@
  * Program.cs
  */
 
-using System.Reflection;
-using CommandLine;
-using Microsoft.Extensions.Configuration;
+using System.CommandLine;
+using System.Text.Json;
+using TestMap.App;
 using TestMap.CLIOptions;
+using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Services;
 using TestMap.Services.Configuration;
-using TestMap.Services.ProjectOperations;
+using TestMap.Services.ProjectDiscovery;
+
 namespace TestMap;
 
 public class Program
 {
+    public static Func<SetupOptions, SetupService> SetupServiceFactory { get; set; } =
+        options => new SetupService(options.BasePath);
+
     /// <summary>
     ///     Main
     /// </summary>
     /// <param name="args">Arguments passed from the CLI</param>
-    public static async Task Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
-        var types = LoadVerbs();
+        var rootCommand = BuildRootCommand();
+        return await rootCommand.Parse(args).InvokeAsync();
+    }
 
-        await Parser.Default.ParseArguments(args, types)
-            .WithParsedAsync(Run);
+    private static RootCommand BuildRootCommand()
+    {
+        var rootCommand = new RootCommand("TestMap");
+
+        rootCommand.Subcommands.Add(CreateSetupCommand());
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "check-projects",
+            "Checks projects in the target file to likely contain tests.",
+            configPath => new CheckProjectsOptions
+            {
+                CheckProjectsConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "collect-tests",
+            "Collect tests from source code.",
+            configPath => new CollectTestOptions
+            {
+                CollectConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "static-analysis",
+            "Run static project analysis, code metrics, test metadata enrichment, and test smell collection.",
+            configPath => new StaticAnalysisOptions
+            {
+                StaticAnalysisConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreatePipelineCommand(
+            "generate-tests",
+            "Generates tests for the repository.",
+            configPath => new GenerateTestsOptions
+            {
+                GenTestsConfigFilePath = configPath
+            }));
+        rootCommand.Subcommands.Add(CreateExperimentCommand());
+
+        return rootCommand;
+    }
+
+    private static Command CreatePipelineCommand(
+        string name,
+        string description,
+        Func<string, IPipelineOptions> createOptions)
+    {
+        var configOption = CreateConfigOption("Config File path.");
+        var command = new Command(name, description);
+        command.Options.Add(configOption);
+        command.SetAction(async parseResult =>
+        {
+            var configPath = parseResult.GetValue(configOption) ?? string.Empty;
+            await Run(createOptions(configPath));
+        });
+
+        return command;
+    }
+
+    private static Command CreateExperimentCommand()
+    {
+        var configOption = CreateConfigOption("Path to the main TestMap configuration JSON file.");
+        var command = new Command("experiment", "Run AI provider comparison experiments for test generation.");
+        command.Options.Add(configOption);
+        command.SetAction(async parseResult =>
+        {
+            await Run(new ExperimentOptions
+            {
+                ConfigFilePath = parseResult.GetValue(configOption) ?? string.Empty
+            });
+        });
+
+        return command;
+    }
+
+    private static Command CreateSetupCommand()
+    {
+        var basePathOption = new Option<string>("--base-path", "-b")
+        {
+            Description = "Base Path for the project."
+        };
+        var overwriteOption = new Option<bool>("--overwrite", "-o")
+        {
+            Description = "Overwrite Config File."
+        };
+        var command = new Command("setup", "Generates the config file.");
+        command.Options.Add(basePathOption);
+        command.Options.Add(overwriteOption);
+        command.SetAction(async parseResult =>
+        {
+            await Run(new SetupOptions
+            {
+                BasePath = parseResult.GetValue(basePathOption) ?? string.Empty,
+                OverwriteFile = parseResult.GetValue(overwriteOption)
+            });
+        });
+
+        return command;
+    }
+
+    private static Option<string> CreateConfigOption(string description)
+    {
+        return new Option<string>("--config", "-c")
+        {
+            Description = description
+        };
     }
 
     /// <summary>
-    ///     Gets the commandline verbs defined for the program.
+    /// Routes command-line arguments to the appropriate execution handler.
     /// </summary>
-    /// <returns>Array of commandline objects</returns>
-    private static Type[] LoadVerbs()
-    {
-        return Assembly.GetExecutingAssembly().GetTypes()
-            .Where(t => t.GetCustomAttribute<VerbAttribute>() != null).ToArray();
-    }
-
-
+    /// <param name="obj">Parsed command-line options object.</param>
     private static async Task Run(object obj)
     {
         switch (obj)
         {
-            case CollectTestOptions c:
-                await RunCollect(c);
+            case ExperimentOptions experimentOptions:
+                await RunExperimentPipeline(experimentOptions);
                 break;
-            case GenerateTestsOptions gt:
-                await RunGenTests(gt);
+            case IPipelineOptions pipelineOptions:
+                await RunPipeline(pipelineOptions);
                 break;
-            case FullAnalysisOptions fa:
-                await RunFullAnalysis(fa);
+            case SetupOptions setupOptions:
+                RunSetup(setupOptions);
                 break;
-            case SetupOptions s:
-                RunSetup(s);
-                break;
-            case CheckProjectsOptions cp:
-                await RunCheckProjects(cp);
-                break;
-            case ValidateProjectsOptions vo:
-                await RunValidateProjects(vo);
-                break;
-            case WindowsCheckOptions wc:
-                await RunWindowsCheck(wc);
-                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown options type: {obj.GetType().Name}");
         }
     }
 
     /// <summary>
-    ///     Builds the configuration using options, starts the TestMapRunner
+    /// Unified pipeline execution method for all pipeline-based commands.
+    /// Loads configuration, initializes services, and runs the pipeline.
     /// </summary>
-    /// <param name="testOptions">CLI options parsed by CommandLine</param>
-    private static async Task RunCollect(CollectTestOptions testOptions)
+    /// <param name="options">Pipeline options implementing IPipelineOptions.</param>
+    private static async Task RunPipeline(IPipelineOptions options)
+    {
+        // Load utilities and secrets
+        Utilities.Utilities.Load();
+
+        // Load and bind configuration
+        var configObj = LoadMainConfiguration(options.ConfigFilePath);
+
+        // Configure service with run mode and secrets
+        var configurationService = new ConfigurationService(configObj)
+        {
+            RunMode = options.Mode
+        };
+        configurationService.SetSecrets();
+
+        // Create and run the pipeline coordinator
+        var pipelineRunner = new ProjectRunCoordinator(configurationService);
+        await pipelineRunner.RunAsync();
+    }
+
+    private static async Task RunExperimentPipeline(ExperimentOptions options)
     {
         Utilities.Utilities.Load();
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(testOptions.CollectConfigFilePath), false, true)
-            .Build();
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
-        var configurationService = new ConfigurationService(configObj);
-        configurationService.RunMode = testOptions.Mode;
+
+        var configObj = LoadMainConfiguration(options.ConfigFilePath);
+
+        var configurationService = new ConfigurationService(configObj)
+        {
+            RunMode = options.Mode
+        };
         configurationService.SetSecrets();
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
+
+        var pipelineRunner = new ProjectRunCoordinator(configurationService);
+        await pipelineRunner.RunAsync();
     }
 
     /// <summary>
-    ///     Builds the configuration using options, starts the TestMapRunner
+    /// Generates the correct configuration for TestMap.
     /// </summary>
-    /// <param name="options">CLI options parsed by CommandLine</param>
-    private static async Task RunGenTests(GenerateTestsOptions options)
-    {
-        Utilities.Utilities.Load();
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(options.GenTestsConfigFilePath), false, true)
-            .Build();
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
-        var configurationService = new ConfigurationService(configObj);
-        configurationService.RunMode = options.Mode;
-        configurationService.SetSecrets();
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
-    }
-
-    /// <summary>
-    ///     Builds the configuration using options, starts the TestMapRunner
-    /// </summary>
-    /// <param name="options">CLI options parsed by CommandLine</param>
-    private static async Task RunFullAnalysis(FullAnalysisOptions options)
-    {
-        Utilities.Utilities.Load();
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(options.FullAnalysisConfigFilePath), false, true)
-            .Build();
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
-        var configurationService = new ConfigurationService(configObj);
-        configurationService.RunMode = options.Mode;
-        configurationService.SetSecrets();
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
-    }
-
-    /// <summary>
-    ///     Generates the correct configuration for TestMap
-    /// </summary>
-    /// <param name="options">CLI options parsed by CommandLine</param>
+    /// <param name="options">Setup options parsed by CommandLine.</param>
     private static void RunSetup(SetupOptions options)
     {
-        var setupService = new SetupService(options.BasePath);
+        var setupService = SetupServiceFactory(options);
         setupService.Setup(options.OverwriteFile);
-    }
-    /// <summary>
-    ///     Generates the correct configuration for TestMap
-    /// </summary>
-    /// <param name="options">CLI options parsed by CommandLine</param>
-    private static async Task RunCheckProjects(CheckProjectsOptions options)
-    {
-        Utilities.Utilities.Load();
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(options.CheckProjectsConfigFilePath), false, true)
-            .Build();
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
-        var configurationService = new ConfigurationService(configObj);
-        configurationService.RunMode = options.Mode;
-        configurationService.SetSecrets();
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
-    }
-    
-
-    /// <summary>
-    ///     Generates the correct configuration for TestMap
-    /// </summary>
-    /// <param name="options">CLI options parsed by CommandLine</param>
-    private static async Task RunValidateProjects(ValidateProjectsOptions options)
-    {
-        Utilities.Utilities.Load();
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(options.ValidateProjectsConfigFilePath), false, true)
-            .Build();
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
-        var configurationService = new ConfigurationService(configObj);
-        configurationService.RunMode = options.Mode;
-        configurationService.SetSecrets();
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
-    }
-    
-    private static async Task RunWindowsCheck(WindowsCheckOptions options)
-    {
-        Utilities.Utilities.Load();
-        var config = new ConfigurationBuilder()
-            .AddJsonFile(ConfigurationLocation(options.WindowsCheckConfigFilePath), false, true)
-            .Build();
-        var configObj = new TestMapConfig();
-        config.Bind(configObj);
-        var configurationService = new ConfigurationService(configObj);
-        configurationService.RunMode = options.Mode;
-        configurationService.SetSecrets();
-        var testMapRunner = new TestMapRunner(configurationService);
-        await testMapRunner.RunAsync();
     }
 
     private static string ConfigurationLocation(string path)
@@ -194,5 +216,15 @@ public class Program
         if (string.IsNullOrWhiteSpace(path))
             return Path.Join(Directory.GetCurrentDirectory(), "Config", "default-config.json");
         return path;
+    }
+
+    private static TestMapConfig LoadMainConfiguration(string path)
+    {
+        var json = File.ReadAllText(ConfigurationLocation(path));
+        var configObj = JsonSerializer.Deserialize<TestMapConfig>(json, ConfigJsonSerializer.CreateOptions());
+
+        return configObj
+               ?? throw new InvalidOperationException(
+                   $"Config file '{ConfigurationLocation(path)}' could not be parsed.");
     }
 }

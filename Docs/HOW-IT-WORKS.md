@@ -1,36 +1,32 @@
-﻿# How It Works
+# How It Works
 
-TestMap uses the Roslyn API and Microsoft CodeAnalysis to find C# tests within repositories.
+TestMap combines repository operations, Roslyn-based static analysis, local persistence, and optional AI generation.
 
-After finding the tests, TestMap collects them into an SQLITE database.
+## Core flow
 
-## Collect-Tests
+For each project in the target file, TestMap can:
 
-The ```collect-tests``` command is used to collect tests from repositories.
+1. clone the repository
+2. discover solution and project files
+3. analyze C# code with Roslyn
+4. persist code, coverage, mutation, and test metadata to SQLite through EF Core
+5. build and run tests, usually through Docker-backed execution
+6. run follow-up analysis or generation steps depending on the selected command
 
-This starts collecting the tests from repositories.
+## Main commands
 
-For each repository we:
-- Clone the repo
-- Find solutions (.sln)
-  - For each solution find projects (.csproj) in the solution
-    - For each project load the project's compilation and syntax trees (.cs)
+### `collect-tests`
 
-- After collecting all the tests, TestMap will use Docker to run the tests.
-- After running the tests, TestMap will analyze the results and store them in the SQLITE database.
+Collects repository, source, build, test, and coverage information for later analysis.
 
-## Generate-Tests
+### `generate-tests`
 
-The ```generate-tests``` command is used to generate tests and integrate them into the target project.
+Uses the configured AI provider from `TestingConfig.GenerationConfig`, selects low-coverage methods from stored analysis data, and runs the shared test-generation pipeline to generate or repair tests.
 
-TestMap uses the SQLITE database to retrieve contextual information about the project's existing tests.
+### `experiment`
 
-Then, collects source code methods with an existing test that has less than 100% coverage (Line Rate).
+Selects candidate methods from stored coverage data, iterates providers and strategies from `ExperimentConfig`, executes generated tests, persists results, and exports CSV if `ExperimentConfig.OutputPath` is configured.
 
-TestMap uses SemanticKernel to query an LLM of your choice to generate a new test, integrate it, run it, and collect the results.
+## Storage
 
-If the generated test fails, TestMap will retry the test up to your specified number of times.
-
-If the generated test passes, TestMap will assess the coverage to determine improvement.
-
-If the test fails to improve coverage, it will not be integrated into the project.
+Each project gets its own SQLite database file. That part of the design is sound and keeps runs isolated.

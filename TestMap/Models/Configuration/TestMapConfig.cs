@@ -1,18 +1,13 @@
-using TestMap.Models.Configuration.Providers;
+using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Runtime;
+using TestMap.Models.Configuration.Testing;
 
 namespace TestMap.Models.Configuration;
 
 public class TestMapConfig
 {
-    public FilePathConfig FilePaths { get; set; } = new();
-    public SettingsConfig Settings { get; set; } = new();
-    public DockerConfig Docker { get; set; } = new();
-    public Dictionary<string, List<string>>? Frameworks { get; set; }
-    public PersistenceConfig Persistence { get; set; } = new();
-    public GenerationConfig Generation { get; set; } = new();
-    public AmazonConfig Amazon { get; set; } = new();
-    public OllamaConfig Ollama { get; set; } = new();
-    public OpenAiConfig OpenAi { get; set; } = new();
-    public GoogleConfig Google { get; set; } = new();
-    public CustomConfig Custom { get; set; } = new();
+    public RuntimeConfig RuntimeConfig { get; set; } = new();
+    public TestingConfig TestingConfig { get; set; } = new();
+    public AiProviderConfig AiProviderConfig { get; set; } = new();
+    public ExperimentConfig ExperimentConfig { get; set; } = new();
 }

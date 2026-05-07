@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2025-03-26
  *
@@ -6,8 +6,6 @@
  *
  * CodeModel.cs
  */
-
-using System.Text.Json;
 
 namespace TestMap.Models.Code;
 
@@ -25,28 +23,11 @@ namespace TestMap.Models.Code;
 public class FileModel(
     List<string> usingStatements,
     int analysisProjectId = 0,
-    string guid = "",
-    string ns = "",
-    string name = "",
-    string language = "",
-    string solutionFilePath = "",
-    string projectPath = "",
     string filePath = "")
 {
     public int Id { get; set; } = 0;
     public int AnalysisProjectId { get; set; } = analysisProjectId;
-    public string Guid { get; set; } = guid;
-    public string Namespace { get; set; } = ns;
-    public string Name { get; set; } = name;
-    public string Language { get; set; } = language;
-
-    public string MetaData { get; set; } = JsonSerializer.Serialize(new Dictionary<string, string>
-    {
-        { "SolutionFilePath", solutionFilePath },
-        { "ProjectFilePath", projectPath }
-    });
-
-    public string UsingStatements { get; set; } = JsonSerializer.Serialize(usingStatements ?? new List<string>());
+    public List<string> UsingStatements { get; set; } = usingStatements;
     public string FilePath { get; set; } = filePath;
-    public string ContentHash { get; set; } = Utilities.Utilities.ComputeSha256(filePath);
+    public string ContentHash => Utilities.Utilities.ComputeSha256(FilePath);
 }
