@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TestMap.Models.Configuration.AiProviders.Amazon;
 using TestMap.Models.Configuration.AiProviders.Custom;
 using TestMap.Models.Configuration.AiProviders.Google;
@@ -15,6 +16,7 @@ public class AiProviderConfig
     public CustomOpenAiConfig CustomOpenAi { get; set; } = new() { Provider = AiProvider.CustomOpenAi };
     public OllamaConfig Ollama { get; set; } = new() { Provider = AiProvider.Ollama };
 
+    [JsonIgnore]
     public IReadOnlyList<IAiProviderConfig> ProviderConfigs =>
     [
         OpenAi,

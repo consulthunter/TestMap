@@ -16,6 +16,7 @@ public interface IMethodSelectionService
     /// <returns>List of candidate methods ready for test generation</returns>
     Task<List<CandidateMethod>> SelectCandidateMethodsAsync(
         ExperimentConfig config,
+        bool requirePassingExistingTest = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -57,6 +58,7 @@ public class CandidateMethodContext
     public required string TestFramework { get; init; }
     public required string TestDependencies { get; init; }
     public required string CoverageGapSummary { get; init; }
+    public string MutationSummary { get; init; } = "No surviving or no-coverage mutants are available for this method.";
 }
 
 public sealed class CandidateSourceLocation

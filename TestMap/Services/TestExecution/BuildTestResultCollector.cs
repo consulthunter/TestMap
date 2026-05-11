@@ -65,16 +65,17 @@ public sealed class BuildTestResultCollector
                 rawCoverageReport,
                 normalizedCoverageReport,
                 string.Empty,
-                null);
+                null,
+                []);
 
         try
         {
             var (mutationReports, rawMutationReports) =
                 await _collectMutationTestingResultsService.CollectAsync(runId, mutationTargets.ToList());
 
-            var mutationScores = new List<double>();
-            foreach (var mutationReport in mutationReports)
-                mutationScores.Add(await _mapMutationService.MapAsync(mutationReport));
+            var mutationScores = mutationReports
+                .Select(mutationReport => _mapMutationService.CalculateMutationScore(mutationReport))
+                .ToList();
 
             return new BuildTestCollectedResults(
                 testResults,
@@ -83,13 +84,22 @@ public sealed class BuildTestResultCollector
                 rawCoverageReport,
                 normalizedCoverageReport,
                 rawMutationReports,
-                mutationScores.Count == 0 ? null : mutationScores.Average());
+                mutationScores.Count == 0 ? null : mutationScores.Average(),
+                mutationReports);
         }
         catch (Exception ex)
         {
             _context.Project.Logger?.Error(ex, "Mutation collection or mapping failed.");
             throw;
         }
+    }
+
+    public async Task PersistMutationReportsAsync(
+        int testRunId,
+        IReadOnlyCollection<StrykerMutationResults> mutationReports)
+    {
+        foreach (var mutationReport in mutationReports)
+            await _mapMutationService.MapAsync(mutationReport, testRunId);
     }
 }
 
@@ -100,4 +110,5 @@ public sealed record BuildTestCollectedResults(
     string CoverageReportRaw,
     string CoverageReportNormalizedRaw,
     string MutationReportRaw,
-    double? MutationScore);
+    double? MutationScore,
+    IReadOnlyCollection<StrykerMutationResults> MutationReports);

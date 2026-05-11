@@ -33,17 +33,36 @@ RUN Invoke-WebRequest "https://github.com/git-for-windows/git/releases/download/
 
 SHELL ["cmd", "/S", "/C"]
 
-RUN `
-    curl -SL --output vs_buildtools.exe https://aka.ms/vs/stable/vs_buildtools.exe `
-    && (start /w vs_buildtools.exe --quiet --wait --norestart --nocache `
+RUN echo Downloading VS Build Tools bootstrapper... `
+    && curl.exe -L --fail --show-error --output C:\vs_buildtools.exe https://aka.ms/vs/stable/vs_buildtools.exe `
+    && echo Download complete `
+    && dir C:\vs_buildtools.exe
+
+RUN echo Installing VS Build Tools... `
+    && C:\vs_buildtools.exe --quiet --wait --norestart --nocache `
         --installPath "%ProgramFiles(x86)%\Microsoft Visual Studio\BuildTools" `
         --add Microsoft.VisualStudio.Workload.AzureBuildTools `
+        --add Microsoft.VisualStudio.Workload.MSBuildTools `
+        --add Microsoft.Net.Component.4.8.SDK `
+        --add Microsoft.Net.Component.4.8.TargetingPack `
+        --add Microsoft.Net.ComponentGroup.4.8.DeveloperTools `
+        --add Microsoft.Net.Component.4.8.1.SDK `
+        --add Microsoft.Net.Component.4.8.1.TargetingPack `
+        --add Microsoft.Net.ComponentGroup.4.8.1.DeveloperTools `
+        --add Microsoft.Net.Component.4.7.2.TargetingPack `
+        --add Microsoft.Net.Component.4.7.1.TargetingPack `
+        --add Microsoft.Net.Component.4.7.TargetingPack `
+        --add Microsoft.Net.Component.4.6.2.TargetingPack `
+        --add Microsoft.Net.ComponentGroup.4.6.2-4.7.1.DeveloperTools `
+        --add Microsoft.VisualStudio.Component.NuGet.BuildTools `
         --remove Microsoft.VisualStudio.Component.Windows10SDK.10240 `
         --remove Microsoft.VisualStudio.Component.Windows10SDK.10586 `
         --remove Microsoft.VisualStudio.Component.Windows10SDK.14393 `
         --remove Microsoft.VisualStudio.Component.Windows81SDK `
-        || IF "%ERRORLEVEL%"=="3010" EXIT 0) `
-    && del /q vs_buildtools.exe
+    || IF "%ERRORLEVEL%"=="3010" EXIT 0
+
+RUN echo VS Build Tools install completed `
+    && del /q C:\vs_buildtools.exe
 
 SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "-Command"]
 

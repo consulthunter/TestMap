@@ -715,6 +715,8 @@ Instruction:
 
     private string CreateScenarioPrompt(GenerationPromptEvidence request)
     {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request);
+
         return $@"Given this method:
 {request.MethodBody}
 
@@ -738,6 +740,8 @@ Focus on an edge case or untested path.
 Use this coverage gap information when deciding which path to target:
 {request.CoverageGapSummary}
 
+{mutationEvidence}
+
 Respond with only the scenario description, 1-2 sentences.";
     }
 
@@ -759,6 +763,8 @@ Respond with only the method name, nothing else.";
         string scenario,
         string contextSummary)
     {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request);
+
         return $@"For this test scenario:
 {scenario}
 
@@ -789,6 +795,8 @@ Decide:
 Relevant coverage gaps:
 {request.CoverageGapSummary}
 
+{mutationEvidence}
+
 Respond with only JSON.";
     }
 
@@ -798,6 +806,8 @@ Respond with only JSON.";
         ArrangePlan arrangePlan,
         string contextSummary)
     {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request);
+
         return $@"For this test scenario:
 {scenario}
 
@@ -818,6 +828,8 @@ Return strict JSON in this shape:
 
 Relevant coverage gaps:
 {request.CoverageGapSummary}
+
+{mutationEvidence}
 
 Respond with only JSON.";
     }
@@ -844,6 +856,8 @@ Respond with only JSON.";
 
     private string CreateAssertionPlanPrompt(GenerationPromptEvidence request, string scenario, ActionPlan actionPlan)
     {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request);
+
         return $@"For this test scenario:
 {scenario}
 
@@ -861,6 +875,8 @@ Example test metadata:
 
 Relevant coverage gaps:
 {request.CoverageGapSummary}
+
+{mutationEvidence}
 
 Return strict JSON in this shape:
 {{
@@ -881,6 +897,8 @@ Respond with only JSON.";
         StructuredStepResult<AssertionPlan> assertionPlan,
         string contextSummary)
     {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request);
+
         return $@"Write the complete final {request.TestFramework} test method for this target method:
 {request.MethodBody}
 
@@ -929,6 +947,8 @@ Available dependencies:
 Coverage gaps to target:
 {request.CoverageGapSummary}
 
+{mutationEvidence}
+
 Requirements:
 - Return a complete test method only, not a scaffold or outline
 - Use the requested method name
@@ -943,6 +963,8 @@ Respond with only the complete test method code wrapped in ```csharp.";
 
     private string CreateRepairPrompt(TestRepairRequest request)
     {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request.MetricsPath, request.MutationSummary);
+
         if (DetermineRepairStepType(request) == GenerationStepType.CompileRepair)
             return $@"I previously attempted to generate a test for this method:
 {request.MethodBody}
@@ -970,6 +992,8 @@ Project-wide test metadata patterns:
 
 Coverage gaps for the target method are:
 {request.CoverageGapSummary}
+
+{mutationEvidence}
 
 The test run (attempt #{request.AttemptNumber}) produced these errors:
 {request.ErrorLogs}
@@ -1006,6 +1030,8 @@ Observed execution/test feedback:
 Coverage gaps for the target method are:
 {request.CoverageGapSummary}
 
+{mutationEvidence}
+
 Focus only on behavior repair. Fix:
 - wrong assertion logic
 - brittle expectations
@@ -1031,6 +1057,20 @@ Respond with only the complete test method code wrapped in ```.";
         }
 
         return response.Trim();
+    }
+
+    private static string BuildMutationEvidencePromptBlock(GenerationPromptEvidence request)
+    {
+        return BuildMutationEvidencePromptBlock(request.MetricsPath, request.MutationSummary);
+    }
+
+    private static string BuildMutationEvidencePromptBlock(MetricsDrivenPath? metricsPath, string mutationSummary)
+    {
+        if (metricsPath is not (MetricsDrivenPath.Mutation or MetricsDrivenPath.CoverageAndMutation))
+            return string.Empty;
+
+        return $@"Mutation context:
+{mutationSummary}";
     }
 
     private string ExtractMethodName(string response)
@@ -1157,7 +1197,9 @@ Respond with only the complete test method code wrapped in ```.";
         public required string TestSupportContext { get; init; }
         public required string TestFramework { get; init; }
         public required string TestDependencies { get; init; }
+        public MetricsDrivenPath? MetricsPath { get; init; }
         public required string CoverageGapSummary { get; init; }
+        public required string MutationSummary { get; init; }
 
         public static GenerationPromptEvidence FromRequest(TestGenerationRequest request)
         {
@@ -1175,7 +1217,9 @@ Respond with only the complete test method code wrapped in ```.";
                 TestSupportContext = request.TestSupportContext,
                 TestFramework = request.TestFramework,
                 TestDependencies = request.TestDependencies,
-                CoverageGapSummary = request.CoverageGapSummary
+                MetricsPath = request.MetricsPath,
+                CoverageGapSummary = request.CoverageGapSummary,
+                MutationSummary = request.MutationSummary
             };
         }
     }

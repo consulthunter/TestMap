@@ -221,6 +221,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddScoped<ExperimentRunRepository>();
         services.AddScoped<ExperimentMatrixWorkItemRepository>();
+        services.AddScoped<CandidateInventoryRepository>();
         services.AddScoped<CandidateMethodRepository>();
         services.AddScoped<GenerationAttemptRepository>();
         services.AddScoped<GenerationStepRepository>();

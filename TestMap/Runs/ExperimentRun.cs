@@ -18,6 +18,7 @@ public class ExperimentRun : IPipelineRun
     private readonly EnrichTestMetadataStep _enrichTestMetadataStep;
     private readonly CollectTestSmellsStep _collectTestSmellsStep;
     private readonly BuildTestStep _buildTestStep;
+    private readonly WriteCollectTestsResultStep _writeCollectTestsResultStep;
     private readonly RunExperimentStep _runExperimentStep;
 
     public ExperimentRun(
@@ -30,6 +31,7 @@ public class ExperimentRun : IPipelineRun
         EnrichTestMetadataStep enrichTestMetadataStep,
         CollectTestSmellsStep collectTestSmellsStep,
         BuildTestStep buildTestStep,
+        WriteCollectTestsResultStep writeCollectTestsResultStep,
         RunExperimentStep runExperimentStep)
     {
         _cloneRepoStep = cloneRepoStep;
@@ -41,6 +43,7 @@ public class ExperimentRun : IPipelineRun
         _enrichTestMetadataStep = enrichTestMetadataStep;
         _collectTestSmellsStep = collectTestSmellsStep;
         _buildTestStep = buildTestStep;
+        _writeCollectTestsResultStep = writeCollectTestsResultStep;
         _runExperimentStep = runExperimentStep;
     }
 
@@ -56,6 +59,7 @@ public class ExperimentRun : IPipelineRun
             _enrichTestMetadataStep,
             _collectTestSmellsStep,
             _buildTestStep,
+            _writeCollectTestsResultStep,
             _runExperimentStep
         ]);
     }

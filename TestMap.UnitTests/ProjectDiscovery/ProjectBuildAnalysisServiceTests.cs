@@ -72,6 +72,7 @@ public sealed class ProjectBuildAnalysisServiceTests : IDisposable
         Assert.True(metadata.IsTestProject);
         Assert.False(metadata.UsesWindowsDesktop);
         Assert.Equal(WindowsRequirementType.NotRequired, metadata.WindowsRequirement);
+        Assert.Equal(ExecutionSupportType.Supported, metadata.ExecutionSupport);
         Assert.Equal(CoverageCollectorType.Coverlet, metadata.CoverageCollector);
         AssertDecision(
             metadata,
@@ -104,6 +105,7 @@ public sealed class ProjectBuildAnalysisServiceTests : IDisposable
         Assert.Contains("targets: net8.0, net10.0", metadata.Notes);
         Assert.Contains("coverage: Coverlet", metadata.Notes);
         Assert.Contains("windows: NotRequired", metadata.Notes);
+        Assert.Contains("support: Supported", metadata.Notes);
     }
 
     /// <summary>
@@ -121,7 +123,7 @@ public sealed class ProjectBuildAnalysisServiceTests : IDisposable
             """
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
-                <TargetFramework>net8.0-windows</TargetFramework>
+                <TargetFramework>net8.0-windows10.0.19041</TargetFramework>
                 <UseWPF>true</UseWPF>
               </PropertyGroup>
             </Project>
@@ -132,11 +134,12 @@ public sealed class ProjectBuildAnalysisServiceTests : IDisposable
         var metadata = await service.AnalyzeAsync(CreateProject("Desktop.Tests", projectPath));
 
         // Assert
-        Assert.Equal(["net8.0-windows"], metadata.BuildTargets);
-        Assert.Equal("net8.0-windows", metadata.DefaultBuildTarget);
+        Assert.Equal(["net8.0-windows10.0.19041"], metadata.BuildTargets);
+        Assert.Equal("net8.0-windows10.0.19041", metadata.DefaultBuildTarget);
         Assert.True(metadata.IsTestProject);
         Assert.True(metadata.UsesWindowsDesktop);
         Assert.Equal(WindowsRequirementType.Required, metadata.WindowsRequirement);
+        Assert.Equal(ExecutionSupportType.Supported, metadata.ExecutionSupport);
         Assert.Equal(CoverageCollectorType.Unknown, metadata.CoverageCollector);
         AssertDecision(
             metadata,
@@ -145,6 +148,89 @@ public sealed class ProjectBuildAnalysisServiceTests : IDisposable
             "project-discovery.windows-requirement.desktop",
             RuleConfidence.High,
             ("ProjectXml", "WindowsDesktop", "UseWPF/UseWindowsForms"));
+    }
+
+    /// <summary>
+    /// Verifies that non-Windows platform target frameworks are marked unsupported by the generic runner.
+    /// </summary>
+    [Theory]
+    [Trait("Category", "Unit")]
+    [InlineData("net8.0-android", ExecutionSupportType.UnsupportedWorkload)]
+    [InlineData("net8.0-ios", ExecutionSupportType.UnsupportedWorkload)]
+    [InlineData("net8.0-maccatalyst", ExecutionSupportType.UnsupportedWorkload)]
+    [InlineData("net8.0-tvos", ExecutionSupportType.UnsupportedWorkload)]
+    [InlineData("net8.0-browser", ExecutionSupportType.UnsupportedWorkload)]
+    [InlineData("net8.0-customos", ExecutionSupportType.UnsupportedPlatform)]
+    public async Task AnalyzeAsync_WithUnsupportedPlatformTargetFramework_ReturnsUnsupportedExecutionSupport(
+        string targetFramework,
+        ExecutionSupportType expected)
+    {
+        // Arrange
+        var rootPath = CreateTemporaryDirectory();
+        var projectPath = await WriteProjectFileAsync(
+            rootPath,
+            "MobileLibrary",
+            $$"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>{{targetFramework}}</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """);
+        var service = CreateService();
+
+        // Act
+        var metadata = await service.AnalyzeAsync(CreateProject("MobileLibrary", projectPath));
+
+        // Assert
+        Assert.Equal([targetFramework], metadata.BuildTargets);
+        Assert.Equal(WindowsRequirementType.NotRequired, metadata.WindowsRequirement);
+        Assert.Equal(expected, metadata.ExecutionSupport);
+        AssertDecision(
+            metadata,
+            "ExecutionSupport",
+            expected.ToString(),
+            "project-discovery.execution-support.unsupported-target-framework",
+            RuleConfidence.High,
+            ("ProjectXml", "TargetFramework", targetFramework));
+        Assert.Contains($"support: {expected}", metadata.Notes);
+    }
+
+    /// <summary>
+    /// Verifies that explicit non-Windows TargetPlatformIdentifier values are marked unsupported by the generic runner.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task AnalyzeAsync_WithUnsupportedTargetPlatformIdentifier_ReturnsUnsupportedExecutionSupport()
+    {
+        // Arrange
+        var rootPath = CreateTemporaryDirectory();
+        var projectPath = await WriteProjectFileAsync(
+            rootPath,
+            "AndroidLibrary",
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net8.0</TargetFramework>
+                <TargetPlatformIdentifier>Android</TargetPlatformIdentifier>
+              </PropertyGroup>
+            </Project>
+            """);
+        var service = CreateService();
+
+        // Act
+        var metadata = await service.AnalyzeAsync(CreateProject("AndroidLibrary", projectPath));
+
+        // Assert
+        Assert.Equal(WindowsRequirementType.NotRequired, metadata.WindowsRequirement);
+        Assert.Equal(ExecutionSupportType.UnsupportedWorkload, metadata.ExecutionSupport);
+        AssertDecision(
+            metadata,
+            "ExecutionSupport",
+            ExecutionSupportType.UnsupportedWorkload.ToString(),
+            "project-discovery.execution-support.unsupported-target-platform",
+            RuleConfidence.High,
+            ("ProjectXml", "TargetPlatformIdentifier", "Android"));
     }
 
     /// <summary>
@@ -184,6 +270,87 @@ public sealed class ProjectBuildAnalysisServiceTests : IDisposable
             "project-discovery.windows-requirement.runtime-identifier",
             RuleConfidence.Medium,
             ("ProjectXml", "RuntimeIdentifier", "win-x64"));
+    }
+
+    /// <summary>
+    /// Verifies that SDK-style legacy .NET Framework targets require a Windows build environment.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task AnalyzeAsync_WithLegacyNetFrameworkTarget_ReturnsWindowsRequired()
+    {
+        // Arrange
+        var rootPath = CreateTemporaryDirectory();
+        var projectPath = await WriteProjectFileAsync(
+            rootPath,
+            "LegacyLibrary",
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFrameworks>net472;netstandard2.0</TargetFrameworks>
+              </PropertyGroup>
+            </Project>
+            """);
+        var service = CreateService();
+
+        // Act
+        var metadata = await service.AnalyzeAsync(CreateProject("LegacyLibrary", projectPath));
+
+        // Assert
+        Assert.Equal(["net472", "netstandard2.0"], metadata.BuildTargets);
+        Assert.Equal(WindowsRequirementType.Required, metadata.WindowsRequirement);
+        AssertDecision(
+            metadata,
+            "WindowsRequirement",
+            WindowsRequirementType.Required.ToString(),
+            "project-discovery.windows-requirement.legacy-net-framework",
+            RuleConfidence.High,
+            ("ProjectXml", "TargetFramework", "net472"));
+    }
+
+    /// <summary>
+    /// Verifies that old non-SDK-style TargetFrameworkVersion values are normalized and require Windows.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task AnalyzeAsync_WithLegacyTargetFrameworkVersion_NormalizesTargetAndReturnsWindowsRequired()
+    {
+        // Arrange
+        var rootPath = CreateTemporaryDirectory();
+        var projectPath = await WriteProjectFileAsync(
+            rootPath,
+            "LegacyTests",
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+              <PropertyGroup>
+                <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+              </PropertyGroup>
+            </Project>
+            """);
+        var service = CreateService();
+
+        // Act
+        var metadata = await service.AnalyzeAsync(CreateProject("LegacyTests", projectPath));
+
+        // Assert
+        Assert.Equal(["net48"], metadata.BuildTargets);
+        Assert.Equal("net48", metadata.DefaultBuildTarget);
+        Assert.Equal(WindowsRequirementType.Required, metadata.WindowsRequirement);
+        AssertDecision(
+            metadata,
+            "BuildTargets",
+            "net48",
+            "project-discovery.build-targets.target-framework-version",
+            RuleConfidence.Medium,
+            ("ProjectXml", "TargetFrameworkVersion", "v4.8"));
+        AssertDecision(
+            metadata,
+            "WindowsRequirement",
+            WindowsRequirementType.Required.ToString(),
+            "project-discovery.windows-requirement.legacy-net-framework",
+            RuleConfidence.High,
+            ("ProjectXml", "TargetFramework", "net48"));
     }
 
     /// <summary>

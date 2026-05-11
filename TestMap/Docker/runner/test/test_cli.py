@@ -148,7 +148,7 @@ class DotnetCommandTests(unittest.TestCase):
             self.assertEqual("XPlat Code Coverage", calls[0][3].removeprefix("--collect:"))
             self.assertEqual("Code Coverage;Format=Cobertura", calls[1][3].removeprefix("--collect:"))
 
-    def test_run_dotnet_stryker_project_runs_from_test_project_directory_without_project_args(self) -> None:
+    def test_run_dotnet_stryker_project_runs_from_test_project_directory_with_source_project(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_dir = Path(temp_dir)
             test_project_dir = project_dir / "tests" / "Example.Tests"
@@ -164,6 +164,7 @@ class DotnetCommandTests(unittest.TestCase):
             args = argparse.Namespace(
                 run_id="iteration_123",
                 report_name="Example",
+                project="Example.csproj",
                 test_project=str(test_project),
             )
 
@@ -179,7 +180,8 @@ class DotnetCommandTests(unittest.TestCase):
             command = run_process.call_args.args[0]
             self.assertEqual(["dotnet", "stryker"], command[:2])
             self.assertNotIn("--solution", command)
-            self.assertNotIn("--project", command)
+            self.assertIn("--project", command)
+            self.assertEqual("Example.csproj", command[command.index("--project") + 1])
             self.assertNotIn("--test-projects", command)
             self.assertEqual(test_project_dir, run_process.call_args.kwargs["cwd"])
 

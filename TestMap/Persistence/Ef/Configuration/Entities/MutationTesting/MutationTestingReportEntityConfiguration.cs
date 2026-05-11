@@ -16,6 +16,7 @@ public class MutationTestingReportEntityConfiguration : IEntityTypeConfiguration
 
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.ProjectId).HasColumnName("project_id").IsRequired();
+        builder.Property(x => x.TestRunId).HasColumnName("test_run_id");
         builder.Property(x => x.SchemaVersion).HasColumnName("schema_version").IsRequired();
         builder.Property(x => x.ProjectRoot).HasColumnName("project_root").IsRequired();
         builder.Property(x => x.MutationScore).HasColumnName("mutation_score").IsRequired();
@@ -46,5 +47,7 @@ public class MutationTestingReportEntityConfiguration : IEntityTypeConfiguration
             .IsRequired();
 
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
+
+        builder.HasIndex(x => x.TestRunId);
     }
 }

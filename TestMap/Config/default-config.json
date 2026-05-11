@@ -12,7 +12,8 @@
     },
     "Docker": {
       "Image": "net-sdk-all",
-      "Context": "desktop-linux"
+      "Context": "desktop-linux",
+      "WindowsNetwork": "nat"
     },
     "Frameworks": {
       "NUnit": [
@@ -50,9 +51,9 @@
       "ContextMode": "chained-history",
       "Steps": {
         "EnableEvidencePackage": true,
-        "EnableContextGraph": true,
-        "EnableContextResolution": true,
-        "EnableRoslynValidation": true,
+        "EnableContextGraph": false,
+        "EnableContextResolution": false,
+        "EnableRoslynValidation": false,
         "EnableScenario": true,
         "EnableMethodName": true,
         "EnableArrangePlan": true,
@@ -72,9 +73,10 @@
     "MetadataEnrichmentConfig": {
       "Enabled": true,
       "UseModel": true,
-      "Provider": "custom-openai",
+      "Provider": "openai",
       "Mode": "chat",
-      "Temperature": 0.8,
+      "Temperature": 0.0,
+      "RequestDelayMs": 2000,
       "MaxCategories": 3,
       "PromptVersion": "test-metadata-v1"
     },
@@ -103,7 +105,7 @@
   },
   "AiProviderConfig": {
     "OpenAi": {
-      "Model": "gpt-3.5-turbo",
+      "Model": "gpt-5.1",
       "OrgId": "",
       "ApiKey": "",
       "Provider": "openai"
@@ -146,39 +148,7 @@
       "ApiKey": "",
       "Endpoint": "http://localhost:10000/",
       "Provider": "ollama"
-    },
-    "ProviderConfigs": [
-      {
-        "Model": "gpt-3.5-turbo",
-        "ApiKey": "",
-        "Provider": "openai"
-      },
-      {
-        "Model": "",
-        "ApiKey": "",
-        "Provider": "amazon"
-      },
-      {
-        "Model": "gemini-1.5-flash",
-        "ApiKey": "",
-        "Provider": "google-gemini"
-      },
-      {
-        "Model": "gemini-1.5-flash",
-        "ApiKey": "",
-        "Provider": "google-cloud"
-      },
-      {
-        "Model": "",
-        "ApiKey": "",
-        "Provider": "custom-openai"
-      },
-      {
-        "Model": "",
-        "ApiKey": "",
-        "Provider": "ollama"
-      }
-    ]
+    }
   },
   "ExperimentConfig": {
     "Objective": "test-suite-expansion",
@@ -186,9 +156,12 @@
     "GenerationApproach": "metrics-driven",
     "Executor": "basic-extension",
     "Approaches": [
+      "naive",
       "metrics-driven"
     ],
     "MetricsPaths": [
+      "coverage",
+      "mutation",
       "coverage-and-mutation"
     ],
     "BudgetModes": [
@@ -196,8 +169,9 @@
       "pass-at5",
       "pass-at1-repair-at5"
     ],
-    "CompareHistoryModes": false,
+    "CompareHistoryModes": true,
     "ContextModes": [
+      "no-history",
       "chained-history"
     ],
     "StepAblation": {
@@ -221,10 +195,10 @@
     },
     "Temperature": 0,
     "IncludeProviders": [
-      "CustomOpenAi"
+      "OpenAi"
     ],
     "PreferredProvider": "CustomOpenAi",
-    "CandidateLimit": 3,
+    "CandidateLimit": 20,
     "MinCoverageThreshold": 0.0,
     "MaxCoverageThreshold": 0.99,
     "StepErrorRetries": 3,

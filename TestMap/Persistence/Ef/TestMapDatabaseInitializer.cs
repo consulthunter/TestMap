@@ -11,9 +11,11 @@ public sealed class TestMapDatabaseInitializer
     private static readonly HashSet<string> CompatibilityOnlyTables = new(StringComparer.OrdinalIgnoreCase)
     {
         "coverage_gaps",
+        "mutation_testing_reports",
         "mutants",
         "mutant_survived_tests",
         "candidate_method_risk_scores",
+        "candidate_inventory",
         "experiment_matrix_work_items",
         "test_execution_results",
         "flaky_test_scores",
@@ -31,6 +33,9 @@ public sealed class TestMapDatabaseInitializer
 
     public async Task InitializeAsync(TestMapDbContext db, CancellationToken cancellationToken = default)
     {
+        if (!await TableExistsAsync(db, ProjectsTableName, cancellationToken))
+            await RepairEmptyMigrationOnlyDatabaseAsync(db, cancellationToken);
+
         await db.Database.MigrateAsync(cancellationToken);
 
         if (!await TableExistsAsync(db, ProjectsTableName, cancellationToken))

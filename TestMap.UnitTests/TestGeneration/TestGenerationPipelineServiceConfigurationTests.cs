@@ -120,6 +120,50 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
         Assert.Contains("MethodParameter", provider.Prompts[0]);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task GenerateTestAsync_MutationMetricsPath_IncludesMutationContextInPrompt()
+    {
+        var provider = new RecordingProvider([
+            "scenario response",
+            "Add_WhenInputsProvided_ReturnsSum",
+            "```csharp\n[Fact]\npublic void Add_WhenInputsProvided_ReturnsSum()\n{\n}\n```"
+        ]);
+        var service = CreateService(provider);
+        var request = CreateRequest(
+            metricsPath: MetricsDrivenPath.Mutation,
+            mutationSummary: "Mutation evidence to target:\n- Mutant 1: Survived, EqualityOperator, lines 3-3, replacement=`>=`",
+            steps: PlanningDisabledExceptScenarioAndMethodName());
+
+        var result = await service.GenerateTestAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Contains("Mutation context:", provider.Prompts[0]);
+        Assert.Contains("EqualityOperator", provider.Prompts[0]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task GenerateTestAsync_CoverageMetricsPath_OmitsMutationContextFromPrompt()
+    {
+        var provider = new RecordingProvider([
+            "scenario response",
+            "Add_WhenInputsProvided_ReturnsSum",
+            "```csharp\n[Fact]\npublic void Add_WhenInputsProvided_ReturnsSum()\n{\n}\n```"
+        ]);
+        var service = CreateService(provider);
+        var request = CreateRequest(
+            metricsPath: MetricsDrivenPath.Coverage,
+            mutationSummary: "Mutation evidence to target:\n- Mutant 1: Survived, EqualityOperator, lines 3-3, replacement=`>=`",
+            steps: PlanningDisabledExceptScenarioAndMethodName());
+
+        var result = await service.GenerateTestAsync(request);
+
+        Assert.True(result.Success);
+        Assert.DoesNotContain("Mutation context:", provider.Prompts[0]);
+        Assert.DoesNotContain("EqualityOperator", provider.Prompts[0]);
+    }
+
     private static TestGenerationPipelineService CreateService(RecordingProvider provider)
     {
         var config = new TestMapConfig();
@@ -132,6 +176,8 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
 
     private static TestGenerationRequest CreateRequest(
         GenerationContextMode contextMode = GenerationContextMode.ChainedHistory,
+        MetricsDrivenPath? metricsPath = null,
+        string mutationSummary = "",
         GenerationStepConfig? steps = null)
     {
         return new TestGenerationRequest
@@ -148,7 +194,9 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
             TestSupportContext = string.Empty,
             TestFramework = "xUnit",
             TestDependencies = "using Xunit;",
+            MetricsPath = metricsPath,
             CoverageGapSummary = string.Empty,
+            MutationSummary = mutationSummary,
             Provider = AiProvider.OpenAi,
             ContextMode = contextMode,
             Steps = steps ?? new GenerationStepConfig()

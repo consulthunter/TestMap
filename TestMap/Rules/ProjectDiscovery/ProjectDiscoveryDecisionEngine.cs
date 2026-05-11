@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using TestMap.Models.Code;
 using TestMap.Models.Rules;
@@ -7,6 +8,17 @@ namespace TestMap.Rules.ProjectDiscovery;
 
 internal static class ProjectDiscoveryDecisionEngine
 {
+    private static readonly HashSet<string> UnsupportedWorkloadPlatforms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "android",
+        "browser",
+        "ios",
+        "maccatalyst",
+        "macos",
+        "tvos",
+        "wasm"
+    };
+
     private static readonly string[] TestPackageMarkers =
     [
         "microsoft.net.test.sdk",
@@ -73,6 +85,17 @@ internal static class ProjectDiscoveryDecisionEngine
                 RuleConfidence.Medium,
                 [CreateEvidence("ProjectXml", "TargetFrameworks", targetFrameworksRaw, projectFilePath)],
                 "Target frameworks were read from TargetFrameworks.");
+
+        var targetFrameworkVersion = projectFile.GetProperty("TargetFrameworkVersion");
+        var normalizedTargetFrameworkVersion = NormalizeTargetFrameworkVersion(targetFrameworkVersion);
+        if (!string.IsNullOrWhiteSpace(normalizedTargetFrameworkVersion))
+            return CreateDecision(
+                "BuildTargets",
+                normalizedTargetFrameworkVersion,
+                ProjectDiscoveryRuleDefinitions.BuildTargetsFromTargetFrameworkVersion,
+                RuleConfidence.Medium,
+                [CreateEvidence("ProjectXml", "TargetFrameworkVersion", targetFrameworkVersion, projectFilePath)],
+                "Target framework was normalized from legacy TargetFrameworkVersion.");
 
         return CreateDecision(
             "BuildTargets",
@@ -195,6 +218,15 @@ internal static class ProjectDiscoveryDecisionEngine
                 RuleConfidence.High,
                 [CreateEvidence("ProjectXml", "TargetFramework", x, projectFilePath)],
                 "Windows is required by a Windows target framework.")));
+        decisions.AddRange(buildTargets
+            .Where(IsLegacyNetFrameworkTarget)
+            .Select(x => CreateDecision(
+                "WindowsRequirement",
+                WindowsRequirementType.Required.ToString(),
+                ProjectDiscoveryRuleDefinitions.WindowsRequiredByLegacyNetFramework,
+                RuleConfidence.High,
+                [CreateEvidence("ProjectXml", "TargetFramework", x, projectFilePath)],
+                "Windows is required by legacy .NET Framework targeting.")));
 
         if (!string.IsNullOrWhiteSpace(runtimeIdentifier) &&
             runtimeIdentifier.StartsWith("win", StringComparison.OrdinalIgnoreCase))
@@ -239,6 +271,54 @@ internal static class ProjectDiscoveryDecisionEngine
             buildTargets.Count == 0
                 ? "Windows requirement is unknown because no build target was discovered."
                 : "No Windows-specific project discovery signal was found."));
+        return decisions;
+    }
+
+    public static List<RuleDecisionRecord> DetermineExecutionSupport(
+        List<string> buildTargets,
+        string targetPlatformIdentifier,
+        string projectFilePath)
+    {
+        var decisions = new List<RuleDecisionRecord>();
+        decisions.AddRange(buildTargets
+            .Select(target => (Target: target, Platform: TryGetTargetFrameworkPlatform(target)))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Platform) &&
+                        !x.Platform.Equals("windows", StringComparison.OrdinalIgnoreCase))
+            .Select(x => CreateDecision(
+                "ExecutionSupport",
+                UnsupportedWorkloadPlatforms.Contains(x.Platform)
+                    ? ExecutionSupportType.UnsupportedWorkload.ToString()
+                    : ExecutionSupportType.UnsupportedPlatform.ToString(),
+                ProjectDiscoveryRuleDefinitions.ExecutionSupportUnsupportedTargetFramework,
+                RuleConfidence.High,
+                [CreateEvidence("ProjectXml", "TargetFramework", x.Target, projectFilePath)],
+                "A target framework requires a non-Windows platform workload that the generic runner does not support.")));
+
+        if (!string.IsNullOrWhiteSpace(targetPlatformIdentifier) &&
+            !targetPlatformIdentifier.Equals("Windows", StringComparison.OrdinalIgnoreCase))
+            decisions.Add(CreateDecision(
+                "ExecutionSupport",
+                UnsupportedWorkloadPlatforms.Contains(targetPlatformIdentifier)
+                    ? ExecutionSupportType.UnsupportedWorkload.ToString()
+                    : ExecutionSupportType.UnsupportedPlatform.ToString(),
+                ProjectDiscoveryRuleDefinitions.ExecutionSupportUnsupportedTargetPlatform,
+                RuleConfidence.High,
+                [CreateEvidence("ProjectXml", "TargetPlatformIdentifier", targetPlatformIdentifier, projectFilePath)],
+                "TargetPlatformIdentifier names a platform that the generic runner does not support."));
+
+        if (decisions.Count > 0) return decisions;
+
+        decisions.Add(CreateDecision(
+            "ExecutionSupport",
+            buildTargets.Count == 0 ? ExecutionSupportType.Unknown.ToString() : ExecutionSupportType.Supported.ToString(),
+            buildTargets.Count == 0
+                ? ProjectDiscoveryRuleDefinitions.ExecutionSupportUnknownNoBuildTargets
+                : ProjectDiscoveryRuleDefinitions.ExecutionSupportSupported,
+            buildTargets.Count == 0 ? RuleConfidence.Unknown : RuleConfidence.Low,
+            buildTargets.Select(x => CreateEvidence("ProjectXml", "TargetFramework", x, projectFilePath)).ToList(),
+            buildTargets.Count == 0
+                ? "Execution support is unknown because no build target was discovered."
+                : "No unsupported platform or workload target was found."));
         return decisions;
     }
 
@@ -290,6 +370,17 @@ internal static class ProjectDiscoveryDecisionEngine
         return WindowsRequirementType.Unknown;
     }
 
+    public static ExecutionSupportType ResolveExecutionSupport(List<RuleDecisionRecord> decisions)
+    {
+        if (decisions.Any(x => x.Value == ExecutionSupportType.UnsupportedWorkload.ToString()))
+            return ExecutionSupportType.UnsupportedWorkload;
+        if (decisions.Any(x => x.Value == ExecutionSupportType.UnsupportedPlatform.ToString()))
+            return ExecutionSupportType.UnsupportedPlatform;
+        if (decisions.Any(x => x.Value == ExecutionSupportType.Supported.ToString()))
+            return ExecutionSupportType.Supported;
+        return ExecutionSupportType.Unknown;
+    }
+
     public static CoverageCollectorType ResolveCoverageCollector(List<RuleDecisionRecord> decisions)
     {
         if (decisions.Any(x => x.Value == CoverageCollectorType.Coverlet.ToString()))
@@ -327,6 +418,31 @@ internal static class ProjectDiscoveryDecisionEngine
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static string NormalizeTargetFrameworkVersion(string value)
+    {
+        var match = Regex.Match(value.Trim(), @"^v?(?<major>\d+)(?:\.(?<minor>\d+))?(?:\.(?<patch>\d+))?$",
+            RegexOptions.IgnoreCase);
+        if (!match.Success) return string.Empty;
+
+        var major = match.Groups["major"].Value;
+        var minor = match.Groups["minor"].Success ? match.Groups["minor"].Value : "0";
+        var patch = match.Groups["patch"].Success ? match.Groups["patch"].Value : string.Empty;
+
+        return $"net{major}{minor}{patch}";
+    }
+
+    private static bool IsLegacyNetFrameworkTarget(string value)
+    {
+        return Regex.IsMatch(value.Trim(), @"^net[1-4]\d{1,2}$", RegexOptions.IgnoreCase);
+    }
+
+    private static string TryGetTargetFrameworkPlatform(string value)
+    {
+        var match = Regex.Match(value.Trim(), @"^net\d+(?:\.\d+)?-(?<platform>[a-z]+)",
+            RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["platform"].Value : string.Empty;
     }
 
     private static bool IsTrue(string value)

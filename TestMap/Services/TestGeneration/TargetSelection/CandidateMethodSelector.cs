@@ -10,6 +10,9 @@ namespace TestMap.Services.TestGeneration.TargetSelection;
 
 public sealed class CandidateMethodSelector
 {
+    // Temporary experiment switch. Set to false to restore selection of all non-test source methods.
+    private const bool TemporaryPublicMethodCandidatesOnly = true;
+
     private readonly ProjectContext _context;
     private readonly TestMapDbContext _dbContext;
     private readonly TestMapConfig _config;
@@ -108,6 +111,8 @@ public sealed class CandidateMethodSelector
                 where !member.IsTestMember
                       && !member.IsGenerated
                       && member.Kind == "method"
+                      && (!TemporaryPublicMethodCandidatesOnly ||
+                          EF.Functions.Like(member.FullString, "%public %"))
                       && selectedCoverage != null
                 orderby selectedCoverage.LineRate ascending, selectedCoverage.Complexity descending
                 select new

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TestMap.Persistence.Ef;
 
@@ -10,9 +11,11 @@ using TestMap.Persistence.Ef;
 namespace TestMap.Migrations
 {
     [DbContext(typeof(TestMapDbContext))]
-    partial class TestMapDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260508125441_AddCandidateInventory")]
+    partial class AddCandidateInventory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.5");
@@ -1762,18 +1765,12 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("test_files");
 
-                    b.Property<int?>("TestRunId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("test_run_id");
-
                     b.Property<string>("Thresholds")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("thresholds");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("TestRunId");
 
                     b.ToTable("mutation_testing_reports", (string)null);
                 });

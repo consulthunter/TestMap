@@ -25,6 +25,7 @@ public class BuildTestService : IBuildTestService
     private string _runDate = string.Empty;
     private string? _dockerContextOverride;
     private List<string> _completedMutationTargets = new();
+    private IReadOnlyCollection<StrykerMutationResults> _latestMutationReports = [];
 
     public string? LatestLogPath { get; private set; }
     public List<TestResultModel> LatestTestResults { get; private set; } = new();
@@ -37,6 +38,11 @@ public class BuildTestService : IBuildTestService
     public CoverageReportModel? LatestCoverageReport { get; private set; }
     public FailureAnalysisModel? LatestFailureAnalysis { get; private set; }
     public bool LatestSuccess { get; private set; }
+    public bool LatestRestoreSucceeded { get; private set; }
+    public bool LatestBuildSucceeded { get; private set; }
+    public bool LatestTestsExecuted { get; private set; }
+    public string LatestDockerContext { get; private set; } = string.Empty;
+    public string LatestDockerOs { get; private set; } = string.Empty;
     public int LatestCoverage { get; private set; }
 
     public BuildTestService(
@@ -166,6 +172,8 @@ public class BuildTestService : IBuildTestService
 
             var testRunId = await _testRunRepository.InsertOrUpdateAsync(result, _context.Project.DbId);
             if (LatestTestResults.Count > 0) await _testResultRepository.InsertAsync(LatestTestResults, testRunId);
+            if (_latestMutationReports.Count > 0)
+                await _resultCollector.PersistMutationReportsAsync(testRunId, _latestMutationReports);
 
             var analyzedCommit = _context.Project.Commit ?? _context.CurrentCommit;
             if (!string.IsNullOrWhiteSpace(analyzedCommit))
@@ -287,7 +295,8 @@ public class BuildTestService : IBuildTestService
             _runId,
             GetContainerPath(testProjectPath),
             targetFramework,
-            collector);
+            collector,
+            WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
@@ -313,11 +322,17 @@ public class BuildTestService : IBuildTestService
 
         try
         {
+            LatestDockerContext = CurrentDockerContext;
+            LatestDockerOs = ResolveDockerOs(LatestDockerContext);
+
             await RunDockerDotnetBuildForSolutionsAsync(solutionFilenames);
             await WaitForActiveContainerAsync();
+            LatestRestoreSucceeded = true;
+            LatestBuildSucceeded = true;
 
             await RunDockerBaselineTestsAsync(solutionFilenames, baselineFramework);
             await WaitForActiveContainerAsync(true);
+            LatestTestsExecuted = true;
 
             await RunDockerBaselineMutationAsync(solutionFilenames);
             await WaitForActiveContainerAsync(true);
@@ -346,7 +361,8 @@ public class BuildTestService : IBuildTestService
             imageName,
             _runId,
             solutionFilenames,
-            targetFramework);
+            targetFramework,
+            WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
@@ -366,7 +382,8 @@ public class BuildTestService : IBuildTestService
             mount,
             imageName,
             _runId,
-            solutionFilenames);
+            solutionFilenames,
+            WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
@@ -386,7 +403,8 @@ public class BuildTestService : IBuildTestService
             mount,
             imageName,
             _runId,
-            solutionFilenames);
+            solutionFilenames,
+            WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
@@ -407,7 +425,8 @@ public class BuildTestService : IBuildTestService
             imageName,
             _runId,
             GetContainerPath(sourceProjectPath),
-            GetContainerPath(testProjectPath));
+            GetContainerPath(testProjectPath),
+            WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
@@ -439,7 +458,8 @@ public class BuildTestService : IBuildTestService
             mount,
             imageName,
             dotnetArgs,
-            string.IsNullOrWhiteSpace(workingDirectory) ? null : GetContainerPath(workingDirectory));
+            string.IsNullOrWhiteSpace(workingDirectory) ? null : GetContainerPath(workingDirectory),
+            WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
@@ -466,8 +486,14 @@ public class BuildTestService : IBuildTestService
         LatestCoverageReport = null;
         LatestFailureAnalysis = null;
         LatestSuccess = false;
+        LatestRestoreSucceeded = false;
+        LatestBuildSucceeded = false;
+        LatestTestsExecuted = false;
+        LatestDockerContext = CurrentDockerContext;
+        LatestDockerOs = ResolveDockerOs(LatestDockerContext);
         LatestCoverage = 0;
         _completedMutationTargets = new List<string>();
+        _latestMutationReports = [];
     }
 
     private async Task<int> WaitForContainerExitAsync(string containerName, bool allowNonZeroExit = false)
@@ -537,9 +563,10 @@ public class BuildTestService : IBuildTestService
         LatestTestResultRaw = collectedResults.TestResultRaw;
         LatestCoverageReport = collectedResults.CoverageReport;
         LatestCoverageReportRaw = collectedResults.CoverageReportRaw;
-        LatestCoverageReportNormalizedRaw = collectedResults.CoverageReportNormalizedRaw;
-        LatestMutationReportRaw = collectedResults.MutationReportRaw;
-        LatestMutationScore = collectedResults.MutationScore;
+            LatestCoverageReportNormalizedRaw = collectedResults.CoverageReportNormalizedRaw;
+            LatestMutationReportRaw = collectedResults.MutationReportRaw;
+            LatestMutationScore = collectedResults.MutationScore;
+            _latestMutationReports = collectedResults.MutationReports;
     }
 
     private bool DetermineSuccess()
@@ -730,6 +757,16 @@ public class BuildTestService : IBuildTestService
         string.IsNullOrWhiteSpace(_dockerContextOverride)
             ? _context.Project.Config.RuntimeConfig.Docker.Context
             : _dockerContextOverride;
+
+    private string WindowsNetwork =>
+        _context.Project.Config.RuntimeConfig.Docker.WindowsNetwork;
+
+    private static string ResolveDockerOs(string dockerContext)
+    {
+        return dockerContext.Contains(DockerRuntimePathMapper.WindowsContextName, StringComparison.OrdinalIgnoreCase)
+            ? "windows"
+            : "linux";
+    }
 
     private string ResolveDockerContext(bool requiresWindows)
     {

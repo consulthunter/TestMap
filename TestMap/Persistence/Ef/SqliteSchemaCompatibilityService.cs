@@ -109,8 +109,11 @@ public class SqliteSchemaCompatibilityService
             await EnsureCoverageGapsTableAsync(sqliteConnection);
             await EnsureMutantsTableAsync(sqliteConnection);
             await EnsureMutantSurvivedTestsTableAsync(sqliteConnection);
+            await EnsureColumnAsync(sqliteConnection, "mutation_testing_reports", "test_run_id",
+                "ALTER TABLE mutation_testing_reports ADD COLUMN test_run_id INTEGER NULL;");
             await EnsureCandidateMethodRiskScoresTableAsync(sqliteConnection);
             await EnsureExperimentMatrixWorkItemsTableAsync(sqliteConnection);
+            await EnsureCandidateInventoryTableAsync(sqliteConnection);
             await EnsureTestExecutionResultsTableAsync(sqliteConnection);
             await EnsureFlakyTestScoresTableAsync(sqliteConnection);
             await EnsureFlakyTestRerunResultsTableAsync(sqliteConnection);
@@ -314,6 +317,40 @@ CREATE TABLE experiment_matrix_work_items (
 );
 CREATE UNIQUE INDEX IX_experiment_matrix_work_items_stable_key ON experiment_matrix_work_items (stable_key);
 CREATE INDEX IX_experiment_matrix_work_items_experiment_run_id_status ON experiment_matrix_work_items (experiment_run_id, status);");
+    }
+
+    private static async Task EnsureCandidateInventoryTableAsync(SqliteConnection connection)
+    {
+        await EnsureTableAsync(connection, "candidate_inventory", @"
+CREATE TABLE candidate_inventory (
+    id INTEGER NOT NULL CONSTRAINT PK_candidate_inventory PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    source_member_id INTEGER NOT NULL,
+    existing_test_member_id INTEGER NULL,
+    source_method_name TEXT NOT NULL,
+    source_method_signature TEXT NOT NULL,
+    existing_test_method_name TEXT NOT NULL,
+    initial_coverage REAL NOT NULL,
+    complexity_score REAL NOT NULL,
+    selection_strategy TEXT NOT NULL,
+    existing_test_outcome TEXT NOT NULL,
+    is_experiment_eligible INTEGER NOT NULL,
+    ineligibility_reason TEXT NOT NULL,
+    risk_score REAL NULL,
+    metric_driven_score REAL NULL,
+    expected_metric_delta REAL NULL,
+    metric_guardrail_status TEXT NOT NULL,
+    metric_selection_reason TEXT NOT NULL,
+    test_state TEXT NOT NULL,
+    recommended_action TEXT NOT NULL,
+    test_state_reason TEXT NOT NULL,
+    selection_time TEXT NOT NULL,
+    baseline_run_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IX_candidate_inventory_project_id ON candidate_inventory (project_id);
+CREATE INDEX IX_candidate_inventory_project_id_selection_strategy ON candidate_inventory (project_id, selection_strategy);
+CREATE INDEX IX_candidate_inventory_project_id_selection_strategy_is_experiment_eligible ON candidate_inventory (project_id, selection_strategy, is_experiment_eligible);");
     }
 
     private static async Task EnsureTestExecutionResultsTableAsync(SqliteConnection connection)

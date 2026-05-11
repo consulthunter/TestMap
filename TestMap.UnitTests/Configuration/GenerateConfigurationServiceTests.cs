@@ -37,6 +37,7 @@ public sealed class GenerateConfigurationServiceTests : IDisposable
         var config = JsonSerializer.Deserialize<TestMapConfig>(json, ConfigJsonSerializer.CreateOptions());
 
         Assert.NotNull(config);
+        Assert.DoesNotContain("\"ProviderConfigs\"", json);
         Assert.Equal(Path.Combine(basePath, "Data", "example_project.txt"), config.RuntimeConfig.FilePaths.TargetFilePath);
         Assert.Equal(Path.Combine(basePath, "Logs"), config.RuntimeConfig.FilePaths.LogsDirPath);
         Assert.Equal(Path.Combine(basePathParent, "Temp"), config.RuntimeConfig.FilePaths.TempDirPath);
@@ -59,6 +60,7 @@ public sealed class GenerateConfigurationServiceTests : IDisposable
         Assert.True(config.TestingConfig.GenerationConfig.Steps.EnableScenario);
         Assert.False(config.TestingConfig.GenerationConfig.Steps.EnableContextGraph);
         Assert.True(config.TestingConfig.GenerationConfig.Steps.EnableRoslynValidation);
+        Assert.Equal(0, config.TestingConfig.MetadataEnrichmentConfig.RequestDelayMs);
         Assert.Equal(3, config.TestingConfig.TestingFrameworks.Count);
         Assert.Equal("gpt-3.5-turbo", config.AiProviderConfig.OpenAi.Model);
         Assert.Equal("http://localhost:10000/", config.AiProviderConfig.Ollama.Endpoint);

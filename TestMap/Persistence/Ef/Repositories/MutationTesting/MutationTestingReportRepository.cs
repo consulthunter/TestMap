@@ -27,18 +27,24 @@ public class MutationTestingReportRepository
         return entity?.ToDomain();
     }
 
-    public async Task<int> InsertOrUpdateAsync(StrykerMutationResults model, int projectId, double mutationScore)
+    public async Task<int> InsertOrUpdateAsync(
+        StrykerMutationResults model,
+        int projectId,
+        int? testRunId,
+        double mutationScore)
     {
         var existing = await _context.MutationTestingReports.FirstOrDefaultAsync(x =>
             x.ProjectId == projectId &&
+            x.TestRunId == testRunId &&
             x.SchemaVersion == model.schemaVersion &&
             x.ProjectRoot == model.projectRoot);
 
         if (existing != null)
         {
-            if (HasChanged(existing, model, mutationScore))
+            if (HasChanged(existing, model, testRunId, mutationScore))
             {
                 existing.MutationScore = mutationScore;
+                existing.TestRunId = testRunId;
                 existing.Files = model.files;
                 existing.TestFiles = model.testFiles;
                 existing.Thresholds = model.thresholds;
@@ -49,7 +55,7 @@ public class MutationTestingReportRepository
             return existing.Id;
         }
 
-        var entity = model.ToEntity(projectId, mutationScore);
+        var entity = model.ToEntity(projectId, testRunId, mutationScore);
         _context.MutationTestingReports.Add(entity);
         await _context.SaveChangesAsync();
         await PersistMutantsAsync(entity.Id, model);
@@ -64,9 +70,11 @@ public class MutationTestingReportRepository
     private static bool HasChanged(
         MutationTestingReportEntity entity,
         StrykerMutationResults model,
+        int? testRunId,
         double mutationScore)
     {
         return entity.MutationScore != mutationScore ||
+               entity.TestRunId != testRunId ||
                entity.SchemaVersion != model.schemaVersion ||
                entity.ProjectRoot != model.projectRoot;
     }

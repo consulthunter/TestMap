@@ -12,6 +12,7 @@ using TestMap.Services.TestExecution;
 using TestMap.Services.TestGeneration;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
+using TestMap.Persistence.Ef.Repositories.Testing;
 
 namespace TestMap.Services.TestGeneration.Execution;
 
@@ -25,6 +26,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
     private readonly ICodeMetricsService _codeMetricsService;
     private readonly IRoslynGeneratedTestValidationService _roslynValidationService;
     private readonly ITestSmellService _testSmellService;
+    private readonly TestRunRepository _testRunRepository;
 
     public GeneratedTestExecutionService(
         ProjectContext context,
@@ -34,7 +36,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         IAnalyzeProjectService analyzeProjectService,
         ICodeMetricsService codeMetricsService,
         IRoslynGeneratedTestValidationService roslynValidationService,
-        ITestSmellService testSmellService)
+        ITestSmellService testSmellService,
+        TestRunRepository testRunRepository)
     {
         _context = context;
         _config = config;
@@ -44,6 +47,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         _codeMetricsService = codeMetricsService;
         _roslynValidationService = roslynValidationService;
         _testSmellService = testSmellService;
+        _testRunRepository = testRunRepository;
     }
 
     public async Task<GeneratedTestExecutionResult> ExecuteAsync(
@@ -217,6 +221,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
 
             await RefreshProjectMetadataAsync(context.TestProjectPath, cancellationToken);
 
+            var baselineMutationScore = await LoadLatestBaselineMutationScoreAsync();
             var buildResult = await _buildTestService.BuildTestAsync(
                 BuildTestRunRequest.CreateIteration(
                     context.TestProjectPath,
@@ -231,7 +236,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 actionResult,
                 buildResult,
                 roslynValidation,
-                preBuildDecision);
+                preBuildDecision,
+                baselineMutationScore);
         }
         catch (Exception ex)
         {
@@ -259,7 +265,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         GeneratedTestApplicationResult actionResult,
         TestRunModel buildResult,
         RoslynGeneratedTestValidationResult roslynValidation,
-        RoslynPreBuildDecision preBuildDecision)
+        RoslynPreBuildDecision preBuildDecision,
+        double? baselineMutationScore)
     {
         var compilationSucceeded = DidCompilationSucceed(buildResult);
         var failedTests = buildResult.Results.Where(x => x.Outcome != "Passed").ToList();
@@ -269,6 +276,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             ? generatedRun.MethodCoverage
             : buildResult.Coverage / 100.0;
         var coverageImprovement = coverageAfter - context.Method.BaselineCoverage;
+        var mutationScoreImprovement = CalculateMutationScoreImprovement(
+            baselineMutationScore,
+            buildResult.MutationScore);
 
         var result = new GeneratedTestExecutionResult
         {
@@ -288,7 +298,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             BaselineCoverage = context.Method.BaselineCoverage,
             CoverageAfter = coverageAfter,
             CoverageImprovement = coverageImprovement,
+            BaselineMutationScore = baselineMutationScore,
             MutationScoreAfter = buildResult.MutationScore,
+            MutationScoreImprovement = mutationScoreImprovement,
             RoslynValidationSucceeded = roslynValidation.Succeeded,
             RoslynValidationSkipped = roslynValidation.Skipped,
             RoslynDiagnosticsBefore = roslynValidation.Before.Diagnostics,
@@ -335,6 +347,19 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         }
 
         return result;
+    }
+
+    private static double? CalculateMutationScoreImprovement(double? baselineMutationScore, double? mutationScoreAfter)
+    {
+        return baselineMutationScore.HasValue && mutationScoreAfter.HasValue
+            ? mutationScoreAfter.Value - baselineMutationScore.Value
+            : null;
+    }
+
+    private async Task<double?> LoadLatestBaselineMutationScoreAsync()
+    {
+        var baselineRun = await _testRunRepository.GetLatestBaselineAsync(_context.Project.DbId);
+        return baselineRun?.MutationScore;
     }
 
     private async Task RefreshProjectMetadataAsync(

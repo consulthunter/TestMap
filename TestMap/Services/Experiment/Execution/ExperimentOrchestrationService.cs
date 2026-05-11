@@ -144,7 +144,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
         try
         {
-            var candidateMethods = await _methodSelection.SelectCandidateMethodsAsync(config, cancellationToken);
+            var candidateMethods = await _methodSelection.SelectCandidateMethodsAsync(
+                config,
+                requirePassingExistingTest: true,
+                cancellationToken);
             _context.Project.Logger?.Information($"Selected {candidateMethods.Count} candidate methods");
 
             foreach (var method in candidateMethods)
@@ -873,6 +876,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             TestFramework = request.TestFramework,
             TestDependencies = request.TestDependencies,
             CoverageGapSummary = request.CoverageGapSummary,
+            MutationSummary = request.MutationSummary,
             Provider = request.Provider,
             Temperature = request.Temperature,
             StepErrorRetries = request.StepErrorRetries,
@@ -903,6 +907,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ExampleTestMetadataSummary = request.ExampleTestMetadataSummary,
             ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
             CoverageGapSummary = request.CoverageGapSummary,
+            MutationSummary = request.MutationSummary,
             ErrorLogs = request.ErrorLogs,
             StructuredErrors = request.StructuredErrors,
             PriorConversationTranscript = request.PriorConversationTranscript,

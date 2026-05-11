@@ -8,7 +8,7 @@ public class MapMutationService(
     ProjectContext context,
     MutationTestingReportRepository mutationTestingReportRepository)
 {
-    public async Task<double> MapAsync(StrykerMutationResults report)
+    public async Task<double> MapAsync(StrykerMutationResults report, int? testRunId = null)
     {
         if (context.Project.DbId == 0)
         {
@@ -17,7 +17,7 @@ public class MapMutationService(
         }
 
         var score = CalculateMutationScore(report);
-        await mutationTestingReportRepository.InsertOrUpdateAsync(report, context.Project.DbId, score);
+        await mutationTestingReportRepository.InsertOrUpdateAsync(report, context.Project.DbId, testRunId, score);
         return score;
     }
 

@@ -153,6 +153,9 @@ public class TestMetadataEnrichmentService : ITestMetadataEnrichmentService
         try
         {
             var prompt = CreatePrompt(context, deterministicCategories, enrichmentConfig);
+            if (enrichmentConfig.RequestDelayMs > 0)
+                await Task.Delay(enrichmentConfig.RequestDelayMs, cancellationToken);
+
             var response = await provider.GenerateAsync(prompt, enrichmentConfig.Temperature, cancellationToken);
             return ParseLlmResult(response);
         }

@@ -31,6 +31,18 @@ public class TestRunRepository
         return entity?.ToDomain();
     }
 
+    public async Task<TestRunModel?> GetLatestBaselineAsync(int projectId)
+    {
+        var entity = await _context.TestRuns
+            .AsNoTracking()
+            .Where(x => x.ProjectId == projectId && x.RunId.StartsWith("baseline_"))
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync();
+
+        return entity?.ToDomain();
+    }
+
     public async Task<int> InsertOrUpdateAsync(TestRunModel model, int projectId)
     {
         var existing = await _context.TestRuns.FirstOrDefaultAsync(x =>

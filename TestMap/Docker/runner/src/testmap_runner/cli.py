@@ -77,6 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     targeted_stryker_parser.add_argument("--run-id", required=True)
     targeted_stryker_parser.add_argument("--report-name", required=True,
                                          help="Report directory prefix inside the mutation output directory.")
+    targeted_stryker_parser.add_argument("--project", required=True,
+                                         help="Referenced source project file name to mutate.")
     targeted_stryker_parser.add_argument("--test-project", required=True,
                                          help="Test project path inside the container.")
     targeted_stryker_parser.set_defaults(func=run_dotnet_stryker_project)
@@ -357,12 +359,15 @@ def run_dotnet_stryker_project(args: argparse.Namespace) -> int:
     ensure_directory(output_dir)
 
     print("=== Running Targeted Mutation Tests (dotnet-stryker) ===")
+    print(f"Source project: {args.project}")
     print(f"Test project: {test_project_path}")
 
     result = run_process(
         [
             "dotnet",
             "stryker",
+            "--project",
+            args.project,
             "-r",
             "html",
             "-r",

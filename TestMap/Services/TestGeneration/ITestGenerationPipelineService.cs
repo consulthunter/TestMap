@@ -65,6 +65,7 @@ public class TestGenerationRequest
     public required string TestFramework { get; init; }
     public required string TestDependencies { get; init; }
     public required string CoverageGapSummary { get; init; }
+    public string MutationSummary { get; init; } = "No surviving or no-coverage mutants are available for this method.";
     public required AiProvider Provider { get; init; }
     public double Temperature { get; init; } = 0.0;
     public int StepErrorRetries { get; init; }
@@ -93,6 +94,7 @@ public class TestRepairRequest
     public required string ExampleTestMetadataSummary { get; init; }
     public required string ProjectTestMetadataSummary { get; init; }
     public required string CoverageGapSummary { get; init; }
+    public string MutationSummary { get; init; } = "No surviving or no-coverage mutants are available for this method.";
     public required string ErrorLogs { get; init; }
     public string? StructuredErrors { get; init; }
     public string? PriorConversationTranscript { get; init; }

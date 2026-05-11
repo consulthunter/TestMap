@@ -1,6 +1,7 @@
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.Generation;
+using TestMap.Models.Configuration.Testing.MetadataEnrichment;
 using TestMap.Models.Experiment;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 
@@ -144,6 +145,23 @@ public sealed class ConfigurationDefaultsTests
         Assert.Equal(1000, stepRetryDelayMs);
         Assert.True(resume.Enabled);
         Assert.False(resume.RewriteResultsFileOnResume);
+    }
+
+    /// <summary>
+    /// Verifies that metadata enrichment does not delay LLM requests unless explicitly configured.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void MetadataEnrichmentConfig_DefaultConstructor_UsesExpectedRequestDelay()
+    {
+        // Arrange
+        var config = new MetadataEnrichmentConfig();
+
+        // Act
+        var requestDelayMs = config.RequestDelayMs;
+
+        // Assert
+        Assert.Equal(0, requestDelayMs);
     }
 
     /// <summary>

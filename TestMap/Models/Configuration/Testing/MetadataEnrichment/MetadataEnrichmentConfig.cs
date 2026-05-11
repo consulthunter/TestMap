@@ -10,6 +10,7 @@ public class MetadataEnrichmentConfig
     public AiProvider Provider { get; set; } = AiProvider.OpenAi;
     public AiProviderMode Mode { get; set; } = AiProviderMode.Chat;
     public double Temperature { get; set; } = 0.0;
+    public int RequestDelayMs { get; set; } = 0;
     public int MaxCategories { get; set; } = 3;
     public string PromptVersion { get; set; } = "test-metadata-v1";
 }

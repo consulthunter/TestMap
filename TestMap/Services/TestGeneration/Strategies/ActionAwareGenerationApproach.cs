@@ -46,6 +46,7 @@ public sealed class ActionAwareGenerationApproach : ITestGenerationApproach
             CoverageGapSummary = CombineMetadata(
                 methodContext.CoverageGapSummary,
                 BuildCoverageDirective(methodContext)),
+            MutationSummary = methodContext.MutationSummary,
             Provider = context.Provider,
             Temperature = context.Temperature,
             StepErrorRetries = context.StepErrorRetries,
@@ -74,6 +75,7 @@ public sealed class ActionAwareGenerationApproach : ITestGenerationApproach
             CoverageGapSummary = CombineMetadata(
                 methodContext.CoverageGapSummary,
                 BuildRepairDirective(methodContext)),
+            MutationSummary = methodContext.MutationSummary,
             ErrorLogs = context.ErrorLogs,
             StructuredErrors = context.StructuredErrors,
             PriorConversationTranscript = context.PriorConversationTranscript,

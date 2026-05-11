@@ -239,9 +239,56 @@ public sealed class BuildTestDockerCommandFactoryTests
             args);
     }
 
+    /// <summary>
+    /// Verifies that the configured network is applied only to Windows container runs.
+    /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
-    public void CreateTargetedMutationArgs_UsesTestProjectAndReportNameOnly()
+    public void CreateTargetedTestsArgs_WithWindowsContextAndNetwork_IncludesNetworkArgument()
+    {
+        // Act
+        var args = BuildTestDockerCommandFactory.CreateTargetedTestsArgs(
+            DockerRuntimePathMapper.WindowsContextName,
+            "sample-testing",
+            "-v \"D:\\repo:C:\\app\\project\"",
+            "testmap-runner",
+            "iteration_123",
+            @"C:\app\project\Tests\Tests.csproj",
+            "net481",
+            "Code Coverage;Format=Cobertura",
+            "host");
+
+        // Assert
+        Assert.Equal(
+            "--context desktop-windows run -d --name sample-testing --network=host -v \"D:\\repo:C:\\app\\project\" testmap-runner C:\\Python312\\python.exe -m testmap_runner dotnet-test-project --run-id \"iteration_123\" --project \"C:\\app\\project\\Tests\\Tests.csproj\" --framework \"net481\" --collector \"Code Coverage;Format=Cobertura\"",
+            args);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CreateBaselineTestsArgs_WithLinuxContextAndNetwork_OmitsNetworkArgument()
+    {
+        // Act
+        var args = BuildTestDockerCommandFactory.CreateBaselineTestsArgs(
+            DockerRuntimePathMapper.LinuxContextName,
+            "sample-testing",
+            "-v \"D:\\repo:/app/project\"",
+            "testmap-runner",
+            "baseline_123",
+            ["Sample.sln"],
+            "net10.0",
+            "host");
+
+        // Assert
+        Assert.DoesNotContain("--network", args);
+        Assert.Equal(
+            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-tests --run-id \"baseline_123\" --solutions \"Sample.sln\" --framework \"net10.0\"",
+            args);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CreateTargetedMutationArgs_UsesTestProjectSourceProjectAndReportName()
     {
         var args = BuildTestDockerCommandFactory.CreateTargetedMutationArgs(
             DockerRuntimePathMapper.LinuxContextName,
@@ -253,9 +300,9 @@ public sealed class BuildTestDockerCommandFactoryTests
             "/app/project/tests/Sample.Tests/Sample.Tests.csproj");
 
         Assert.Equal(
-            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\"",
+            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --project \"Sample.csproj\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\"",
             args);
-        Assert.DoesNotContain("--project ", args);
+        Assert.Contains("--project \"Sample.csproj\"", args);
         Assert.DoesNotContain("--solution", args);
     }
 

@@ -18,11 +18,13 @@ public static class MutationTestingReportMappingExtensions
     }
 
     public static MutationTestingReportEntity ToEntity(this StrykerMutationResults model, int projectId,
+        int? testRunId,
         double mutationScore)
     {
         return new MutationTestingReportEntity
         {
             ProjectId = projectId,
+            TestRunId = testRunId,
             SchemaVersion = model.schemaVersion,
             ProjectRoot = model.projectRoot,
             MutationScore = mutationScore,

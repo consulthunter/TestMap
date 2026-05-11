@@ -6,6 +6,7 @@ public class MutationTestingReportEntity
 {
     public int Id { get; set; }
     public int ProjectId { get; set; }
+    public int? TestRunId { get; set; }
     public string SchemaVersion { get; set; } = string.Empty;
     public string ProjectRoot { get; set; } = string.Empty;
     public double MutationScore { get; set; }

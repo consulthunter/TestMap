@@ -42,6 +42,11 @@ public class ProjectBuildAnalysisService : IProjectBuildAnalysisService
             packageReferences,
             project.FilePath);
         var windowsRequirement = ProjectDiscoveryDecisionEngine.ResolveWindowsRequirement(windowsRequirementDecisions);
+        var executionSupportDecisions = ProjectDiscoveryDecisionEngine.DetermineExecutionSupport(
+            buildTargets,
+            targetPlatformIdentifier,
+            project.FilePath);
+        var executionSupport = ProjectDiscoveryDecisionEngine.ResolveExecutionSupport(executionSupportDecisions);
         var coverageCollectorDecisions =
             ProjectDiscoveryDecisionEngine.DetermineCoverageCollector(packageReferences, project.FilePath);
         var coverageCollector = ProjectDiscoveryDecisionEngine.ResolveCoverageCollector(coverageCollectorDecisions);
@@ -55,6 +60,7 @@ public class ProjectBuildAnalysisService : IProjectBuildAnalysisService
         };
         decisions.AddRange(testProjectDecisions);
         decisions.AddRange(windowsRequirementDecisions);
+        decisions.AddRange(executionSupportDecisions);
         decisions.AddRange(coverageCollectorDecisions);
 
         return Task.FromResult(new ProjectBuildMetadataModel
@@ -69,9 +75,16 @@ public class ProjectBuildAnalysisService : IProjectBuildAnalysisService
             IsTestProject = isTestProject,
             UsesWindowsDesktop = usesWindowsDesktop,
             WindowsRequirement = windowsRequirement,
+            ExecutionSupport = executionSupport,
             CoverageCollector = coverageCollector,
             RuleDecisions = decisions,
-            Notes = BuildNotes(sdkVersion, nearestGlobalJson, buildTargets, coverageCollector, windowsRequirement)
+            Notes = BuildNotes(
+                sdkVersion,
+                nearestGlobalJson,
+                buildTargets,
+                coverageCollector,
+                windowsRequirement,
+                executionSupport)
         });
     }
 
@@ -147,7 +160,8 @@ public class ProjectBuildAnalysisService : IProjectBuildAnalysisService
         string? globalJsonPath,
         List<string> buildTargets,
         CoverageCollectorType coverageCollector,
-        WindowsRequirementType windowsRequirement)
+        WindowsRequirementType windowsRequirement,
+        ExecutionSupportType executionSupport)
     {
         var parts = new List<string>();
 
@@ -159,6 +173,7 @@ public class ProjectBuildAnalysisService : IProjectBuildAnalysisService
 
         parts.Add($"coverage: {coverageCollector}");
         parts.Add($"windows: {windowsRequirement}");
+        parts.Add($"support: {executionSupport}");
 
         return string.Join(" | ", parts);
     }

@@ -63,6 +63,7 @@ public class GenerateConfigurationService(string configurationFilePath, string b
         config.TestingConfig.GenerationConfig.StepRetryDelayMs = 1000;
         config.TestingConfig.GenerationConfig.ContextMode = GenerationContextMode.ChainedHistory;
         config.TestingConfig.GenerationConfig.Steps.EnableRoslynValidation = true;
+        config.TestingConfig.MetadataEnrichmentConfig.RequestDelayMs = 0;
 
         config.TestingConfig.TestingFrameworks.Add(new NunitConfig
             { patterns = new List<string> { "Test", "TestCase", "TestCaseSource", "Theory" } });

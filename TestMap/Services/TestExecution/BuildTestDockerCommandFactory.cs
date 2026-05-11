@@ -41,14 +41,16 @@ internal static class BuildTestDockerCommandFactory
         string mount,
         string imageName,
         string runId,
-        IReadOnlyCollection<string> solutionFilenames)
+        IReadOnlyCollection<string> solutionFilenames,
+        string windowsNetwork = "")
     {
         return CreateRunnerArgs(
             dockerContext,
             containerName,
             mount,
             imageName,
-            $"dotnet-build --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}");
+            $"dotnet-build --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}",
+            windowsNetwork);
     }
 
     public static string CreateBaselineTestsArgs(
@@ -58,7 +60,8 @@ internal static class BuildTestDockerCommandFactory
         string imageName,
         string runId,
         IReadOnlyCollection<string> solutionFilenames,
-        string? targetFramework)
+        string? targetFramework,
+        string windowsNetwork = "")
     {
         var frameworkArgs = string.IsNullOrWhiteSpace(targetFramework)
             ? string.Empty
@@ -69,7 +72,8 @@ internal static class BuildTestDockerCommandFactory
             containerName,
             mount,
             imageName,
-            $"dotnet-tests --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}{frameworkArgs}");
+            $"dotnet-tests --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}{frameworkArgs}",
+            windowsNetwork);
     }
 
     public static string CreateBaselineMutationArgs(
@@ -78,14 +82,16 @@ internal static class BuildTestDockerCommandFactory
         string mount,
         string imageName,
         string runId,
-        IReadOnlyCollection<string> solutionFilenames)
+        IReadOnlyCollection<string> solutionFilenames,
+        string windowsNetwork = "")
     {
         return CreateRunnerArgs(
             dockerContext,
             containerName,
             mount,
             imageName,
-            $"dotnet-stryker --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}");
+            $"dotnet-stryker --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}",
+            windowsNetwork);
     }
 
     public static string CreateTargetedTestsArgs(
@@ -96,7 +102,8 @@ internal static class BuildTestDockerCommandFactory
         string runId,
         string containerProjectPath,
         string? targetFramework,
-        string? collector)
+        string? collector,
+        string windowsNetwork = "")
     {
         var frameworkArgs = string.IsNullOrWhiteSpace(targetFramework)
             ? string.Empty
@@ -110,7 +117,8 @@ internal static class BuildTestDockerCommandFactory
             containerName,
             mount,
             imageName,
-            $"dotnet-test-project --run-id {Quote(runId)} --project {Quote(containerProjectPath)}{frameworkArgs}{collectorArgs}");
+            $"dotnet-test-project --run-id {Quote(runId)} --project {Quote(containerProjectPath)}{frameworkArgs}{collectorArgs}",
+            windowsNetwork);
     }
 
     public static string CreateTargetedMutationArgs(
@@ -120,14 +128,16 @@ internal static class BuildTestDockerCommandFactory
         string imageName,
         string runId,
         string containerSourceProjectPath,
-        string containerTestProjectPath)
+        string containerTestProjectPath,
+        string windowsNetwork = "")
     {
         return CreateRunnerArgs(
             dockerContext,
             containerName,
             mount,
             imageName,
-            $"dotnet-stryker-project --run-id {Quote(runId)} --report-name {Quote(Path.GetFileNameWithoutExtension(containerSourceProjectPath))} --test-project {Quote(containerTestProjectPath)}");
+            $"dotnet-stryker-project --run-id {Quote(runId)} --report-name {Quote(Path.GetFileNameWithoutExtension(containerSourceProjectPath))} --project {Quote(Path.GetFileName(containerSourceProjectPath))} --test-project {Quote(containerTestProjectPath)}",
+            windowsNetwork);
     }
 
     public static string CreateDotnetPassthroughArgs(
@@ -136,7 +146,8 @@ internal static class BuildTestDockerCommandFactory
         string mount,
         string imageName,
         IReadOnlyList<string> dotnetArgs,
-        string? containerWorkingDirectory)
+        string? containerWorkingDirectory,
+        string windowsNetwork = "")
     {
         var workingDirectoryArg = string.IsNullOrWhiteSpace(containerWorkingDirectory)
             ? string.Empty
@@ -148,7 +159,8 @@ internal static class BuildTestDockerCommandFactory
             containerName,
             mount,
             imageName,
-            $"dotnet{workingDirectoryArg} {dotnetArgumentText}");
+            $"dotnet{workingDirectoryArg} {dotnetArgumentText}",
+            windowsNetwork);
     }
 
     private static string CreateRunnerArgs(
@@ -156,12 +168,17 @@ internal static class BuildTestDockerCommandFactory
         string containerName,
         string mount,
         string imageName,
-        string runnerArguments)
+        string runnerArguments,
+        string windowsNetwork = "")
     {
-        var pythonCommand = IsWindowsContext(dockerContext)
+        var isWindowsContext = IsWindowsContext(dockerContext);
+        var pythonCommand = isWindowsContext
             ? DockerRuntimePathMapper.WindowsPythonCommand
             : "python3";
-        return $"--context {dockerContext} run -d --name {containerName} {mount} {imageName} {pythonCommand} -m testmap_runner {runnerArguments}";
+        var networkArgs = isWindowsContext
+            ? CreateNetworkArgs(windowsNetwork)
+            : string.Empty;
+        return $"--context {dockerContext} run -d --name {containerName}{networkArgs} {mount} {imageName} {pythonCommand} -m testmap_runner {runnerArguments}";
     }
 
     private static bool IsWindowsContext(string dockerContext)
@@ -172,6 +189,13 @@ internal static class BuildTestDockerCommandFactory
     private static string Quote(string value)
     {
         return DockerCommandRunner.QuoteDockerArgument(value);
+    }
+
+    private static string CreateNetworkArgs(string windowsNetwork)
+    {
+        return string.IsNullOrWhiteSpace(windowsNetwork)
+            ? string.Empty
+            : $" --network={windowsNetwork.Trim()}";
     }
 
 }

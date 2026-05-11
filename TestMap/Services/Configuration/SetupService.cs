@@ -1,3 +1,7 @@
+using System.Text.Json;
+using TestMap.Models.Configuration;
+using TestMap.Services.TestExecution;
+
 namespace TestMap.Services.Configuration;
 
 public class SetupService
@@ -107,6 +111,7 @@ public class SetupService
         var dockerRoot = GetDockerRoot();
         var sourceRoot = Directory.GetParent(dockerRoot)?.FullName ?? _basePath;
         var contextDir = dockerRoot;
+        var networkArgs = CreateDockerBuildNetworkArgs(contextName);
 
         _output.WriteLine($"Docker source root: {sourceRoot}");
         _output.WriteLine($"Docker context dir: {contextDir}");
@@ -115,7 +120,7 @@ public class SetupService
 
         var result = _processExecutor.Run(
             "docker",
-            $"--context {contextName} build -t {imageName} -f \"{dockerfilePath}\" \"{contextDir}\"",
+            $"--context {contextName} build{networkArgs} -t {imageName} -f \"{dockerfilePath}\" \"{contextDir}\"",
             false);
 
         WriteProcessOutput(result);
@@ -124,6 +129,36 @@ public class SetupService
             throw new Exception($"Docker build failed for context '{contextName}' with exit code {result.ExitCode}");
 
         _output.WriteLine($"Image '{imageName}' built successfully for context '{contextName}'.");
+    }
+
+    private string CreateDockerBuildNetworkArgs(string contextName)
+    {
+        if (!contextName.Contains(DockerRuntimePathMapper.WindowsContextName, StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+
+        var network = ReadWindowsNetworkFromConfig();
+        return string.IsNullOrWhiteSpace(network)
+            ? string.Empty
+            : $" --network={network.Trim()}";
+    }
+
+    private string ReadWindowsNetworkFromConfig()
+    {
+        var configPath = Path.Combine(_basePath, "Config", "default-config.json");
+        if (!File.Exists(configPath)) return string.Empty;
+
+        try
+        {
+            var config = JsonSerializer.Deserialize<TestMapConfig>(
+                File.ReadAllText(configPath),
+                ConfigJsonSerializer.CreateOptions());
+
+            return config?.RuntimeConfig.Docker.WindowsNetwork ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     public void BuildAllImages()

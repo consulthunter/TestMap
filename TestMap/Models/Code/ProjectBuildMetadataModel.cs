@@ -14,6 +14,7 @@ public class ProjectBuildMetadataModel
     public bool IsTestProject { get; set; }
     public bool UsesWindowsDesktop { get; set; }
     public WindowsRequirementType WindowsRequirement { get; set; } = WindowsRequirementType.Unknown;
+    public ExecutionSupportType ExecutionSupport { get; set; } = ExecutionSupportType.Unknown;
     public CoverageCollectorType CoverageCollector { get; set; } = CoverageCollectorType.Unknown;
     public List<RuleDecisionRecord> RuleDecisions { get; set; } = new();
     public string Notes { get; set; } = string.Empty;

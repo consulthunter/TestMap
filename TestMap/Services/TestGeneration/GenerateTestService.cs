@@ -403,6 +403,7 @@ public class GenerateTestService : IGenerateTestService
             context.TestFramework,
             context.TestDependencies,
             context.CoverageGapSummary,
+            context.MutationSummary,
             context.Method.BaselineCoverage);
     }
 
@@ -458,6 +459,7 @@ public class GenerateTestService : IGenerateTestService
             TestFramework = request.TestFramework,
             TestDependencies = request.TestDependencies,
             CoverageGapSummary = request.CoverageGapSummary,
+            MutationSummary = request.MutationSummary,
             Provider = request.Provider,
             Temperature = request.Temperature,
             StepErrorRetries = request.StepErrorRetries,
@@ -489,6 +491,7 @@ public class GenerateTestService : IGenerateTestService
             ExampleTestMetadataSummary = request.ExampleTestMetadataSummary,
             ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
             CoverageGapSummary = request.CoverageGapSummary,
+            MutationSummary = request.MutationSummary,
             ErrorLogs = request.ErrorLogs,
             StructuredErrors = request.StructuredErrors,
             PriorConversationTranscript = request.PriorConversationTranscript,
@@ -524,5 +527,6 @@ internal record CandidateMethodInfo(
     string TestFramework,
     string TestDependencies,
     string CoverageGapSummary,
+    string MutationSummary,
     double BaselineCoverage
 );

@@ -6,6 +6,7 @@ using TestMap.Models.Coverage;
 using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Mapping.Code;
+using TestMap.Persistence.Ef.Repositories.Experiment;
 
 namespace TestMap.Services.TestGeneration.TargetSelection;
 
@@ -18,22 +19,29 @@ public class MethodSelectionService : IMethodSelectionService
     private readonly ProjectContext _context;
     private readonly TestMapDbContext _dbContext;
     private readonly CandidateMethodSelector _candidateMethodSelector;
+    private readonly CandidateInventoryRepository _candidateInventoryRepository;
 
     public MethodSelectionService(
         ProjectContext context,
         TestMapDbContext dbContext,
-        CandidateMethodSelector candidateMethodSelector)
+        CandidateMethodSelector candidateMethodSelector,
+        CandidateInventoryRepository candidateInventoryRepository)
     {
         _context = context;
         _dbContext = dbContext;
         _candidateMethodSelector = candidateMethodSelector;
+        _candidateInventoryRepository = candidateInventoryRepository;
     }
 
     public async Task<List<CandidateMethod>> SelectCandidateMethodsAsync(
         ExperimentConfig config,
+        bool requirePassingExistingTest = false,
         CancellationToken cancellationToken = default)
     {
         var candidates = await _candidateMethodSelector.SelectAsync(config, cancellationToken);
+        var latestBaseline = await LoadLatestBaselineTestOutcomesAsync(cancellationToken);
+        var inventory = new List<CandidateInventoryItem>();
+        var selected = new List<CandidateMethod>();
 
         foreach (var candidate in candidates)
         {
@@ -45,9 +53,124 @@ public class MethodSelectionService : IMethodSelectionService
             candidate.TestState = context.Method.TestState;
             candidate.RecommendedAction = context.Method.RecommendedAction;
             candidate.TestStateReason = context.Method.TestStateReason;
+
+            var inventoryItem = CreateInventoryItem(
+                config,
+                candidate,
+                latestBaseline);
+            inventory.Add(inventoryItem);
+
+            if (!requirePassingExistingTest || inventoryItem.IsExperimentEligible)
+                selected.Add(candidate);
         }
 
-        return candidates;
+        await _candidateInventoryRepository.ReplaceForProjectStrategyAsync(
+            _context.Project.DbId,
+            config.CandidateSelectionStrategy ?? _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection.Strategy,
+            inventory,
+            cancellationToken);
+
+        return selected;
+    }
+
+    private async Task<LatestBaselineTestOutcomes> LoadLatestBaselineTestOutcomesAsync(
+        CancellationToken cancellationToken)
+    {
+        var latestRun = await _dbContext.TestRuns
+            .AsNoTracking()
+            .Where(x => x.ProjectId == _context.Project.DbId)
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latestRun == null)
+            return new LatestBaselineTestOutcomes(string.Empty, new Dictionary<int, string>());
+
+        var results = await _dbContext.TestResults
+            .AsNoTracking()
+            .Where(x => x.TestRunId == latestRun.Id && x.MethodId > 0)
+            .ToListAsync(cancellationToken);
+
+        return new LatestBaselineTestOutcomes(
+            latestRun.RunId,
+            results
+                .GroupBy(x => x.MethodId)
+                .ToDictionary(x => x.Key, x => AggregateOutcome(x.Select(result => result.Outcome).ToList())));
+    }
+
+    private static string AggregateOutcome(IReadOnlyCollection<string> outcomes)
+    {
+        if (outcomes.Count == 0) return string.Empty;
+
+        if (outcomes.Any(IsFailingOutcome)) return "Failed";
+        if (outcomes.All(x => string.Equals(x, "Passed", StringComparison.OrdinalIgnoreCase))) return "Passed";
+
+        return outcomes.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty;
+    }
+
+    private static bool IsFailingOutcome(string outcome)
+    {
+        return outcome.Equals("Failed", StringComparison.OrdinalIgnoreCase) ||
+               outcome.Equals("Error", StringComparison.OrdinalIgnoreCase) ||
+               outcome.Equals("Aborted", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private CandidateInventoryItem CreateInventoryItem(
+        ExperimentConfig config,
+        CandidateMethod candidate,
+        LatestBaselineTestOutcomes latestBaseline)
+    {
+        var existingTestMemberId = candidate.ExistingTestMemberId;
+        var hasExistingTest = existingTestMemberId.HasValue;
+        var existingTestOutcome = existingTestMemberId.HasValue &&
+                                  latestBaseline.OutcomesByTestMemberId.TryGetValue(
+                                      existingTestMemberId.Value,
+                                      out var outcome)
+            ? outcome
+            : string.Empty;
+        var isEligible = hasExistingTest &&
+                         string.Equals(existingTestOutcome, "Passed", StringComparison.OrdinalIgnoreCase);
+
+        return new CandidateInventoryItem
+        {
+            ProjectId = _context.Project.DbId,
+            SourceMemberId = candidate.MemberId,
+            ExistingTestMemberId = candidate.ExistingTestMemberId,
+            SourceMethodName = candidate.MethodName,
+            SourceMethodSignature = candidate.Signature,
+            ExistingTestMethodName = candidate.ExistingTestMethodName ?? string.Empty,
+            InitialCoverage = candidate.BaselineCoverage,
+            ComplexityScore = candidate.ComplexityScore,
+            SelectionStrategy = config.CandidateSelectionStrategy ??
+                                _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection.Strategy,
+            ExistingTestOutcome = existingTestOutcome,
+            IsExperimentEligible = isEligible,
+            IneligibilityReason = ResolveIneligibilityReason(hasExistingTest, latestBaseline.RunId, existingTestOutcome),
+            RiskScore = candidate.RiskScore,
+            MetricDrivenScore = candidate.MetricDrivenScore,
+            ExpectedMetricDelta = candidate.ExpectedMetricDelta,
+            MetricGuardrailStatus = candidate.MetricGuardrailStatus,
+            MetricSelectionReason = candidate.MetricSelectionReason,
+            TestState = candidate.TestState,
+            RecommendedAction = candidate.RecommendedAction,
+            TestStateReason = candidate.TestStateReason,
+            SelectionTime = candidate.SelectionTime == default ? DateTime.UtcNow : candidate.SelectionTime,
+            BaselineRunId = latestBaseline.RunId
+        };
+    }
+
+    private static string ResolveIneligibilityReason(
+        bool hasExistingTest,
+        string baselineRunId,
+        string existingTestOutcome)
+    {
+        if (!hasExistingTest) return "No paired existing test was identified.";
+        if (string.IsNullOrWhiteSpace(baselineRunId)) return "No baseline test run was found.";
+        if (string.IsNullOrWhiteSpace(existingTestOutcome)) return "The paired test was not found in baseline results.";
+        if (!string.Equals(existingTestOutcome, "Passed", StringComparison.OrdinalIgnoreCase))
+            return $"The paired test outcome was '{existingTestOutcome}', not 'Passed'.";
+
+        return string.Empty;
     }
 
     public async Task<CandidateMethodContext?> GetMethodContextAsync(
@@ -126,7 +249,7 @@ public class MethodSelectionService : IMethodSelectionService
             project,
             cancellationToken);
         var directTestSignals = await GetDirectTestSignalCountAsync(memberId, cancellationToken);
-        var undetectedMutantCount = await GetUndetectedMutantCountAsync(memberId, cancellationToken);
+        var undetectedMutants = await GetUndetectedMutantsAsync(memberId, cancellationToken);
         var exampleTestSmellCount = testContext?.ExampleTestMemberId is int exampleTestMemberId
             ? await GetTestSmellCountAsync(exampleTestMemberId, cancellationToken)
             : 0;
@@ -135,7 +258,7 @@ public class MethodSelectionService : IMethodSelectionService
             directTestSignals,
             coverageEntity?.LineRate ?? 0.0,
             coverageGaps.Count,
-            undetectedMutantCount,
+            undetectedMutants.Count,
             exampleTestSmellCount);
 
         var candidateMethod = new CandidateMethod
@@ -196,7 +319,8 @@ public class MethodSelectionService : IMethodSelectionService
                                  "No additional helper methods, setup hooks, or support members were discovered in the selected test file.",
             TestFramework = ResolveTestFramework(testContext, project.FilePath),
             TestDependencies = ResolveTestDependencies(testContext, project.FilePath),
-            CoverageGapSummary = BuildCoverageGapSummary(coverageGaps)
+            CoverageGapSummary = BuildCoverageGapSummary(coverageGaps),
+            MutationSummary = BuildMutationSummary(undetectedMutants)
         };
     }
 
@@ -331,6 +455,41 @@ public class MethodSelectionService : IMethodSelectionService
         return "Coverage gaps to target:\n" + string.Join("\n", gapLines);
     }
 
+    private static string BuildMutationSummary(
+        IReadOnlyCollection<Persistence.Ef.Entities.MutationTesting.MutantEntity> mutants)
+    {
+        if (mutants.Count == 0) return "No surviving or no-coverage mutants are available for this method.";
+
+        var mutantLines = mutants
+            .OrderBy(x => x.Location.StartLineNumber)
+            .ThenBy(x => x.StrykerMutantId)
+            .Select(mutant =>
+            {
+                var id = string.IsNullOrWhiteSpace(mutant.StrykerMutantId)
+                    ? mutant.Id.ToString()
+                    : mutant.StrykerMutantId;
+                var location = mutant.Location.StartLineNumber > 0
+                    ? $"lines {mutant.Location.StartLineNumber}-{mutant.Location.EndLineNumber}"
+                    : "unknown location";
+                var replacement = string.IsNullOrWhiteSpace(mutant.Replacement)
+                    ? string.Empty
+                    : $", replacement=`{mutant.Replacement}`";
+                var reason = string.IsNullOrWhiteSpace(mutant.StatusReason)
+                    ? string.Empty
+                    : $", reason={mutant.StatusReason}";
+                var coveredBy = mutant.CoveredBy.Count == 0
+                    ? string.Empty
+                    : $", coveredBy={string.Join(", ", mutant.CoveredBy.Take(3))}";
+
+                return
+                    $"- Mutant {id}: {mutant.Status}, {mutant.MutatorName}, {location}{replacement}{reason}{coveredBy}";
+            })
+            .Distinct()
+            .Take(12);
+
+        return "Mutation evidence to target:\n" + string.Join("\n", mutantLines);
+    }
+
     private async Task<int> GetDirectTestSignalCountAsync(int memberId, CancellationToken cancellationToken)
     {
         var relationshipSignals = await _dbContext.MemberRelationships
@@ -349,15 +508,20 @@ public class MethodSelectionService : IMethodSelectionService
         return relationshipSignals + invocationSignals;
     }
 
-    private Task<int> GetUndetectedMutantCountAsync(int memberId, CancellationToken cancellationToken)
+    private async Task<List<Persistence.Ef.Entities.MutationTesting.MutantEntity>> GetUndetectedMutantsAsync(
+        int memberId,
+        CancellationToken cancellationToken)
     {
-        return _dbContext.Mutants
+        var mutants = await _dbContext.Mutants
             .AsNoTracking()
             .Where(x => x.MemberId == memberId)
-            .CountAsync(x =>
-                    x.Status == "Survived" ||
-                    x.Status == "NoCoverage",
-                cancellationToken);
+            .Where(x => x.Status == "Survived" || x.Status == "NoCoverage")
+            .ToListAsync(cancellationToken);
+
+        return mutants
+            .OrderBy(x => x.Location.StartLineNumber)
+            .ThenBy(x => x.StrykerMutantId)
+            .ToList();
     }
 
     private Task<int> GetTestSmellCountAsync(int testMemberId, CancellationToken cancellationToken)
@@ -795,4 +959,8 @@ using System;"
         CandidateTestState TestState,
         CandidateActionKind RecommendedAction,
         string Reason);
+
+    private sealed record LatestBaselineTestOutcomes(
+        string RunId,
+        IReadOnlyDictionary<int, string> OutcomesByTestMemberId);
 }

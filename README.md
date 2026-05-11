@@ -21,6 +21,10 @@ Current top-level run modes include:
 - `generate-tests`
 - `experiment`
 
+## AI Assistance Disclosure
+
+Parts of this project were developed with assistance from AI coding tools, including OpenAI Codex, primarily for refactoring, implementation support, and documentation drafting. All AI-assisted changes were reviewed, tested, and accepted by the project maintainer. AI tools are not treated as contributors or authors of the project.
+
 ## Core Capabilities
 
 These are the foundation of the project and the part I would describe as the main platform rather than experimental research work:

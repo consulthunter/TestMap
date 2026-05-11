@@ -32,6 +32,11 @@ public static class ProjectDiscoveryRuleDefinitions
         "Build targets from TargetFrameworks",
         "A semicolon-delimited TargetFrameworks property defines the build targets.");
 
+    public static RuleDefinition BuildTargetsFromTargetFrameworkVersion { get; } = Define(
+        "project-discovery.build-targets.target-framework-version",
+        "Build targets from TargetFrameworkVersion",
+        "A legacy TargetFrameworkVersion property defines the build target.");
+
     public static RuleDefinition BuildTargetsMissing { get; } = Define(
         "project-discovery.build-targets.missing",
         "Build targets missing",
@@ -92,6 +97,11 @@ public static class ProjectDiscoveryRuleDefinitions
         "Windows required by target framework",
         "A target framework includes a -windows platform suffix.");
 
+    public static RuleDefinition WindowsRequiredByLegacyNetFramework { get; } = Define(
+        "project-discovery.windows-requirement.legacy-net-framework",
+        "Windows required by legacy .NET Framework",
+        "A target framework targets legacy .NET Framework.");
+
     public static RuleDefinition WindowsLikelyByRuntimeIdentifier { get; } = Define(
         "project-discovery.windows-requirement.runtime-identifier",
         "Windows likely by runtime identifier",
@@ -117,6 +127,26 @@ public static class ProjectDiscoveryRuleDefinitions
         "Windows unknown without build targets",
         "No build targets were discovered, so Windows requirement cannot be determined.");
 
+    public static RuleDefinition ExecutionSupportSupported { get; } = Define(
+        "project-discovery.execution-support.supported",
+        "Execution supported",
+        "No unsupported platform or workload target was found.");
+
+    public static RuleDefinition ExecutionSupportUnsupportedTargetFramework { get; } = Define(
+        "project-discovery.execution-support.unsupported-target-framework",
+        "Unsupported target framework",
+        "A target framework requires a non-Windows platform or workload unsupported by the generic runner.");
+
+    public static RuleDefinition ExecutionSupportUnsupportedTargetPlatform { get; } = Define(
+        "project-discovery.execution-support.unsupported-target-platform",
+        "Unsupported target platform",
+        "TargetPlatformIdentifier names a non-Windows platform unsupported by the generic runner.");
+
+    public static RuleDefinition ExecutionSupportUnknownNoBuildTargets { get; } = Define(
+        "project-discovery.execution-support.no-build-targets",
+        "Execution support unknown without build targets",
+        "No build targets were discovered, so generic runner support cannot be determined.");
+
     public static RuleDefinition CoverageCollectorCoverlet { get; } = Define(
         "project-discovery.coverage-collector.coverlet",
         "Coverlet collector",
@@ -139,6 +169,7 @@ public static class ProjectDiscoveryRuleDefinitions
         ProjectFileParseFailed,
         BuildTargetsFromTargetFramework,
         BuildTargetsFromTargetFrameworks,
+        BuildTargetsFromTargetFrameworkVersion,
         BuildTargetsMissing,
         BuildTargetsUnavailable,
         SdkVersionFromGlobalJson,
@@ -151,11 +182,16 @@ public static class ProjectDiscoveryRuleDefinitions
         WindowsRequiredByDesktop,
         WindowsRequiredByTargetPlatform,
         WindowsRequiredByWindowsTargetFramework,
+        WindowsRequiredByLegacyNetFramework,
         WindowsLikelyByRuntimeIdentifier,
         WindowsLikelyByRuntimeIdentifiers,
         WindowsLikelyByPackage,
         WindowsNotRequiredNoSignal,
         WindowsUnknownNoBuildTargets,
+        ExecutionSupportSupported,
+        ExecutionSupportUnsupportedTargetFramework,
+        ExecutionSupportUnsupportedTargetPlatform,
+        ExecutionSupportUnknownNoBuildTargets,
         CoverageCollectorCoverlet,
         CoverageCollectorMicrosoft,
         CoverageCollectorUnknown
