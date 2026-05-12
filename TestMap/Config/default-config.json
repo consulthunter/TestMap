@@ -41,7 +41,7 @@
   "TestingConfig": {
     "GenerationConfig": {
       "Objective": "test-suite-expansion",
-      "Provider": "openai",
+      "Provider": "custom-openai",
       "Mode": "chat",
       "MetricsPath": "coverage-and-mutation",
       "BudgetMode": "pass-at1-repair-at5",
@@ -49,6 +49,11 @@
       "StepErrorRetries": 0,
       "StepRetryDelayMs": 1000,
       "ContextMode": "chained-history",
+      "TargetSelection": {
+        "Strategy": "existing",
+        "CandidateLimit": 20,
+        "ContextMappingMode": "heuristic-with-grounded-preference"
+      },
       "Steps": {
         "EnableEvidencePackage": true,
         "EnableContextGraph": false,
@@ -73,7 +78,7 @@
     "MetadataEnrichmentConfig": {
       "Enabled": true,
       "UseModel": true,
-      "Provider": "openai",
+      "Provider": "custom-openai",
       "Mode": "chat",
       "Temperature": 0.0,
       "RequestDelayMs": 2000,
@@ -169,6 +174,7 @@
       "pass-at5",
       "pass-at1-repair-at5"
     ],
+    "ContextMappingMode": "direct-invocation-only",
     "CompareHistoryModes": true,
     "ContextModes": [
       "no-history",
@@ -195,7 +201,7 @@
     },
     "Temperature": 0,
     "IncludeProviders": [
-      "OpenAi"
+      "CustomOpenAi"
     ],
     "PreferredProvider": "CustomOpenAi",
     "CandidateLimit": 20,

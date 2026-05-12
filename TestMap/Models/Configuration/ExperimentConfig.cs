@@ -10,6 +10,7 @@ public class ExperimentConfig
 {
     public TestGenerationObjective Objective { get; set; } = TestGenerationObjective.TestSuiteExpansion;
     public TargetSelectionStrategy? CandidateSelectionStrategy { get; set; }
+    public TestContextMappingMode? ContextMappingMode { get; set; }
     public TestGenerationApproach GenerationApproach { get; set; } =
         TestGenerationApproach.MetricsDriven;
     public TestActionExecutorMode Executor { get; set; } =

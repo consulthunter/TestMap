@@ -173,6 +173,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
                 var methodContext = await _methodSelection.GetMethodContextAsync(
                     candidateMethod.MemberId,
+                    config.ContextMappingMode ??
+                    _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection.ContextMappingMode,
                     cancellationToken);
 
                 if (methodContext == null)

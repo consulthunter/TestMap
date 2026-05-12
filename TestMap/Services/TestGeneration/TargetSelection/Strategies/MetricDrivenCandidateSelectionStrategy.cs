@@ -25,15 +25,10 @@ public sealed class MetricDrivenCandidateSelectionStrategy : ICandidateSelection
             candidatePool,
             context.TargetSelection.MetricDrivenImprovement,
             cancellationToken);
-        var targetLimit = Math.Min(
-            context.EffectiveLimit,
-            Math.Max(1, context.TargetSelection.MetricDrivenImprovement.Budget.MaxTargets));
-
         return candidatePool
             .OrderByDescending(x => scoresByMemberId.TryGetValue(x.Id, out var score) ? score.Score : 0.0)
             .ThenByDescending(x => scoresByMemberId.TryGetValue(x.Id, out var score) ? score.ExpectedMetricDelta : 0.0)
             .ThenBy(x => x.LineRate)
-            .Take(targetLimit)
             .Select(row => CandidateMethodFactory.Create(
                 row,
                 context.SelectionTime,

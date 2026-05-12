@@ -60,7 +60,8 @@ public sealed class MetricDrivenCandidateSelectionStrategyTests
                 new CandidateSelectionRow(2, "KilledTarget", "public void KilledTarget() { }", 0.0, 1)
             ]);
 
-        var candidate = Assert.Single(selected);
+        Assert.Equal(2, selected.Count);
+        var candidate = selected.First();
         Assert.Equal(1, candidate.MemberId);
         Assert.Contains("undetected_mutants=1", candidate.MetricSelectionReason);
     }

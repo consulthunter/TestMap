@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using TestMap.App;
 using TestMap.Models.Code;
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Coverage;
 using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef;
@@ -41,11 +42,15 @@ public class MethodSelectionService : IMethodSelectionService
         var candidates = await _candidateMethodSelector.SelectAsync(config, cancellationToken);
         var latestBaseline = await LoadLatestBaselineTestOutcomesAsync(cancellationToken);
         var inventory = new List<CandidateInventoryItem>();
-        var selected = new List<CandidateMethod>();
+        var enrichedCandidates = new List<EnrichedCandidateSelection>();
 
-        foreach (var candidate in candidates)
+        for (var index = 0; index < candidates.Count; index++)
         {
-            var context = await GetMethodContextAsync(candidate.MemberId, cancellationToken);
+            var candidate = candidates[index];
+            var contextMappingMode = config.ContextMappingMode ??
+                                     _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection
+                                         .ContextMappingMode;
+            var context = await GetMethodContextAsync(candidate.MemberId, contextMappingMode, cancellationToken);
             if (context == null) continue;
 
             candidate.ExistingTestMemberId = context.Method.ExistingTestMemberId;
@@ -60,8 +65,12 @@ public class MethodSelectionService : IMethodSelectionService
                 latestBaseline);
             inventory.Add(inventoryItem);
 
-            if (!requirePassingExistingTest || inventoryItem.IsExperimentEligible)
-                selected.Add(candidate);
+            enrichedCandidates.Add(new EnrichedCandidateSelection(
+                candidate,
+                inventoryItem,
+                context.ContextEvidenceKind,
+                context.HasGroundedTestContext,
+                index));
         }
 
         await _candidateInventoryRepository.ReplaceForProjectStrategyAsync(
@@ -70,7 +79,28 @@ public class MethodSelectionService : IMethodSelectionService
             inventory,
             cancellationToken);
 
-        return selected;
+        var selectionLimit = ResolveFinalSelectionLimit(config);
+        return enrichedCandidates
+            .Where(x => !requirePassingExistingTest || x.InventoryItem.IsExperimentEligible)
+            .OrderBy(x => GetContextSelectionPriority(x.ContextEvidenceKind, x.HasGroundedTestContext))
+            .ThenBy(x => x.StrategyRank)
+            .Take(selectionLimit)
+            .Select(x => x.Candidate)
+            .ToList();
+    }
+
+    private static int ResolveFinalSelectionLimit(ExperimentConfig config)
+    {
+        return Math.Max(1, config.CandidateLimit);
+    }
+
+    private static int GetContextSelectionPriority(string evidenceKind, bool isGrounded)
+    {
+        if (string.Equals(evidenceKind, "DirectInvocation", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (string.Equals(evidenceKind, "MemberRelationship", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (isGrounded) return 2;
+        if (string.Equals(evidenceKind, "WeakHeuristic", StringComparison.OrdinalIgnoreCase)) return 3;
+        return 4;
     }
 
     private async Task<LatestBaselineTestOutcomes> LoadLatestBaselineTestOutcomesAsync(
@@ -177,6 +207,16 @@ public class MethodSelectionService : IMethodSelectionService
         int memberId,
         CancellationToken cancellationToken = default)
     {
+        var contextMappingMode = _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection
+            .ContextMappingMode;
+        return await GetMethodContextAsync(memberId, contextMappingMode, cancellationToken);
+    }
+
+    public async Task<CandidateMethodContext?> GetMethodContextAsync(
+        int memberId,
+        TestContextMappingMode contextMappingMode,
+        CancellationToken cancellationToken = default)
+    {
         var memberEntity = await _dbContext.Members
             .FirstOrDefaultAsync(x => x.Id == memberId, cancellationToken);
 
@@ -244,6 +284,9 @@ public class MethodSelectionService : IMethodSelectionService
         var methodSignature = ExtractMethodSignature(member.FullString, member.Name);
 
         var testContext = await FindBestTestContextAsync(
+            member.Id,
+            member.Name,
+            contextMappingMode,
             sourceObject,
             sourceFile,
             project,
@@ -251,6 +294,7 @@ public class MethodSelectionService : IMethodSelectionService
         var directTestSignals = await GetDirectTestSignalCountAsync(memberId, cancellationToken);
         var undetectedMutants = await GetUndetectedMutantsAsync(memberId, cancellationToken);
         var exampleTestSmellCount = testContext?.ExampleTestMemberId is int exampleTestMemberId
+                                    && testContext.IsGrounded
             ? await GetTestSmellCountAsync(exampleTestMemberId, cancellationToken)
             : 0;
         var testAssessment = DetermineTestAssessment(
@@ -267,14 +311,16 @@ public class MethodSelectionService : IMethodSelectionService
             MethodName = member.Name,
             SourceCode = member.FullString,
             Signature = methodSignature,
-            ExistingTestMemberId = testContext?.ExampleTestMemberId,
-            ExistingTestMethodName = testContext?.ExampleTestMethodName,
+            ExistingTestMemberId = testContext?.IsGrounded == true ? testContext.ExampleTestMemberId : null,
+            ExistingTestMethodName = testContext?.IsGrounded == true ? testContext.ExampleTestMethodName : null,
             BaselineCoverage = coverageEntity?.LineRate ?? 0.0,
             ComplexityScore = coverageEntity?.Complexity ?? 0.0,
             TestState = testAssessment.TestState,
             RecommendedAction = testAssessment.RecommendedAction,
-            TestStateReason = testAssessment.Reason
+            TestStateReason = AppendContextMappingReason(testAssessment.Reason, testContext)
         };
+
+        LogContextMapping(member, sourceObject, testContext);
 
         return new CandidateMethodContext
         {
@@ -320,7 +366,10 @@ public class MethodSelectionService : IMethodSelectionService
             TestFramework = ResolveTestFramework(testContext, project.FilePath),
             TestDependencies = ResolveTestDependencies(testContext, project.FilePath),
             CoverageGapSummary = BuildCoverageGapSummary(coverageGaps),
-            MutationSummary = BuildMutationSummary(undetectedMutants)
+            MutationSummary = BuildMutationSummary(undetectedMutants),
+            ContextEvidenceKind = testContext?.EvidenceKind ?? "None",
+            ContextEvidenceSummary = testContext?.EvidenceSummary ?? "No test context selected.",
+            HasGroundedTestContext = testContext?.IsGrounded ?? false
         };
     }
 
@@ -539,7 +588,7 @@ public class MethodSelectionService : IMethodSelectionService
         int undetectedMutantCount,
         int exampleTestSmellCount)
     {
-        if (testContext?.ExampleTestMemberId == null)
+        if (testContext?.IsGrounded != true || testContext.ExampleTestMemberId == null)
             return new CandidateTestAssessment(
                 CandidateTestState.NoKnownTest,
                 CandidateActionKind.GenerateNewTest,
@@ -583,11 +632,40 @@ public class MethodSelectionService : IMethodSelectionService
     }
 
     private async Task<TestContextCandidate?> FindBestTestContextAsync(
+        int sourceMemberId,
+        string sourceMemberName,
+        TestContextMappingMode mappingMode,
         ObjectModel sourceObject,
         FileModel sourceFile,
         CSharpProjectModel sourceProject,
         CancellationToken cancellationToken)
     {
+        var directInvocationCandidate = await FindDirectInvocationTestContextAsync(
+            sourceMemberId,
+            sourceMemberName,
+            sourceProject,
+            cancellationToken);
+
+        if (directInvocationCandidate != null) return directInvocationCandidate;
+
+        if (mappingMode == TestContextMappingMode.DirectInvocationOnly)
+        {
+            _context.Project.Logger?.Warning(
+                "No directly invoking test context found for source member {SourceMemberId} ({SourceMemberName}); score-based context selection is disabled by {MappingMode}.",
+                sourceMemberId,
+                sourceMemberName,
+                mappingMode);
+            return null;
+        }
+
+        var relationshipCandidate = await FindMemberRelationshipTestContextAsync(
+            sourceMemberId,
+            sourceMemberName,
+            sourceProject,
+            cancellationToken);
+
+        if (relationshipCandidate != null) return relationshipCandidate;
+
         var candidates = await (
                 from testObject in _dbContext.Objects
                 join testFile in _dbContext.Files on testObject.FileId equals testFile.Id
@@ -646,7 +724,121 @@ public class MethodSelectionService : IMethodSelectionService
             ProjectTestMetadataSummary = BuildProjectTestMetadataSummary(exampleCandidates),
             Dependencies = dependencies,
             TestFileContents = testFileContents,
-            SupportContext = supportContext
+            SupportContext = supportContext,
+            EvidenceKind = "WeakHeuristic",
+            EvidenceSummary = BuildHeuristicEvidenceSummary(sourceObject, bestCandidate, selectedExample),
+            IsGrounded = false
+        };
+    }
+
+    private async Task<TestContextCandidate?> FindDirectInvocationTestContextAsync(
+        int sourceMemberId,
+        string sourceMemberName,
+        CSharpProjectModel sourceProject,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await (
+                from invocation in _dbContext.Invocations.AsNoTracking()
+                join testMember in _dbContext.Members.AsNoTracking() on invocation.MemberId equals testMember.Id
+                join testObject in _dbContext.Objects.AsNoTracking() on testMember.ObjectEntityId equals testObject.Id
+                join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
+                join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
+                where invocation.InvokedMemberId == sourceMemberId
+                      && testMember.IsTestMember
+                      && testMember.Kind == "method"
+                      && testObject.IsTestObject
+                      && testProject.SolutionId == sourceProject.SolutionId
+                orderby testMember.IsGenerated,
+                    testFile.FilePath.Length,
+                    testMember.Name
+                select new TestContextEvidenceRow(
+                    testMember,
+                    testObject,
+                    testFile,
+                    testProject,
+                    "DirectInvocation",
+                    $"Test method '{testObject.Name}.{testMember.Name}' directly invokes source member '{sourceMemberName}' via invocation.MemberId={testMember.Id} -> invocation.InvokedMemberId={sourceMemberId}.",
+                    true))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return candidates == null
+            ? null
+            : await BuildGroundedTestContextAsync(candidates, cancellationToken);
+    }
+
+    private async Task<TestContextCandidate?> FindMemberRelationshipTestContextAsync(
+        int sourceMemberId,
+        string sourceMemberName,
+        CSharpProjectModel sourceProject,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await (
+                from relationship in _dbContext.MemberRelationships.AsNoTracking()
+                join testMember in _dbContext.Members.AsNoTracking() on relationship.SourceId equals testMember.Id
+                join testObject in _dbContext.Objects.AsNoTracking() on testMember.ObjectEntityId equals testObject.Id
+                join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
+                join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
+                where relationship.TargetId == sourceMemberId
+                      && (relationship.RelationshipType == "tests" || relationship.RelationshipType == "covers")
+                      && testMember.IsTestMember
+                      && testMember.Kind == "method"
+                      && testObject.IsTestObject
+                      && testProject.SolutionId == sourceProject.SolutionId
+                orderby testMember.IsGenerated,
+                    testFile.FilePath.Length,
+                    testMember.Name
+                select new TestContextEvidenceRow(
+                    testMember,
+                    testObject,
+                    testFile,
+                    testProject,
+                    "MemberRelationship",
+                    $"Test method '{testObject.Name}.{testMember.Name}' maps to source member '{sourceMemberName}' through member relationship '{relationship.RelationshipType}' ({testMember.Id} -> {sourceMemberId}).",
+                    true))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return candidates == null
+            ? null
+            : await BuildGroundedTestContextAsync(candidates, cancellationToken);
+    }
+
+    private async Task<TestContextCandidate> BuildGroundedTestContextAsync(
+        TestContextEvidenceRow evidence,
+        CancellationToken cancellationToken)
+    {
+        var testClass = evidence.TestObject.ToDomain();
+        var testFile = evidence.TestFile.ToDomain();
+        var testProject = evidence.TestProject.ToDomain();
+        var testMembers = await _dbContext.Members
+            .Where(x => x.ObjectEntityId == evidence.TestObject.Id)
+            .ToListAsync(cancellationToken);
+        var exampleCandidates = testMembers
+            .Where(x => x.IsTestMember && x.Kind == "method")
+            .ToList();
+        var dependencies = BuildDependencies(testFile, testClass, testProject);
+        var testFileContents = await TryReadFileAsync(testFile.FilePath, cancellationToken)
+                               ?? testClass.FullString;
+        var supportContext = BuildSupportContext(testMembers, evidence.TestMember);
+
+        return new TestContextCandidate(
+            testClass,
+            testFile,
+            testProject,
+            0)
+        {
+            ExampleTestMemberId = evidence.TestMember.Id,
+            ExampleTestMethodName = evidence.TestMember.Name,
+            ExampleTest = evidence.TestMember.FullString,
+            ExampleTestMemberLocation = evidence.TestMember.Location,
+            ExampleTestMetadataSummary = BuildExampleTestMetadataSummary(evidence.TestMember),
+            ExampleTestMetadataConfidence = evidence.TestMember.TestMetadataConfidence,
+            ProjectTestMetadataSummary = BuildProjectTestMetadataSummary(exampleCandidates),
+            Dependencies = dependencies,
+            TestFileContents = testFileContents,
+            SupportContext = supportContext,
+            EvidenceKind = evidence.EvidenceKind,
+            EvidenceSummary = evidence.EvidenceSummary,
+            IsGrounded = evidence.IsGrounded
         };
     }
 
@@ -678,6 +870,52 @@ public class MethodSelectionService : IMethodSelectionService
             score += 25;
 
         return score;
+    }
+
+    private static string BuildHeuristicEvidenceSummary(
+        ObjectModel sourceObject,
+        TestContextCandidate bestCandidate,
+        Persistence.Ef.Entities.Code.MemberEntity? selectedExample)
+    {
+        var example = selectedExample == null
+            ? "No example test method was selected."
+            : $"Style example '{bestCandidate.TestClass.Name}.{selectedExample.Name}' was selected from the highest-scoring test class.";
+        return
+            $"No direct invocation or explicit member relationship mapped to source object '{sourceObject.Name}'. " +
+            $"Heuristic style context '{bestCandidate.TestClass.Name}' was selected with score {bestCandidate.Score}. " +
+            $"{example} This context is not treated as a paired existing test.";
+    }
+
+    private static string AppendContextMappingReason(string reason, TestContextCandidate? testContext)
+    {
+        var contextReason = testContext == null
+            ? "Context mapping: no test context selected."
+            : $"Context mapping: {testContext.EvidenceKind}; grounded={testContext.IsGrounded}; {testContext.EvidenceSummary}";
+
+        return string.IsNullOrWhiteSpace(reason)
+            ? contextReason
+            : $"{reason} {contextReason}";
+    }
+
+    private void LogContextMapping(
+        MemberModel sourceMember,
+        ObjectModel sourceObject,
+        TestContextCandidate? testContext)
+    {
+        _context.Project.Logger?.Information(
+            "Generation context mapping: SourceMemberId={SourceMemberId}, Source={SourceNamespace}.{SourceClass}.{SourceMethod}, ExistingTestMemberId={TestMemberId}, Test={TestNamespace}.{TestClass}.{TestMethod}, EvidenceKind={EvidenceKind}, EvidenceSummary={EvidenceSummary}, Score={Score}, IsGrounded={IsGrounded}",
+            sourceMember.Id,
+            sourceObject.Namespace,
+            sourceObject.Name,
+            sourceMember.Name,
+            testContext?.IsGrounded == true ? testContext.ExampleTestMemberId : null,
+            testContext?.TestClass.Namespace,
+            testContext?.TestClass.Name,
+            testContext?.IsGrounded == true ? testContext.ExampleTestMethodName : null,
+            testContext?.EvidenceKind ?? "None",
+            testContext?.EvidenceSummary ?? "No test context selected.",
+            testContext?.Score ?? 0,
+            testContext?.IsGrounded ?? false);
     }
 
     private static string BuildExampleTestMetadataSummary(Persistence.Ef.Entities.Code.MemberEntity? exampleTest)
@@ -953,7 +1191,19 @@ using System;"
         public string? Dependencies { get; init; }
         public string? TestFileContents { get; init; }
         public string? SupportContext { get; init; }
+        public string EvidenceKind { get; init; } = "None";
+        public string EvidenceSummary { get; init; } = string.Empty;
+        public bool IsGrounded { get; init; }
     }
+
+    private sealed record TestContextEvidenceRow(
+        Persistence.Ef.Entities.Code.MemberEntity TestMember,
+        Persistence.Ef.Entities.Code.ObjectEntity TestObject,
+        Persistence.Ef.Entities.Code.FileEntity TestFile,
+        Persistence.Ef.Entities.Code.CSharpProjectEntity TestProject,
+        string EvidenceKind,
+        string EvidenceSummary,
+        bool IsGrounded);
 
     private sealed record CandidateTestAssessment(
         CandidateTestState TestState,
@@ -963,4 +1213,11 @@ using System;"
     private sealed record LatestBaselineTestOutcomes(
         string RunId,
         IReadOnlyDictionary<int, string> OutcomesByTestMemberId);
+
+    private sealed record EnrichedCandidateSelection(
+        CandidateMethod Candidate,
+        CandidateInventoryItem InventoryItem,
+        string ContextEvidenceKind,
+        bool HasGroundedTestContext,
+        int StrategyRank);
 }

@@ -46,7 +46,6 @@ public sealed class RiskWeightedCandidateSelectionStrategy : ICandidateSelection
             .OrderByDescending(x => scoresByMemberId.TryGetValue(x.Id, out var score) ? score.RiskScore : 0.0)
             .ThenBy(x => x.LineRate)
             .ThenByDescending(x => x.Complexity)
-            .Take(context.EffectiveLimit)
             .Select(row => CandidateMethodFactory.Create(
                 row,
                 context.SelectionTime,

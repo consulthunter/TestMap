@@ -13,7 +13,6 @@ public sealed class ExistingCandidateSelectionStrategy : ICandidateSelectionStra
         CancellationToken cancellationToken = default)
     {
         IReadOnlyList<CandidateMethod> candidates = candidatePool
-            .Take(context.EffectiveLimit)
             .Select(row => CandidateMethodFactory.Create(row, context.SelectionTime))
             .ToList();
 

@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 
 namespace TestMap.Services.TestGeneration.TargetSelection;
@@ -28,6 +29,11 @@ public interface IMethodSelectionService
     /// <returns>Candidate method with full context for generation</returns>
     Task<CandidateMethodContext?> GetMethodContextAsync(
         int memberId,
+        CancellationToken cancellationToken = default);
+
+    Task<CandidateMethodContext?> GetMethodContextAsync(
+        int memberId,
+        TestContextMappingMode contextMappingMode,
         CancellationToken cancellationToken = default);
 }
 
@@ -59,6 +65,9 @@ public class CandidateMethodContext
     public required string TestDependencies { get; init; }
     public required string CoverageGapSummary { get; init; }
     public string MutationSummary { get; init; } = "No surviving or no-coverage mutants are available for this method.";
+    public string ContextEvidenceKind { get; init; } = "None";
+    public string ContextEvidenceSummary { get; init; } = string.Empty;
+    public bool HasGroundedTestContext { get; init; }
 }
 
 public sealed class CandidateSourceLocation

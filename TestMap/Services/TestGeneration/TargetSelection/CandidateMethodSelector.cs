@@ -40,17 +40,9 @@ public sealed class CandidateMethodSelector
             config.MaxCoverageThreshold);
 
         var targetSelection = ResolveTargetSelectionConfig(config);
-        var effectiveLimit = Math.Max(1, config.CandidateLimit);
-        var usesScoredSelection = targetSelection.Strategy is TargetSelectionStrategy.RiskWeighted
-            or TargetSelectionStrategy.MetricDrivenImprovement;
-        var candidatePoolLimit = usesScoredSelection
-            ? Math.Clamp(Math.Max(effectiveLimit * 20, targetSelection.CandidateLimit * 2), effectiveLimit, 1000)
-            : effectiveLimit;
-
         var candidateRows = await LoadCoverageCandidatePoolAsync(
             config.MinCoverageThreshold,
             config.MaxCoverageThreshold,
-            candidatePoolLimit,
             cancellationToken);
 
         if (!_strategies.TryGetValue(targetSelection.Strategy, out var strategy))
@@ -63,12 +55,14 @@ public sealed class CandidateMethodSelector
                 ExperimentConfiguration = config,
                 TargetSelection = targetSelection,
                 SelectionTime = DateTime.UtcNow,
-                EffectiveLimit = effectiveLimit
+                EffectiveLimit = Math.Max(1, config.CandidateLimit)
             },
             candidateRows,
             cancellationToken);
 
-        _context.Project.Logger?.Information("Found {Count} candidate methods", candidateMethods.Count);
+        _context.Project.Logger?.Information(
+            "Found {Count} possible candidate method(s) before final configured target selection.",
+            candidateMethods.Count);
         return candidateMethods.ToList();
     }
 
@@ -81,6 +75,7 @@ public sealed class CandidateMethodSelector
         {
             Strategy = strategy,
             CandidateLimit = configuredSelection.CandidateLimit,
+            ContextMappingMode = config.ContextMappingMode ?? configuredSelection.ContextMappingMode,
             RiskWeights = configuredSelection.RiskWeights,
             MetricDrivenImprovement = configuredSelection.MetricDrivenImprovement,
             FailOnMissingRiskInputs = configuredSelection.FailOnMissingRiskInputs
@@ -90,7 +85,6 @@ public sealed class CandidateMethodSelector
     private async Task<List<CandidateSelectionRow>> LoadCoverageCandidatePoolAsync(
         double minCoverageThreshold,
         double maxCoverageThreshold,
-        int candidatePoolLimit,
         CancellationToken cancellationToken)
     {
         var candidateData = await (
@@ -123,7 +117,6 @@ public sealed class CandidateMethodSelector
                     selectedCoverage.LineRate,
                     selectedCoverage.Complexity
                 })
-            .Take(candidatePoolLimit)
             .ToListAsync(cancellationToken);
 
         return candidateData
