@@ -42,11 +42,19 @@ public sealed class ExperimentResultFileRow
     public GenerationBudgetMode BudgetMode { get; init; }
     public string AblationVariantId { get; init; } = string.Empty;
     public string StepsIncluded { get; init; } = string.Empty;
+    public string SourceMemberVisibility { get; init; } = string.Empty;
+    public string AccessStrategy { get; init; } = string.Empty;
+    public string AccessPathMemberIds { get; init; } = string.Empty;
+    public int TestMappingCount { get; init; }
+    public int SetupBindingCount { get; init; }
     public int AttemptNumber { get; init; }
     public int? RepairAttemptNumber { get; init; }
     public int SourceMemberId { get; init; }
     public string SourceMethodName { get; init; } = string.Empty;
     public string SourceMethodSignature { get; init; } = string.Empty;
+    public string CandidateTestIntentionsSummary { get; init; } = string.Empty;
+    public string CandidateTypeConstructionSummary { get; init; } = string.Empty;
+    public string CandidateMetadataJson { get; init; } = "{}";
     public double SourceMethodBaselineCoverage { get; init; }
     public double SourceMethodComplexity { get; init; }
     public string BaselineTestState { get; init; } = string.Empty;

@@ -34,7 +34,7 @@ public static class GenerationStepMappingExtensions
             ValidationStatus = persistence?.ValidationStatus,
             InputTokens = entity.InputTokens,
             OutputTokens = entity.OutputTokens,
-            RuleDecisionJson = entity.RuleDecisionJson
+            RuleDecisionSnapshotJson = entity.RuleDecisionSnapshotJson
         };
     }
 
@@ -60,7 +60,7 @@ public static class GenerationStepMappingExtensions
             ValidationResult = SerializeMetadata(step),
             InputTokens = step.InputTokens,
             OutputTokens = step.OutputTokens,
-            RuleDecisionJson = step.RuleDecisionJson
+            RuleDecisionSnapshotJson = step.RuleDecisionSnapshotJson
         };
     }
 

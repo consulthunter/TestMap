@@ -34,6 +34,9 @@ public sealed class GenerationEvidenceServiceTests
             x.RuleId == GenerationEvidenceRuleDefinitions.ProjectContextIncluded.Id);
         Assert.Contains(package.RuleDecisions, x =>
             x.RuleId == GenerationEvidenceRuleDefinitions.NaiveSuppressesMetricEvidence.Id);
+        Assert.Contains("Tests the branch", package.CandidateTestIntentionsSummary);
+        Assert.Contains("SUT: Calculator", package.CandidateTypeConstructionSummary);
+        Assert.Equal("{\"test\":\"metadata\"}", package.CandidateMetadataJson);
     }
 
     [Fact]
@@ -41,6 +44,13 @@ public sealed class GenerationEvidenceServiceTests
     public async Task BuildAsync_MetricsDrivenCoverageAndMutation_IncludesAvailableEvidence()
     {
         await using var fixture = await EvidenceDbFixture.CreateAsync();
+        fixture.DbContext.CoverageReports.Add(new CoverageReportEntity
+        {
+            Id = 99,
+            ProjectId = 1,
+            Version = "test",
+            Timestamp = 1
+        });
         fixture.DbContext.MemberCoverages.Add(new MemberCoverageEntity
         {
             MemberId = 7,
@@ -60,8 +70,16 @@ public sealed class GenerationEvidenceServiceTests
             GapKind = "UncoveredLine",
             SourceText = "return false;"
         });
+        fixture.DbContext.MutationTestingReports.Add(new MutationTestingReportEntity
+        {
+            Id = 99,
+            ProjectId = 1,
+            SchemaVersion = "test",
+            ProjectRoot = "."
+        });
         fixture.DbContext.Mutants.Add(new MutantEntity
         {
+            MutationTestingReportId = 99,
             MemberId = 7,
             StrykerMutantId = "1",
             MutatorName = "EqualityOperator",
@@ -151,7 +169,10 @@ public sealed class GenerationEvidenceServiceTests
             TestSupportContext = string.Empty,
             TestFramework = "xUnit",
             TestDependencies = "using Xunit;",
-            CoverageGapSummary = string.Empty
+            CoverageGapSummary = string.Empty,
+            CandidateTestIntentionsSummary = "- Tests the branch where `x > y` is true.",
+            CandidateTypeConstructionSummary = "SUT: Calculator",
+            CandidateMetadataJson = "{\"test\":\"metadata\"}"
         };
     }
 

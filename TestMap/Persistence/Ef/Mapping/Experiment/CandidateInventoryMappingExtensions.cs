@@ -13,6 +13,7 @@ public static class CandidateInventoryMappingExtensions
             Id = entity.Id,
             ProjectId = entity.ProjectId,
             SourceMemberId = entity.SourceMemberId,
+            SourceTestMappingId = entity.SourceTestMappingId,
             ExistingTestMemberId = entity.ExistingTestMemberId,
             SourceMethodName = entity.SourceMethodName,
             SourceMethodSignature = entity.SourceMethodSignature,
@@ -38,7 +39,20 @@ public static class CandidateInventoryMappingExtensions
                 : CandidateActionKind.None,
             TestStateReason = entity.TestStateReason,
             SelectionTime = entity.SelectionTime,
-            BaselineRunId = entity.BaselineRunId
+            CreatedAt = entity.CreatedAt,
+            BaselineRunId = entity.BaselineRunId,
+            ContextEvidenceKind = entity.ContextEvidenceKind,
+            ContextEvidenceSummary = entity.ContextEvidenceSummary,
+            HasGroundedTestContext = entity.HasGroundedTestContext,
+            MappedTestMemberId = entity.MappedTestMemberId,
+            MappedTestMethodName = entity.MappedTestMethodName,
+            AccessPathStrategy = entity.AccessPathStrategy,
+            AccessPathMemberIdsJson = entity.AccessPathMemberIdsJson,
+            TraceSummary = entity.TraceSummary,
+            TraceJson = entity.TraceJson,
+            TestIntentionsSummary = entity.TestIntentionsSummary,
+            TypeConstructionSummary = entity.TypeConstructionSummary,
+            CandidateMetadataJson = entity.CandidateMetadataJson
         };
     }
 
@@ -49,6 +63,7 @@ public static class CandidateInventoryMappingExtensions
             Id = item.Id,
             ProjectId = item.ProjectId,
             SourceMemberId = item.SourceMemberId,
+            SourceTestMappingId = item.SourceTestMappingId,
             ExistingTestMemberId = item.ExistingTestMemberId,
             SourceMethodName = item.SourceMethodName,
             SourceMethodSignature = item.SourceMethodSignature,
@@ -68,8 +83,20 @@ public static class CandidateInventoryMappingExtensions
             RecommendedAction = item.RecommendedAction.ToString(),
             TestStateReason = item.TestStateReason,
             SelectionTime = item.SelectionTime == default ? DateTime.UtcNow : item.SelectionTime,
+            CreatedAt = item.CreatedAt == default ? DateTime.UtcNow : item.CreatedAt,
             BaselineRunId = item.BaselineRunId,
-            CreatedAt = DateTime.UtcNow
+            ContextEvidenceKind = item.ContextEvidenceKind,
+            ContextEvidenceSummary = item.ContextEvidenceSummary,
+            HasGroundedTestContext = item.HasGroundedTestContext,
+            MappedTestMemberId = item.MappedTestMemberId,
+            MappedTestMethodName = item.MappedTestMethodName,
+            AccessPathStrategy = item.AccessPathStrategy,
+            AccessPathMemberIdsJson = item.AccessPathMemberIdsJson,
+            TraceSummary = item.TraceSummary,
+            TraceJson = item.TraceJson,
+            TestIntentionsSummary = item.TestIntentionsSummary,
+            TypeConstructionSummary = item.TypeConstructionSummary,
+            CandidateMetadataJson = item.CandidateMetadataJson
         };
     }
 }

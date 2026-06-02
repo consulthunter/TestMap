@@ -11,6 +11,9 @@ public sealed class GenerationEvidencePackage
     public MetricsDrivenPath? MetricsPath { get; init; }
     public CandidateMethodContext CandidateContext { get; init; } = default!;
     public string StrategyInstruction { get; init; } = string.Empty;
+    public string CandidateTestIntentionsSummary { get; init; } = "No branch-derived test intentions were identified.";
+    public string CandidateTypeConstructionSummary { get; init; } = "No type construction guidance was identified.";
+    public string CandidateMetadataJson { get; init; } = "{}";
     public CoverageEvidence? Coverage { get; init; }
     public MutationEvidence? Mutation { get; init; }
     public IReadOnlyList<RuleDecisionRecord> RuleDecisions { get; init; } = [];

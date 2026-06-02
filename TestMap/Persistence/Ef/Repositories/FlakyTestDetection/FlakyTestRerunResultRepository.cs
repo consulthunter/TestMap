@@ -28,7 +28,7 @@ public class FlakyTestRerunResultRepository
     {
         var entities = await _context.FlakyTestRerunResults
             .Where(x => x.RunId == runId)
-            .OrderBy(x => x.TestExecutionResultId)
+            .OrderBy(x => x.TestResultId)
             .ThenBy(x => x.AttemptNumber)
             .ToListAsync(cancellationToken);
 

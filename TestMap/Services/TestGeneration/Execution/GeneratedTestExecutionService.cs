@@ -6,6 +6,7 @@ using TestMap.Models.Results;
 using TestMap.Models.Testing;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using TestMap.Models.Code;
 using TestMap.Services.StaticAnalysis;
 using TestMap.Services.StaticAnalysis.Enrichment;
 using TestMap.Services.TestExecution;
@@ -13,6 +14,7 @@ using TestMap.Services.TestGeneration;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
 using TestMap.Persistence.Ef.Repositories.Testing;
+using TestMap.Persistence.Ef.Repositories.MutationTesting;
 
 namespace TestMap.Services.TestGeneration.Execution;
 
@@ -27,6 +29,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
     private readonly IRoslynGeneratedTestValidationService _roslynValidationService;
     private readonly ITestSmellService _testSmellService;
     private readonly TestRunRepository _testRunRepository;
+    private readonly MutationTestingReportRepository _mutationTestingReportRepository;
 
     public GeneratedTestExecutionService(
         ProjectContext context,
@@ -37,7 +40,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         ICodeMetricsService codeMetricsService,
         IRoslynGeneratedTestValidationService roslynValidationService,
         ITestSmellService testSmellService,
-        TestRunRepository testRunRepository)
+        TestRunRepository testRunRepository,
+        MutationTestingReportRepository mutationTestingReportRepository)
     {
         _context = context;
         _config = config;
@@ -48,6 +52,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         _roslynValidationService = roslynValidationService;
         _testSmellService = testSmellService;
         _testRunRepository = testRunRepository;
+        _mutationTestingReportRepository = mutationTestingReportRepository;
     }
 
     public async Task<GeneratedTestExecutionResult> ExecuteAsync(
@@ -55,6 +60,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         string generatedTest,
         string testMethodName,
         TestActionExecutorMode? mode = null,
+        int? experimentRunId = null,
         CancellationToken cancellationToken = default)
     {
         var executionMode = mode ??
@@ -82,6 +88,31 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 ? await _roslynValidationService.CaptureBeforeAsync(context, cancellationToken)
                 : RoslynGeneratedTestDiagnosticSnapshot.Skip("Roslyn validation is disabled by generation step configuration.");
 
+            var baselineRun = await RunScopedValidationMetricsAsync(
+                context,
+                experimentRunId,
+                isMutationBaseline: true);
+            if (!IsUsableScopedMetricRun(baselineRun))
+            {
+                return new GeneratedTestExecutionResult
+                {
+                    GeneratedTestCode = generatedTest,
+                    GeneratedTestMethodName = testMethodName,
+                    CodeExtracted = true,
+                    MethodNameExtracted = true,
+                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
+                    BaselineMutationScore = baselineRun.MutationScore,
+                    TestRun = baselineRun,
+                    FailureKind = TestFailureKind.Infrastructure,
+                    RuntimeErrors = baselineRun.FailureAnalysis?.Evidence,
+                    ErrorLogs = baselineRun.FailureAnalysis?.Evidence,
+                    FailureStage = baselineRun.FailureAnalysis?.Stage ?? "pre-integration-validation",
+                    FailureCategory = baselineRun.FailureAnalysis?.Category ?? "pre_integration_scoped_metrics_failed",
+                    FailureSummary = baselineRun.FailureAnalysis?.Summary ??
+                                     "Targeted pre-integration coverage/mutation validation failed before applying the generated test."
+                };
+            }
+
             var actionResult = await _applicationService.ApplyAsync(
                 context,
                 generatedTest,
@@ -98,7 +129,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     CodeExtracted = true,
                     MethodNameExtracted = true,
                     ApplicationSucceeded = false,
-                    BaselineCoverage = context.Method.BaselineCoverage,
+                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
+                    BaselineMutationScore = baselineRun.MutationScore,
+                    TestRun = baselineRun,
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
                     FailureKind = TestFailureKind.Generation,
@@ -125,7 +158,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     AppliedFilePath = actionResult.AppliedFilePath,
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
-                    BaselineCoverage = context.Method.BaselineCoverage,
+                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
+                    BaselineMutationScore = baselineRun.MutationScore,
+                    TestRun = baselineRun,
                     FailureKind = TestFailureKind.Generation,
                     FailureStage = "application",
                     FailureCategory = "generated_test_method_not_applied",
@@ -169,7 +204,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
                     RoslynPreBuildRuleDecisions = preBuildDecision.RuleDecisions,
-                    BaselineCoverage = context.Method.BaselineCoverage,
+                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
+                    BaselineMutationScore = baselineRun.MutationScore,
+                    TestRun = baselineRun,
                     CompilationSucceeded = false,
                     RoslynValidationSucceeded = roslynValidation.Succeeded,
                     RoslynValidationSkipped = roslynValidation.Skipped,
@@ -202,7 +239,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
                     RoslynPreBuildRuleDecisions = preBuildDecision.RuleDecisions,
-                    BaselineCoverage = context.Method.BaselineCoverage,
+                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
+                    BaselineMutationScore = baselineRun.MutationScore,
+                    TestRun = baselineRun,
                     CompilationSucceeded = false,
                     RoslynValidationSucceeded = roslynValidation.Succeeded,
                     RoslynValidationSkipped = roslynValidation.Skipped,
@@ -221,13 +260,10 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
 
             await RefreshProjectMetadataAsync(context.TestProjectPath, cancellationToken);
 
-            var baselineMutationScore = await LoadLatestBaselineMutationScoreAsync();
-            var buildResult = await _buildTestService.BuildTestAsync(
-                BuildTestRunRequest.CreateIteration(
-                    context.TestProjectPath,
-                    context.TargetBuildFramework,
-                    context.Method.MethodName,
-                    context.SourceProjectPath));
+            var buildResult = await RunScopedValidationMetricsAsync(
+                context,
+                experimentRunId,
+                isMutationBaseline: false);
 
             return CreateExecutionResult(
                 context,
@@ -237,7 +273,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 buildResult,
                 roslynValidation,
                 preBuildDecision,
-                baselineMutationScore);
+                ResolveScopedMethodCoverage(baselineRun),
+                baselineRun.MutationScore);
         }
         catch (Exception ex)
         {
@@ -266,6 +303,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         TestRunModel buildResult,
         RoslynGeneratedTestValidationResult roslynValidation,
         RoslynPreBuildDecision preBuildDecision,
+        double baselineCoverage,
         double? baselineMutationScore)
     {
         var compilationSucceeded = DidCompilationSucceed(buildResult);
@@ -275,7 +313,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         var coverageAfter = buildResult is GeneratedTestRunModel generatedRun
             ? generatedRun.MethodCoverage
             : buildResult.Coverage / 100.0;
-        var coverageImprovement = coverageAfter - context.Method.BaselineCoverage;
+        var coverageImprovement = coverageAfter - baselineCoverage;
         var mutationScoreImprovement = CalculateMutationScoreImprovement(
             baselineMutationScore,
             buildResult.MutationScore);
@@ -295,7 +333,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             TestsExecuted = testsExecuted,
             AllTestsPassed = allTestsPassed,
             FailedTestCount = failedTests.Count,
-            BaselineCoverage = context.Method.BaselineCoverage,
+            BaselineCoverage = baselineCoverage,
             CoverageAfter = coverageAfter,
             CoverageImprovement = coverageImprovement,
             BaselineMutationScore = baselineMutationScore,
@@ -356,10 +394,33 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             : null;
     }
 
-    private async Task<double?> LoadLatestBaselineMutationScoreAsync()
+    private Task<TestRunModel> RunScopedValidationMetricsAsync(
+        CandidateMethodContext context,
+        int? experimentRunId,
+        bool isMutationBaseline)
     {
-        var baselineRun = await _testRunRepository.GetLatestBaselineAsync(_context.Project.DbId);
-        return baselineRun?.MutationScore;
+        return _buildTestService.BuildTestAsync(
+            BuildTestRunRequest.CreateIteration(
+                context.TestProjectPath,
+                context.TargetBuildFramework,
+                context.Method.MethodName,
+                string.IsNullOrWhiteSpace(context.SourceProjectPath) ? null : context.SourceProjectPath,
+                experimentRunId,
+                isMutationBaseline));
+    }
+
+    private static double ResolveScopedMethodCoverage(TestRunModel run)
+    {
+        return run is GeneratedTestRunModel generatedRun
+            ? generatedRun.MethodCoverage
+            : run.Coverage / 100.0;
+    }
+
+    private static bool IsUsableScopedMetricRun(TestRunModel run)
+    {
+        return DidCompilationSucceed(run) &&
+               run.Results.Count > 0 &&
+               run.FailureAnalysis == null;
     }
 
     private async Task RefreshProjectMetadataAsync(
@@ -372,11 +433,49 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
 
         if (analysisProject == null) return;
 
-        await _analyzeProjectService.AnalyzeProjectAsync(analysisProject);
+        // Analyze all projects in topological order with a shared member ID dictionary so
+        // that cross-project invocations from the re-analyzed test project can resolve
+        // production member IDs. Production projects are upserted idempotently (unchanged
+        // content → same DB ID returned) and then the test project is analyzed with its
+        // newly-applied generated test, producing correct cross-project Invocation edges.
+        var sharedMemberIds = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var project in TopologicallySorted(_context.Project.Projects))
+            await _analyzeProjectService.AnalyzeProjectAsync(project, sharedMemberIds);
+
         await _codeMetricsService.CollectCodeMetricsAsync(analysisProject, cancellationToken);
 
         if (_context.Project.DbId != 0)
             await _testSmellService.CollectAsync(testProjectPath, _context.Project.DbId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns projects sorted so every dependency comes before the projects that reference
+    /// it (dependencies-first topological order). Mirrors <c>AnalyzeProjectStep.TopologicallySorted</c>.
+    /// </summary>
+    private static IEnumerable<CSharpProjectModel> TopologicallySorted(
+        IReadOnlyList<CSharpProjectModel> projects)
+    {
+        var byPath = projects.ToDictionary(
+            p => p.FilePath,
+            p => p,
+            StringComparer.OrdinalIgnoreCase);
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<CSharpProjectModel>(projects.Count);
+
+        void Visit(CSharpProjectModel project)
+        {
+            if (!visited.Add(project.FilePath)) return;
+            foreach (var refPath in project.ProjectReferences)
+                if (byPath.TryGetValue(refPath, out var dependency))
+                    Visit(dependency);
+            result.Add(project);
+        }
+
+        foreach (var project in projects)
+            Visit(project);
+
+        return result;
     }
 
     private static bool AppliedTestMethodExists(string? appliedFilePath, string testMethodName)

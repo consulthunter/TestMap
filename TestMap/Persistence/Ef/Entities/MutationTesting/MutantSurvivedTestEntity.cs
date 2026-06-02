@@ -12,4 +12,6 @@ public class MutantSurvivedTestEntity
     public string TestFilePath { get; set; } = string.Empty;
     public Location Location { get; set; } = new(0, 0, 0, 0);
     public string ContentHash { get; set; } = string.Empty;
+
+    public virtual MutantEntity? Mutant { get; set; }
 }

@@ -6,6 +6,7 @@ public enum GenerationValidationFailureClass
     BadInsertion,
     Infrastructure,
     PreExistingDiagnostics,
+    AccessStrategyViolation,
     CompilerSemantic,
     Runtime,
     Assertion

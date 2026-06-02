@@ -32,6 +32,8 @@ public static class GenerationValidationRuleDefinitions
     public static RuleDefinition DiagnosticGeneratedCodeAttributed { get; } = Define("generation.validation.diagnostic-generated-code-attributed", "Generated-code diagnostic attribution", "New diagnostics were attributed to generated code or insertion when evidence was local and high confidence.");
     public static RuleDefinition PreBuildAllowed { get; } = Define("generation.validation.pre-build-allowed", "Pre-build gate allowed build", "The Roslyn pre-build gate allowed real build/test validation.");
     public static RuleDefinition PreBuildSkipped { get; } = Define("generation.validation.pre-build-skipped", "Pre-build gate skipped build", "The Roslyn pre-build gate skipped real build/test validation due to high-confidence local generated-test defects.");
+    public static RuleDefinition AccessStrategyRespected { get; } = Define("generation.validation.access-strategy-respected", "Context access strategy respected", "The generated test did not directly call a non-public target when the selected context graph path required an accessible entrypoint.");
+    public static RuleDefinition AccessStrategyViolated { get; } = Define("generation.validation.access-strategy-violated", "Context access strategy violated", "The generated test directly called a non-public target despite the selected context graph path requiring an accessible entrypoint.");
 
     public static IReadOnlyList<RuleDefinition> All { get; } =
     [
@@ -59,7 +61,9 @@ public static class GenerationValidationRuleDefinitions
         DiagnosticInfrastructureNoise,
         DiagnosticGeneratedCodeAttributed,
         PreBuildAllowed,
-        PreBuildSkipped
+        PreBuildSkipped,
+        AccessStrategyRespected,
+        AccessStrategyViolated
     ];
 
     private static RuleDefinition Define(string id, string name, string description)

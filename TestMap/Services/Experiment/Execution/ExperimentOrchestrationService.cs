@@ -4,11 +4,15 @@ using Microsoft.EntityFrameworkCore;
 using TestMap.App;
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
+using TestMap.Models.Rules;
 using TestMap.Models.RiskScoring;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.Experiment;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
+using TestMap.Rules;
+using TestMap.Rules.Generation;
 using TestMap.Services.Configuration;
 using TestMap.Services.Rules;
 using TestMap.Services.Experiment.Reporting;
@@ -43,6 +47,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     private readonly IGenerationClassificationService _generationClassificationService;
     private readonly IGenerationExperimentMatrixGenerator _matrixGenerator;
     private readonly IGenerationBudgetExecutor _budgetExecutor;
+    private readonly BuildTestService _buildTestService;
     private readonly IExperimentResumeService _resumeService;
     private readonly IRuleDecisionRecorder _ruleDecisionRecorder;
     private readonly IExperimentResultsWriter _resultsWriter;
@@ -55,6 +60,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
     private readonly RollbackWorkspaceService _workspace;
     private ExperimentConfig? _activeExperimentConfig;
+    private int? _activeExperimentRunId;
     private ITestGenerationApproach? _activeGenerationApproach;
 
     public ExperimentOrchestrationService(
@@ -74,6 +80,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         IGenerationClassificationService generationClassificationService,
         IGenerationExperimentMatrixGenerator matrixGenerator,
         IGenerationBudgetExecutor budgetExecutor,
+        BuildTestService buildTestService,
         IExperimentResumeService resumeService,
         IRuleDecisionRecorder ruleDecisionRecorder,
         IExperimentResultsWriter resultsWriter,
@@ -98,6 +105,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _generationClassificationService = generationClassificationService;
         _matrixGenerator = matrixGenerator;
         _budgetExecutor = budgetExecutor;
+        _buildTestService = buildTestService;
         _resumeService = resumeService;
         _ruleDecisionRecorder = ruleDecisionRecorder;
         _resultsWriter = resultsWriter;
@@ -141,12 +149,13 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         };
 
         experimentRun.Id = await _experimentRunRepo.InsertAsync(experimentRun, cancellationToken);
+        _activeExperimentRunId = experimentRun.Id;
 
         try
         {
             var candidateMethods = await _methodSelection.SelectCandidateMethodsAsync(
                 config,
-                requirePassingExistingTest: true,
+                requirePassingExistingTest: ShouldRequirePassingExistingTest(config.Objective),
                 cancellationToken);
             _context.Project.Logger?.Information($"Selected {candidateMethods.Count} candidate methods");
 
@@ -167,17 +176,21 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 cancellationToken: cancellationToken);
             _context.Project.Logger?.Information("Expanded {MatrixCount} experiment matrix item(s).", matrix.Items.Count);
 
+            var methodContextsByMemberId = await ResolveCandidateContextsAsync(
+                candidateMethods,
+                config,
+                cancellationToken);
+            await EnsureExperimentMutationBaselinesAsync(
+                experimentRun.Id,
+                matrix,
+                methodContextsByMemberId.Values,
+                cancellationToken);
+
             foreach (var candidateMethod in candidateMethods)
             {
                 _context.Project.Logger?.Information($"\n--- Method: {candidateMethod.MethodName} ---");
 
-                var methodContext = await _methodSelection.GetMethodContextAsync(
-                    candidateMethod.MemberId,
-                    config.ContextMappingMode ??
-                    _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection.ContextMappingMode,
-                    cancellationToken);
-
-                if (methodContext == null)
+                if (!methodContextsByMemberId.TryGetValue(candidateMethod.MemberId, out var methodContext))
                 {
                     _context.Project.Logger?.Warning($"Could not get context for method {candidateMethod.MethodName}");
                     continue;
@@ -248,6 +261,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                                     attempt.ParentAttemptNumber.Value,
                                     out var parentAttemptId))
                                 attempt.ParentAttemptId = parentAttemptId;
+                            attempt.ExperimentMatrixWorkItemId = workItem.Id;
 
                             var persistedAttemptId = await SaveGenerationAttemptAsync(
                                 experimentRun.Id,
@@ -308,6 +322,91 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         }
     }
 
+    private async Task<Dictionary<int, CandidateMethodContext>> ResolveCandidateContextsAsync(
+        IReadOnlyCollection<CandidateMethod> candidateMethods,
+        ExperimentConfig config,
+        CancellationToken cancellationToken)
+    {
+        var contexts = new Dictionary<int, CandidateMethodContext>();
+        var contextMappingMode = config.ContextMappingMode ??
+                                 _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection.ContextMappingMode;
+
+        foreach (var candidateMethod in candidateMethods)
+        {
+            var context = await _methodSelection.GetMethodContextAsync(
+                candidateMethod.MemberId,
+                contextMappingMode,
+                cancellationToken);
+
+            if (context != null)
+                contexts[candidateMethod.MemberId] = context;
+        }
+
+        return contexts;
+    }
+
+    private async Task EnsureExperimentMutationBaselinesAsync(
+        int experimentRunId,
+        GenerationExperimentMatrix matrix,
+        IEnumerable<CandidateMethodContext> methodContexts,
+        CancellationToken cancellationToken)
+    {
+        if (!matrix.Items.Any(UsesMutationMetrics))
+            return;
+
+        var groups = methodContexts
+            .Where(x =>
+                !string.IsNullOrWhiteSpace(x.SourceProjectPath) &&
+                !string.IsNullOrWhiteSpace(x.TestProjectPath))
+            .GroupBy(x => new MutationBaselineKey(
+                NormalizeProjectPath(x.SourceProjectPath),
+                NormalizeProjectPath(x.TestProjectPath),
+                x.TargetBuildFramework?.Trim() ?? string.Empty))
+            .ToList();
+
+        if (groups.Count == 0)
+            return;
+
+        _context.Project.Logger?.Information(
+            "Running {Count} targeted mutation baseline(s) for experiment-scoped mutation comparisons.",
+            groups.Count);
+
+        foreach (var group in groups)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var key = group.Key;
+            _context.Project.Logger?.Information(
+                "Running targeted mutation baseline: SourceProject={SourceProject}, TestProject={TestProject}, TargetFramework={TargetFramework}",
+                key.SourceProjectPath,
+                key.TestProjectPath,
+                string.IsNullOrWhiteSpace(key.TargetFramework) ? "<default>" : key.TargetFramework);
+
+            await _buildTestService.BuildTestAsync(
+                BuildTestRunRequest.CreateIteration(
+                    key.TestProjectPath,
+                    key.TargetFramework,
+                    coveredMethodName: null,
+                    key.SourceProjectPath,
+                    experimentRunId,
+                    isMutationBaseline: true));
+        }
+    }
+
+    private static bool UsesMutationMetrics(GenerationExperimentMatrixItem item)
+    {
+        return item.MetricsPath is MetricsDrivenPath.Mutation or MetricsDrivenPath.CoverageAndMutation;
+    }
+
+    private static string NormalizeProjectPath(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private sealed record MutationBaselineKey(
+        string SourceProjectPath,
+        string TestProjectPath,
+        string TargetFramework);
+
     private async Task<ExperimentMatrixWorkItem> EnsureWorkItemAsync(
         ExperimentRun experimentRun,
         CandidateMethod candidateMethod,
@@ -351,6 +450,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         var sourceMetrics = await GetMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
         var baselineMetrics = await GetMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
         var generatedMetrics = await GetMemberCodeMetricsAsync(generatedTestMemberId, cancellationToken);
+        var accessReport = ResolveAccessPathReport(attempt.RuleDecisionSnapshotJson);
 
         return new ExperimentResultFileRow
         {
@@ -396,11 +496,19 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             BudgetMode = attempt.BudgetMode,
             AblationVariantId = attempt.AblationVariantId,
             StepsIncluded = attempt.StepConfigJson,
+            SourceMemberVisibility = accessReport.Visibility,
+            AccessStrategy = accessReport.AccessStrategy,
+            AccessPathMemberIds = accessReport.PathMemberIds,
+            TestMappingCount = accessReport.MappingCount,
+            SetupBindingCount = accessReport.SetupBindingCount,
             AttemptNumber = attempt.AttemptNumber,
             RepairAttemptNumber = attempt.IsRepairAttempt ? attempt.AttemptNumber : null,
             SourceMemberId = candidateMethod.MemberId,
             SourceMethodName = candidateMethod.MethodName,
             SourceMethodSignature = candidateMethod.Signature,
+            CandidateTestIntentionsSummary = candidateMethod.TestIntentionsSummary,
+            CandidateTypeConstructionSummary = candidateMethod.TypeConstructionSummary,
+            CandidateMetadataJson = candidateMethod.CandidateMetadataJson,
             SourceMethodBaselineCoverage = candidateMethod.BaselineCoverage,
             SourceMethodComplexity = candidateMethod.ComplexityScore,
             BaselineTestState = candidateMethod.TestState.ToString(),
@@ -435,6 +543,44 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             TestExecutionId = execution?.Id,
             ResumeStableKey = stableKey
         };
+    }
+
+    private static AccessPathReport ResolveAccessPathReport(string? decisionJson)
+    {
+        var decision = ParseRuleDecisions(decisionJson)
+            .FirstOrDefault(x => x.RuleId == GenerationExperimentRuleDefinitions.ContextAccessPathSelected.Id);
+        if (decision == null) return AccessPathReport.Empty;
+
+        return new AccessPathReport(
+            EvidenceValue(decision, "visibility"),
+            EvidenceValue(decision, "access_strategy", decision.Value),
+            EvidenceValue(decision, "path_member_ids"),
+            ParseIntEvidence(decision, "mapping_count"),
+            ParseIntEvidence(decision, "setup_binding_count"));
+    }
+
+    private static string EvidenceValue(
+        RuleDecisionRecord decision,
+        string key,
+        string fallback = "")
+    {
+        return decision.Evidence.FirstOrDefault(x =>
+            string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase))?.Value ?? fallback;
+    }
+
+    private static int ParseIntEvidence(RuleDecisionRecord decision, string key)
+    {
+        return int.TryParse(EvidenceValue(decision, key), out var value) ? value : 0;
+    }
+
+    private sealed record AccessPathReport(
+        string Visibility,
+        string AccessStrategy,
+        string PathMemberIds,
+        int MappingCount,
+        int SetupBindingCount)
+    {
+        public static AccessPathReport Empty { get; } = new(string.Empty, string.Empty, string.Empty, 0, 0);
     }
 
     private async Task<int?> ResolveLatestTestMemberIdAsync(
@@ -607,6 +753,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 matrixItem.Provider,
                 matrixItem.BudgetMode,
                 attemptNumber,
+                context,
                 matrixItem);
         var stopwatch = Stopwatch.StartNew();
 
@@ -655,6 +802,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             matrixItem.Provider,
             matrixItem.BudgetMode,
             attemptNumber,
+            context,
             matrixItem);
         attempt.IsRepairAttempt = true;
         attempt.ParentAttemptNumber = previousAttempt.AttemptNumber;
@@ -765,6 +913,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             generatedTest,
             testMethodName,
             GenerationObjectivePolicy.ResolveExecutor(GetActiveObjective()),
+            _activeExperimentRunId,
             cancellationToken);
         var validation = _generationValidationService.Validate(
             execution,
@@ -787,8 +936,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             MutationScoreImprovement = execution.MutationScoreImprovement,
             Classification = MapClassification(classification.Classification),
             ValidationResultJson = JsonSerializer.Serialize(validation),
-            ValidationRuleDecisionJson = _ruleDecisionRecorder.CreateSnapshotJson(validation.RuleDecisions),
-            ClassificationRuleDecisionJson = _ruleDecisionRecorder.CreateSnapshotJson(classification.RuleDecisions),
+            ValidationRuleDecisionSnapshotJson = _ruleDecisionRecorder.CreateSnapshotJson(validation.RuleDecisions),
+            ClassificationRuleDecisionSnapshotJson = _ruleDecisionRecorder.CreateSnapshotJson(classification.RuleDecisions),
             FailureKind = execution.FailureKind,
             CompilationErrors = execution.CompilationErrors,
             RuntimeErrors = execution.RuntimeErrors,
@@ -879,6 +1028,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             TestDependencies = request.TestDependencies,
             CoverageGapSummary = request.CoverageGapSummary,
             MutationSummary = request.MutationSummary,
+            CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
+            CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
             Provider = request.Provider,
             Temperature = request.Temperature,
             StepErrorRetries = request.StepErrorRetries,
@@ -910,6 +1061,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
             CoverageGapSummary = request.CoverageGapSummary,
             MutationSummary = request.MutationSummary,
+            CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
+            CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
             ErrorLogs = request.ErrorLogs,
             StructuredErrors = request.StructuredErrors,
             PriorConversationTranscript = request.PriorConversationTranscript,
@@ -979,7 +1132,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             attempt.Id = await _attemptRepo.InsertAsync(attempt, cancellationToken);
             await RecordSnapshotDecisionsAsync(
                 RuleDecisionScope.GenerationAttempt(attempt.Id),
-                attempt.RuleDecisionJson,
+                attempt.RuleDecisionSnapshotJson,
                 experimentRunId,
                 candidateMethodId,
                 generationAttemptId: attempt.Id,
@@ -992,7 +1145,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 step.Id = await _stepRepo.InsertAsync(step, cancellationToken);
                 await RecordSnapshotDecisionsAsync(
                     RuleDecisionScope.GenerationStep(step.Id),
-                    step.RuleDecisionJson,
+                    step.RuleDecisionSnapshotJson,
                     experimentRunId,
                     candidateMethodId,
                     generationAttemptId: attempt.Id,
@@ -1004,8 +1157,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             {
                 attempt.TestExecution.GenerationAttemptId = attempt.Id;
                 attempt.TestExecution.Id = await _executionRepo.InsertAsync(attempt.TestExecution, cancellationToken);
-                var executionDecisions = ParseRuleDecisions(attempt.TestExecution.ValidationRuleDecisionJson)
-                    .Concat(ParseRuleDecisions(attempt.TestExecution.ClassificationRuleDecisionJson))
+                var executionDecisions = ParseRuleDecisions(attempt.TestExecution.ValidationRuleDecisionSnapshotJson)
+                    .Concat(ParseRuleDecisions(attempt.TestExecution.ClassificationRuleDecisionSnapshotJson))
                     .ToList();
                 await _ruleDecisionRecorder.RecordAsync(
                     _context.Project.DbId,
@@ -1092,7 +1245,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         int candidateMethodId,
         AiProvider provider,
         TestMap.Models.Configuration.Testing.Generation.GenerationBudgetMode budgetMode,
-        int attemptNumber, GenerationExperimentMatrixItem? matrixItem = null)
+        int attemptNumber,
+        CandidateMethodContext? context = null,
+        GenerationExperimentMatrixItem? matrixItem = null)
     {
         return new GenerationAttempt
         {
@@ -1116,8 +1271,83 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             EffectiveProfileHash = matrixItem?.EffectiveProfile?.ToStableHash() ?? string.Empty,
             Temperature = matrixItem?.Temperature ?? _activeExperimentConfig?.Temperature ?? 0.0,
             AttemptNumber = attemptNumber,
+            RuleDecisionSnapshotJson = BuildContextGraphDecisionSnapshot(context),
             StartedAt = DateTime.UtcNow
         };
+    }
+
+    private string BuildContextGraphDecisionSnapshot(CandidateMethodContext? context)
+    {
+        if (context?.Testability == null) return string.Empty;
+
+        var testability = context.Testability;
+        var selectedAccessPath = testability.AccessPaths.FirstOrDefault();
+        var evidence = new List<RuleEvidenceRecord>
+        {
+            RuleDecisionFactory.CreateEvidence(
+                "ContextGraph",
+                "source_member_id",
+                testability.SourceMemberId.ToString()),
+            RuleDecisionFactory.CreateEvidence(
+                "ContextGraph",
+                "visibility",
+                testability.Visibility.ToString()),
+            RuleDecisionFactory.CreateEvidence(
+                "ContextGraph",
+                "evidence_statuses",
+                string.Join(",", testability.EvidenceStatuses)),
+            RuleDecisionFactory.CreateEvidence(
+                "ContextGraph",
+                "mapping_count",
+                testability.TestMappings.Count.ToString()),
+            RuleDecisionFactory.CreateEvidence(
+                "ContextGraph",
+                "setup_binding_count",
+                testability.SetupBindings.Count.ToString()),
+            RuleDecisionFactory.CreateEvidence(
+                "ContextGraph",
+                "access_path_summary",
+                context.AccessPathSummary)
+        };
+
+        if (selectedAccessPath != null)
+            evidence.AddRange(
+            [
+                RuleDecisionFactory.CreateEvidence(
+                    "ContextGraph",
+                    "access_strategy",
+                    selectedAccessPath.Strategy.ToString()),
+                RuleDecisionFactory.CreateEvidence(
+                    "ContextGraph",
+                    "entrypoint_member_id",
+                    selectedAccessPath.EntrypointMemberId.ToString()),
+                RuleDecisionFactory.CreateEvidence(
+                    "ContextGraph",
+                    "target_member_id",
+                    selectedAccessPath.TargetMemberId.ToString()),
+                RuleDecisionFactory.CreateEvidence(
+                    "ContextGraph",
+                    "path_member_ids",
+                    string.Join(">", selectedAccessPath.PathMemberIds)),
+                RuleDecisionFactory.CreateEvidence(
+                    "ContextGraph",
+                    "legal_from_test",
+                    selectedAccessPath.IsLegalFromTest.ToString()),
+                RuleDecisionFactory.CreateEvidence(
+                    "ContextGraph",
+                    "requires_reflection",
+                    selectedAccessPath.RequiresReflection.ToString())
+            ]);
+
+        var decision = RuleDecisionFactory.CreateDecision(
+            "ContextAccessPath",
+            selectedAccessPath?.Strategy.ToString() ?? TestAccessStrategy.NotReasonablyTestable.ToString(),
+            GenerationExperimentRuleDefinitions.ContextAccessPathSelected,
+            selectedAccessPath == null ? RuleConfidence.Low : RuleConfidence.High,
+            evidence,
+            "Selected context graph access path captured before generation.");
+
+        return _ruleDecisionRecorder.CreateSnapshotJson([decision]);
     }
 
     private GenerationAttempt CreateFailedAttempt(
@@ -1218,6 +1448,16 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     {
         return _activeExperimentConfig?.Objective
                ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion;
+    }
+
+    internal static bool ShouldRequirePassingExistingTest(
+        TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective objective)
+    {
+        return objective switch
+        {
+            TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion => false,
+            _ => true
+        };
     }
 
     private sealed record MemberCodeMetricColumns(

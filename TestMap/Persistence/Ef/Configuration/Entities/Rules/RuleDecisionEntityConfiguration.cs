@@ -22,7 +22,7 @@ public class RuleDecisionEntityConfiguration : IEntityTypeConfiguration<RuleDeci
         builder.Property(x => x.ExperimentRunId).HasColumnName("experiment_run_id");
         builder.Property(x => x.CandidateMethodId).HasColumnName("candidate_method_id");
         builder.Property(x => x.GenerationAttemptId).HasColumnName("generation_attempt_id");
-        builder.Property(x => x.TestExecutionId).HasColumnName("test_execution_id");
+        builder.Property(x => x.GeneratedTestExecutionId).HasColumnName("generated_test_execution_id");
         builder.Property(x => x.DecisionKind).HasColumnName("decision_kind").IsRequired();
         builder.Property(x => x.Value).HasColumnName("value").IsRequired();
         builder.Property(x => x.RuleId).HasColumnName("rule_id").IsRequired();
@@ -46,7 +46,27 @@ public class RuleDecisionEntityConfiguration : IEntityTypeConfiguration<RuleDeci
         builder.HasIndex(x => x.ExperimentRunId);
         builder.HasIndex(x => x.CandidateMethodId);
         builder.HasIndex(x => x.GenerationAttemptId);
-        builder.HasIndex(x => x.TestExecutionId);
+        builder.HasIndex(x => x.GeneratedTestExecutionId);
         builder.HasIndex(x => new { x.RuleId, x.RuleVersion });
+
+        builder.HasOne(x => x.ExperimentRun)
+            .WithMany(x => x.RuleDecisions)
+            .HasForeignKey(x => x.ExperimentRunId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(x => x.CandidateMethod)
+            .WithMany(x => x.RuleDecisions)
+            .HasForeignKey(x => x.CandidateMethodId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(x => x.GenerationAttempt)
+            .WithMany(x => x.RuleDecisions)
+            .HasForeignKey(x => x.GenerationAttemptId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(x => x.GeneratedTestExecution)
+            .WithMany(x => x.RuleDecisions)
+            .HasForeignKey(x => x.GeneratedTestExecutionId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

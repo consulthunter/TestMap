@@ -4,6 +4,7 @@ public class CoverageReportEntity
 {
     public int Id { get; set; }
     public int ProjectId { get; set; }
+    public int? TestRunId { get; set; }
     public double LineRate { get; set; }
     public double BranchRate { get; set; }
     public double Complexity { get; set; }
@@ -14,4 +15,6 @@ public class CoverageReportEntity
     public int BranchesCovered { get; set; }
     public int BranchesValid { get; set; }
     public DateTime? CreatedAt { get; set; }
+
+    public virtual TestMap.Persistence.Ef.Entities.Testing.TestRunEntity? TestRun { get; set; }
 }

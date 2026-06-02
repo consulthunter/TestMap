@@ -1,5 +1,6 @@
 using TestMap.App;
 using TestMap.Models.Coverage;
+using TestMap.Models.MutationTesting;
 using TestMap.Models.Results;
 using TestMap.Services.TestExecution.Collection;
 using TestMap.Services.TestExecution.Mapping;
@@ -96,10 +97,18 @@ public sealed class BuildTestResultCollector
 
     public async Task PersistMutationReportsAsync(
         int testRunId,
-        IReadOnlyCollection<StrykerMutationResults> mutationReports)
+        IReadOnlyCollection<StrykerMutationResults> mutationReports,
+        MutationTestingReportScope? scope)
     {
         foreach (var mutationReport in mutationReports)
-            await _mapMutationService.MapAsync(mutationReport, testRunId);
+            await _mapMutationService.MapAsync(mutationReport, testRunId, scope);
+    }
+
+    public Task LinkCoverageReportAsync(int testRunId, CoverageReportModel? coverageReport)
+    {
+        return coverageReport == null
+            ? Task.CompletedTask
+            : _mapCoverageService.LinkToTestRunAsync(coverageReport, testRunId);
     }
 }
 

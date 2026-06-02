@@ -10,6 +10,8 @@ public static class TestRunMappingExtensions
     {
         return new TestRunModel
         {
+            DbId = entity.Id,
+            DbProjectId = entity.ProjectId,
             RunId = entity.RunId,
             RunDate = entity.RunDate,
             Success = entity.Success,

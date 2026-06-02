@@ -1,4 +1,8 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using TestMap.App;
 using TestMap.Models.Code;
 using TestMap.Models.Configuration;
@@ -8,6 +12,7 @@ using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Mapping.Code;
 using TestMap.Persistence.Ef.Repositories.Experiment;
+using TestMap.Services.StaticAnalysis;
 
 namespace TestMap.Services.TestGeneration.TargetSelection;
 
@@ -21,17 +26,23 @@ public class MethodSelectionService : IMethodSelectionService
     private readonly TestMapDbContext _dbContext;
     private readonly CandidateMethodSelector _candidateMethodSelector;
     private readonly CandidateInventoryRepository _candidateInventoryRepository;
+    private readonly IStaticAnalysisWorkspace? _staticAnalysisWorkspace;
+    private readonly ICandidateMethodMetadataService _candidateMethodMetadataService;
 
     public MethodSelectionService(
         ProjectContext context,
         TestMapDbContext dbContext,
         CandidateMethodSelector candidateMethodSelector,
-        CandidateInventoryRepository candidateInventoryRepository)
+        CandidateInventoryRepository candidateInventoryRepository,
+        IStaticAnalysisWorkspace? staticAnalysisWorkspace = null,
+        ICandidateMethodMetadataService? candidateMethodMetadataService = null)
     {
         _context = context;
         _dbContext = dbContext;
         _candidateMethodSelector = candidateMethodSelector;
         _candidateInventoryRepository = candidateInventoryRepository;
+        _staticAnalysisWorkspace = staticAnalysisWorkspace;
+        _candidateMethodMetadataService = candidateMethodMetadataService ?? new CandidateMethodMetadataService();
     }
 
     public async Task<List<CandidateMethod>> SelectCandidateMethodsAsync(
@@ -58,10 +69,14 @@ public class MethodSelectionService : IMethodSelectionService
             candidate.TestState = context.Method.TestState;
             candidate.RecommendedAction = context.Method.RecommendedAction;
             candidate.TestStateReason = context.Method.TestStateReason;
+            candidate.TestIntentionsSummary = context.Method.TestIntentionsSummary;
+            candidate.TypeConstructionSummary = context.Method.TypeConstructionSummary;
+            candidate.CandidateMetadataJson = context.Method.CandidateMetadataJson;
 
             var inventoryItem = CreateInventoryItem(
                 config,
                 candidate,
+                context,
                 latestBaseline);
             inventory.Add(inventoryItem);
 
@@ -73,11 +88,17 @@ public class MethodSelectionService : IMethodSelectionService
                 index));
         }
 
-        await _candidateInventoryRepository.ReplaceForProjectStrategyAsync(
+        var persistedInventory = await _candidateInventoryRepository.ReplaceForProjectStrategyAsync(
             _context.Project.DbId,
             config.CandidateSelectionStrategy ?? _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection.Strategy,
             inventory,
             cancellationToken);
+        var inventoryIdsBySourceMemberId = persistedInventory
+            .GroupBy(x => x.SourceMemberId)
+            .ToDictionary(x => x.Key, x => x.First().Id);
+        foreach (var enrichedCandidate in enrichedCandidates)
+            if (inventoryIdsBySourceMemberId.TryGetValue(enrichedCandidate.Candidate.MemberId, out var inventoryId))
+                enrichedCandidate.Candidate.CandidateInventoryId = inventoryId;
 
         var selectionLimit = ResolveFinalSelectionLimit(config);
         return enrichedCandidates
@@ -96,11 +117,22 @@ public class MethodSelectionService : IMethodSelectionService
 
     private static int GetContextSelectionPriority(string evidenceKind, bool isGrounded)
     {
-        if (string.Equals(evidenceKind, "DirectInvocation", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (IsDirectMethodEvidence(evidenceKind)) return 0;
         if (string.Equals(evidenceKind, "MemberRelationship", StringComparison.OrdinalIgnoreCase)) return 1;
-        if (isGrounded) return 2;
-        if (string.Equals(evidenceKind, "WeakHeuristic", StringComparison.OrdinalIgnoreCase)) return 3;
-        return 4;
+        if (string.Equals(evidenceKind, "HelperMediatedPath", StringComparison.OrdinalIgnoreCase)) return 2;
+        if (string.Equals(evidenceKind, "ProductionMethodPath", StringComparison.OrdinalIgnoreCase)) return 3;
+        if (string.Equals(evidenceKind, "DeepProductionMethodPath", StringComparison.OrdinalIgnoreCase)) return 4;
+        if (string.Equals(evidenceKind, "DirectConstructorInvocation", StringComparison.OrdinalIgnoreCase)) return 5;
+        if (string.Equals(evidenceKind, "ConstructorMediatedPath", StringComparison.OrdinalIgnoreCase)) return 6;
+        if (isGrounded) return 7;
+        if (string.Equals(evidenceKind, "WeakHeuristic", StringComparison.OrdinalIgnoreCase)) return 9;
+        return 8;
+    }
+
+    private static bool IsDirectMethodEvidence(string evidenceKind)
+    {
+        return string.Equals(evidenceKind, "DirectMethodInvocation", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(evidenceKind, "DirectInvocation", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<LatestBaselineTestOutcomes> LoadLatestBaselineTestOutcomesAsync(
@@ -148,6 +180,7 @@ public class MethodSelectionService : IMethodSelectionService
     private CandidateInventoryItem CreateInventoryItem(
         ExperimentConfig config,
         CandidateMethod candidate,
+        CandidateMethodContext context,
         LatestBaselineTestOutcomes latestBaseline)
     {
         var existingTestMemberId = candidate.ExistingTestMemberId;
@@ -165,6 +198,7 @@ public class MethodSelectionService : IMethodSelectionService
         {
             ProjectId = _context.Project.DbId,
             SourceMemberId = candidate.MemberId,
+            SourceTestMappingId = context.SourceTestMappingId,
             ExistingTestMemberId = candidate.ExistingTestMemberId,
             SourceMethodName = candidate.MethodName,
             SourceMethodSignature = candidate.Signature,
@@ -185,7 +219,19 @@ public class MethodSelectionService : IMethodSelectionService
             RecommendedAction = candidate.RecommendedAction,
             TestStateReason = candidate.TestStateReason,
             SelectionTime = candidate.SelectionTime == default ? DateTime.UtcNow : candidate.SelectionTime,
-            BaselineRunId = latestBaseline.RunId
+            BaselineRunId = latestBaseline.RunId,
+            ContextEvidenceKind = context.ContextEvidenceKind,
+            ContextEvidenceSummary = context.ContextEvidenceSummary,
+            HasGroundedTestContext = context.HasGroundedTestContext,
+            MappedTestMemberId = context.HasGroundedTestContext ? context.Method.ExistingTestMemberId : null,
+            MappedTestMethodName = context.HasGroundedTestContext ? context.Method.ExistingTestMethodName ?? string.Empty : string.Empty,
+            AccessPathStrategy = ResolveInventoryAccessPathStrategy(context),
+            AccessPathMemberIdsJson = SerializeAccessPathMemberIds(context),
+            TraceSummary = BuildInventoryTraceSummary(context),
+            TraceJson = BuildInventoryTraceJson(context),
+            TestIntentionsSummary = context.CandidateTestIntentionsSummary,
+            TypeConstructionSummary = context.CandidateTypeConstructionSummary,
+            CandidateMetadataJson = context.CandidateMetadataJson
         };
     }
 
@@ -201,6 +247,91 @@ public class MethodSelectionService : IMethodSelectionService
             return $"The paired test outcome was '{existingTestOutcome}', not 'Passed'.";
 
         return string.Empty;
+    }
+
+    private static string ResolveInventoryAccessPathStrategy(CandidateMethodContext context)
+    {
+        return context.Testability?.AccessPaths.FirstOrDefault()?.Strategy.ToString() ?? string.Empty;
+    }
+
+    private static string SerializeAccessPathMemberIds(CandidateMethodContext context)
+    {
+        var memberIds = context.Testability?.AccessPaths.FirstOrDefault()?.PathMemberIds ?? [];
+        return JsonSerializer.Serialize(memberIds);
+    }
+
+    private static string BuildInventoryTraceSummary(CandidateMethodContext context)
+    {
+        if (!context.HasGroundedTestContext)
+            return string.Equals(context.ContextEvidenceKind, "WeakHeuristic", StringComparison.OrdinalIgnoreCase)
+                ? $"Ungrounded weak heuristic context selected. {context.ContextEvidenceSummary}"
+                : $"No grounded source-test trace selected. {context.ContextEvidenceSummary}";
+
+        var path = context.Testability?.AccessPaths.FirstOrDefault()?.PathMemberIds;
+        var pathText = path is { Count: > 0 }
+            ? string.Join(" -> ", path)
+            : context.Method.MemberId.ToString();
+        var testName = string.IsNullOrWhiteSpace(context.Method.ExistingTestMethodName)
+            ? context.Method.ExistingTestMemberId?.ToString() ?? "unknown test"
+            : context.Method.ExistingTestMethodName;
+
+        return
+            $"{context.ContextEvidenceKind}: test '{testName}' maps to source member {context.Method.MemberId} through path {pathText}. {context.ContextEvidenceSummary}";
+    }
+
+    private static string BuildInventoryTraceJson(CandidateMethodContext context)
+    {
+        var accessPath = context.Testability?.AccessPaths.FirstOrDefault();
+        var mappingPath = context.Testability?.TestMappings.FirstOrDefault();
+        object? accessPathSnapshot = accessPath == null
+            ? null
+            : new
+            {
+                accessPath.TargetMemberId,
+                accessPath.EntrypointMemberId,
+                accessPath.PathMemberIds,
+                Strategy = accessPath.Strategy.ToString(),
+                accessPath.IsLegalFromTest,
+                accessPath.RequiresReflection,
+                accessPath.Distance
+            };
+        object? mappingPathSnapshot = mappingPath == null
+            ? null
+            : new
+            {
+                mappingPath.TestMemberId,
+                mappingPath.SourceMemberId,
+                mappingPath.PathMemberIds,
+                mappingPath.IsDirect,
+                mappingPath.IsObservedByCoverage,
+                mappingPath.IsObservedByMutation
+            };
+        var trace = new
+        {
+            context.Method.MemberId,
+            context.Method.MethodName,
+            EvidenceKind = context.ContextEvidenceKind,
+            EvidenceSummary = context.ContextEvidenceSummary,
+            IsGrounded = context.HasGroundedTestContext,
+            TestMemberId = context.HasGroundedTestContext ? context.Method.ExistingTestMemberId : null,
+            TestMethodName = context.HasGroundedTestContext ? context.Method.ExistingTestMethodName : null,
+            AccessPath = accessPathSnapshot,
+            MappingPath = mappingPathSnapshot,
+            EvidenceStatuses = context.Testability?.EvidenceStatuses.Select(x => x.ToString()).ToList() ?? [],
+            SetupBindings = context.Testability?.SetupBindings.Select(x => new
+            {
+                x.NeedId,
+                x.NeedKind,
+                x.RequiredType,
+                x.BindingExpression,
+                x.BindingKind,
+                x.SourceMemberId,
+                x.Reason,
+                x.IsPreferred
+            }).ToList() ?? []
+        };
+
+        return JsonSerializer.Serialize(trace);
     }
 
     public async Task<CandidateMethodContext?> GetMethodContextAsync(
@@ -283,15 +414,18 @@ public class MethodSelectionService : IMethodSelectionService
         var solution = solutionEntity.ToDomain();
         var methodSignature = ExtractMethodSignature(member.FullString, member.Name);
 
+        var memberVisibility = ResolveMemberVisibility(memberEntity);
         var testContext = await FindBestTestContextAsync(
             member.Id,
             member.Name,
+            memberVisibility,
             contextMappingMode,
             sourceObject,
             sourceFile,
             project,
+            solution.FilePath,
             cancellationToken);
-        var directTestSignals = await GetDirectTestSignalCountAsync(memberId, cancellationToken);
+        var testSignals = await GetReachableTestSignalCountAsync(memberId, cancellationToken);
         var undetectedMutants = await GetUndetectedMutantsAsync(memberId, cancellationToken);
         var exampleTestSmellCount = testContext?.ExampleTestMemberId is int exampleTestMemberId
                                     && testContext.IsGrounded
@@ -299,11 +433,28 @@ public class MethodSelectionService : IMethodSelectionService
             : 0;
         var testAssessment = DetermineTestAssessment(
             testContext,
-            directTestSignals,
+            testSignals,
             coverageEntity?.LineRate ?? 0.0,
             coverageGaps.Count,
             undetectedMutants.Count,
             exampleTestSmellCount);
+        var evidenceStatuses = ResolveEvidenceStatuses(
+            testContext,
+            coverageEntity,
+            undetectedMutants.Count);
+        var testability = BuildSourceMemberTestability(
+            member.Id,
+            memberVisibility,
+            testContext,
+            evidenceStatuses);
+        var accessPathSummary = BuildAccessPathSummary(testability, testContext);
+        var candidateMetadata = await BuildCandidateMetadataAsync(
+            member,
+            sourceFile.FilePath,
+            solution.FilePath,
+            sourceObject.FullString,
+            cancellationToken);
+        var candidateMetadataJson = JsonSerializer.Serialize(candidateMetadata);
 
         var candidateMethod = new CandidateMethod
         {
@@ -317,7 +468,10 @@ public class MethodSelectionService : IMethodSelectionService
             ComplexityScore = coverageEntity?.Complexity ?? 0.0,
             TestState = testAssessment.TestState,
             RecommendedAction = testAssessment.RecommendedAction,
-            TestStateReason = AppendContextMappingReason(testAssessment.Reason, testContext)
+            TestStateReason = AppendContextMappingReason(testAssessment.Reason, testContext),
+            TestIntentionsSummary = candidateMetadata.TestIntentionsSummary,
+            TypeConstructionSummary = candidateMetadata.TypeConstructionSummary,
+            CandidateMetadataJson = candidateMetadataJson
         };
 
         LogContextMapping(member, sourceObject, testContext);
@@ -325,6 +479,7 @@ public class MethodSelectionService : IMethodSelectionService
         return new CandidateMethodContext
         {
             Method = candidateMethod,
+            SourceTestMappingId = testContext?.SourceTestMappingId,
             MethodSignature = methodSignature,
             ContainingClass = sourceObject.FullString,
             TestNamespace = ResolveTestNamespace(testContext, sourceObject.Namespace, project),
@@ -367,9 +522,14 @@ public class MethodSelectionService : IMethodSelectionService
             TestDependencies = ResolveTestDependencies(testContext, project.FilePath),
             CoverageGapSummary = BuildCoverageGapSummary(coverageGaps),
             MutationSummary = BuildMutationSummary(undetectedMutants),
+            CandidateTestIntentionsSummary = candidateMetadata.TestIntentionsSummary,
+            CandidateTypeConstructionSummary = candidateMetadata.TypeConstructionSummary,
+            CandidateMetadataJson = candidateMetadataJson,
             ContextEvidenceKind = testContext?.EvidenceKind ?? "None",
             ContextEvidenceSummary = testContext?.EvidenceSummary ?? "No test context selected.",
-            HasGroundedTestContext = testContext?.IsGrounded ?? false
+            HasGroundedTestContext = testContext?.IsGrounded ?? false,
+            Testability = testability,
+            AccessPathSummary = accessPathSummary
         };
     }
 
@@ -378,6 +538,50 @@ public class MethodSelectionService : IMethodSelectionService
         if (!string.IsNullOrWhiteSpace(testContext?.TestClass.Name)) return testContext.TestClass.Name;
 
         return $"{sourceObjectName}Tests";
+    }
+
+    private async Task<Models.Generation.CandidateMethodMetadata> BuildCandidateMetadataAsync(
+        Models.Code.MemberModel member,
+        string sourceFilePath,
+        string solutionFilePath,
+        string containingClassSource,
+        CancellationToken cancellationToken)
+    {
+        var document = await TryResolveDocumentAsync(sourceFilePath, solutionFilePath, cancellationToken);
+        return await _candidateMethodMetadataService.BuildAsync(
+            document,
+            member.Location.BodyStartPosition,
+            member.Location.BodyEndPosition,
+            member.FullString,
+            containingClassSource,
+            cancellationToken);
+    }
+
+    private async Task<Document?> TryResolveDocumentAsync(
+        string sourceFilePath,
+        string solutionFilePath,
+        CancellationToken cancellationToken)
+    {
+        if (_staticAnalysisWorkspace == null || string.IsNullOrWhiteSpace(solutionFilePath)) return null;
+
+        try
+        {
+            var solution = await _staticAnalysisWorkspace.OpenSolutionAsync(solutionFilePath, cancellationToken);
+            var normalizedSourcePath = Path.GetFullPath(sourceFilePath);
+            return solution.Projects
+                .SelectMany(project => project.Documents)
+                .FirstOrDefault(document =>
+                    !string.IsNullOrWhiteSpace(document.FilePath) &&
+                    string.Equals(Path.GetFullPath(document.FilePath), normalizedSourcePath, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            _context.Project.Logger?.Warning(
+                "Could not resolve Roslyn document for candidate method metadata. SourceFile={SourceFilePath}, Error={ErrorMessage}",
+                sourceFilePath,
+                ex.Message);
+            return null;
+        }
     }
 
     private string ResolveTestFilePath(
@@ -539,7 +743,7 @@ public class MethodSelectionService : IMethodSelectionService
         return "Mutation evidence to target:\n" + string.Join("\n", mutantLines);
     }
 
-    private async Task<int> GetDirectTestSignalCountAsync(int memberId, CancellationToken cancellationToken)
+    private async Task<int> GetReachableTestSignalCountAsync(int memberId, CancellationToken cancellationToken)
     {
         var relationshipSignals = await _dbContext.MemberRelationships
             .AsNoTracking()
@@ -554,7 +758,28 @@ public class MethodSelectionService : IMethodSelectionService
                 select invocation)
             .CountAsync(cancellationToken);
 
-        return relationshipSignals + invocationSignals;
+        var invocationEdges = await _dbContext.Invocations
+            .AsNoTracking()
+            .Where(x => x.InvokedMemberId.HasValue)
+            .Select(x => new InvocationEdge(x.MemberId, x.InvokedMemberId!.Value))
+            .ToListAsync(cancellationToken);
+        var maxDepth = _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection
+            .MaxIndirectInvocationDepth;
+        var reachableEntrypointIds = FindCallerPaths(memberId, invocationEdges, maxDepth)
+            .Keys
+            .ToList();
+        var indirectInvocationSignals = reachableEntrypointIds.Count == 0
+            ? 0
+            : await (
+                    from invocation in _dbContext.Invocations
+                    join member in _dbContext.Members on invocation.MemberId equals member.Id
+                    where invocation.InvokedMemberId.HasValue &&
+                          reachableEntrypointIds.Contains(invocation.InvokedMemberId.Value) &&
+                          member.IsTestMember
+                    select invocation)
+                .CountAsync(cancellationToken);
+
+        return relationshipSignals + invocationSignals + indirectInvocationSignals;
     }
 
     private async Task<List<Persistence.Ef.Entities.MutationTesting.MutantEntity>> GetUndetectedMutantsAsync(
@@ -582,7 +807,7 @@ public class MethodSelectionService : IMethodSelectionService
 
     private static CandidateTestAssessment DetermineTestAssessment(
         TestContextCandidate? testContext,
-        int directTestSignals,
+        int testSignals,
         double baselineCoverage,
         int coverageGapCount,
         int undetectedMutantCount,
@@ -603,7 +828,7 @@ public class MethodSelectionService : IMethodSelectionService
         if (metadataConfidence > 0.0 && metadataConfidence < 0.5)
             weakQualitySignals.Add($"low metadata confidence={metadataConfidence:0.00}");
 
-        if (directTestSignals <= 0) weakQualitySignals.Add("no direct test signals were found");
+        if (testSignals <= 0) weakQualitySignals.Add("no direct or indirect test signals were found");
 
         if (coverageGapCount > 0) extensionSignals.Add($"coverage gaps={coverageGapCount}");
 
@@ -634,24 +859,69 @@ public class MethodSelectionService : IMethodSelectionService
     private async Task<TestContextCandidate?> FindBestTestContextAsync(
         int sourceMemberId,
         string sourceMemberName,
+        MemberVisibility sourceMemberVisibility,
         TestContextMappingMode mappingMode,
         ObjectModel sourceObject,
         FileModel sourceFile,
         CSharpProjectModel sourceProject,
+        string solutionFilePath,
         CancellationToken cancellationToken)
     {
+        var persistedMappingCandidate = await FindPersistedSourceTestMappingContextAsync(
+            sourceMemberId,
+            sourceMemberName,
+            sourceMemberVisibility,
+            sourceObject.Name,
+            sourceProject,
+            cancellationToken);
+
+        if (persistedMappingCandidate != null) return persistedMappingCandidate;
+
         var directInvocationCandidate = await FindDirectInvocationTestContextAsync(
             sourceMemberId,
             sourceMemberName,
+            sourceMemberVisibility,
+            sourceObject.Name,
             sourceProject,
             cancellationToken);
 
         if (directInvocationCandidate != null) return directInvocationCandidate;
 
+        var indirectInvocationCandidate = await FindIndirectInvocationTestContextAsync(
+            sourceMemberId,
+            sourceMemberName,
+            sourceMemberVisibility,
+            sourceObject.Name,
+            sourceProject,
+            cancellationToken);
+
+        if (indirectInvocationCandidate != null) return indirectInvocationCandidate;
+
+        var helperMediatedCandidate = await FindHelperMediatedTestContextAsync(
+            sourceMemberId,
+            sourceMemberName,
+            sourceObject.Name,
+            sourceProject,
+            cancellationToken);
+
+        if (helperMediatedCandidate != null) return helperMediatedCandidate;
+
+        var symbolFinderCandidate = await FindRoslynSymbolFinderTestContextAsync(
+            sourceMemberId,
+            sourceMemberName,
+            sourceMemberVisibility,
+            sourceObject.Name,
+            sourceFile,
+            sourceProject,
+            solutionFilePath,
+            cancellationToken);
+
+        if (symbolFinderCandidate != null) return symbolFinderCandidate;
+
         if (mappingMode == TestContextMappingMode.DirectInvocationOnly)
         {
             _context.Project.Logger?.Warning(
-                "No directly invoking test context found for source member {SourceMemberId} ({SourceMemberName}); score-based context selection is disabled by {MappingMode}.",
+                "No direct, indirect, helper-mediated, or SymbolFinder test context found for source member {SourceMemberId} ({SourceMemberName}); score-based context selection is disabled by {MappingMode}.",
                 sourceMemberId,
                 sourceMemberName,
                 mappingMode);
@@ -661,6 +931,7 @@ public class MethodSelectionService : IMethodSelectionService
         var relationshipCandidate = await FindMemberRelationshipTestContextAsync(
             sourceMemberId,
             sourceMemberName,
+            sourceObject.Name,
             sourceProject,
             cancellationToken);
 
@@ -725,19 +996,95 @@ public class MethodSelectionService : IMethodSelectionService
             Dependencies = dependencies,
             TestFileContents = testFileContents,
             SupportContext = supportContext,
+            SupportBindings = DiscoverContextBindings(testMembers, selectedExample, sourceObject.Name),
             EvidenceKind = "WeakHeuristic",
             EvidenceSummary = BuildHeuristicEvidenceSummary(sourceObject, bestCandidate, selectedExample),
             IsGrounded = false
         };
     }
 
-    private async Task<TestContextCandidate?> FindDirectInvocationTestContextAsync(
+    private async Task<TestContextCandidate?> FindPersistedSourceTestMappingContextAsync(
         int sourceMemberId,
         string sourceMemberName,
+        MemberVisibility sourceMemberVisibility,
+        string sourceObjectName,
         CSharpProjectModel sourceProject,
         CancellationToken cancellationToken)
     {
-        var candidates = await (
+        var mapping = await _dbContext.SourceTestMappings
+            .AsNoTracking()
+            .Include(x => x.TraceSteps)
+            .Where(x => x.SourceMemberId == sourceMemberId && x.ProjectId == _context.Project.DbId && x.IsGrounded)
+            .OrderBy(x => x.PathLength)
+            .ThenByDescending(x => x.Confidence)
+            .ThenBy(x => x.TestMemberId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (mapping == null) return null;
+
+        var candidate = await (
+                from testMember in _dbContext.Members.AsNoTracking()
+                join testObject in _dbContext.Objects.AsNoTracking() on testMember.ObjectEntityId equals testObject.Id
+                join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
+                join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
+                where testMember.Id == mapping.TestMemberId
+                      && testMember.IsTestMember
+                      && testMember.Kind == "method"
+                      && testObject.IsTestObject
+                      && testProject.SolutionId == sourceProject.SolutionId
+                select new
+                {
+                    TestMember = testMember,
+                    TestObject = testObject,
+                    TestFile = testFile,
+                    TestProject = testProject
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (candidate == null) return null;
+
+        var path = mapping.TraceSteps
+            .OrderBy(x => x.StepIndex)
+            .Select(x => x.ToMemberId)
+            .ToList();
+        if (path.Count == 0) path = [sourceMemberId];
+
+        var accessPath = new AccessPath
+        {
+            TargetMemberId = sourceMemberId,
+            EntrypointMemberId = path[0],
+            PathMemberIds = path,
+            Strategy = Enum.TryParse<TestAccessStrategy>(mapping.AccessPathStrategy, out var strategy)
+                ? strategy
+                : ResolveDirectAccessStrategy(sourceMemberVisibility),
+            IsLegalFromTest = true,
+            RequiresReflection = false
+        };
+
+        var row = new TestContextEvidenceRow(
+            candidate.TestMember,
+            candidate.TestObject,
+            candidate.TestFile,
+            candidate.TestProject,
+            mapping.EvidenceKind,
+            mapping.Summary,
+            true,
+            accessPath,
+            path)
+        {
+            SourceTestMappingId = mapping.Id
+        };
+
+        return await BuildGroundedTestContextAsync(row, sourceObjectName, cancellationToken);
+    }
+
+    private async Task<TestContextCandidate?> FindDirectInvocationTestContextAsync(
+        int sourceMemberId,
+        string sourceMemberName,
+        MemberVisibility sourceMemberVisibility,
+        string sourceObjectName,
+        CSharpProjectModel sourceProject,
+        CancellationToken cancellationToken)
+    {
+        var candidate = await (
                 from invocation in _dbContext.Invocations.AsNoTracking()
                 join testMember in _dbContext.Members.AsNoTracking() on invocation.MemberId equals testMember.Id
                 join testObject in _dbContext.Objects.AsNoTracking() on testMember.ObjectEntityId equals testObject.Id
@@ -758,17 +1105,434 @@ public class MethodSelectionService : IMethodSelectionService
                     testProject,
                     "DirectInvocation",
                     $"Test method '{testObject.Name}.{testMember.Name}' directly invokes source member '{sourceMemberName}' via invocation.MemberId={testMember.Id} -> invocation.InvokedMemberId={sourceMemberId}.",
-                    true))
+                    true,
+                    null,
+                    Array.Empty<int>()))
             .FirstOrDefaultAsync(cancellationToken);
 
-        return candidates == null
+        if (candidate == null) return null;
+
+        var accessPath = new AccessPath
+        {
+            TargetMemberId = sourceMemberId,
+            EntrypointMemberId = sourceMemberId,
+            PathMemberIds = [sourceMemberId],
+            Strategy = ResolveDirectAccessStrategy(sourceMemberVisibility),
+            IsLegalFromTest = sourceMemberVisibility is MemberVisibility.Public or MemberVisibility.Internal,
+            RequiresReflection = false
+        };
+
+        candidate = candidate with
+        {
+            AccessPath = accessPath,
+            PathMemberIds = [sourceMemberId]
+        };
+
+        return candidate == null
             ? null
-            : await BuildGroundedTestContextAsync(candidates, cancellationToken);
+            : await BuildGroundedTestContextAsync(candidate, sourceObjectName, cancellationToken);
+    }
+
+    private async Task<TestContextCandidate?> FindIndirectInvocationTestContextAsync(
+        int sourceMemberId,
+        string sourceMemberName,
+        MemberVisibility sourceMemberVisibility,
+        string sourceObjectName,
+        CSharpProjectModel sourceProject,
+        CancellationToken cancellationToken)
+    {
+        var invocationEdges = await _dbContext.Invocations
+            .AsNoTracking()
+            .Where(x => x.InvokedMemberId.HasValue)
+            .Select(x => new InvocationEdge(x.MemberId, x.InvokedMemberId!.Value))
+            .ToListAsync(cancellationToken);
+        var maxDepth = _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection
+            .MaxIndirectInvocationDepth;
+        var pathsByEntrypoint = FindCallerPaths(sourceMemberId, invocationEdges, maxDepth);
+        if (pathsByEntrypoint.Count == 0) return null;
+
+        var entrypointIds = pathsByEntrypoint.Keys.ToList();
+        var candidateRows = await (
+                from invocation in _dbContext.Invocations.AsNoTracking()
+                join testMember in _dbContext.Members.AsNoTracking() on invocation.MemberId equals testMember.Id
+                join testObject in _dbContext.Objects.AsNoTracking() on testMember.ObjectEntityId equals testObject.Id
+                join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
+                join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
+                join entrypointMember in _dbContext.Members.AsNoTracking() on invocation.InvokedMemberId equals entrypointMember.Id
+                join entrypointObject in _dbContext.Objects.AsNoTracking() on entrypointMember.ObjectEntityId equals entrypointObject.Id
+                join entrypointFile in _dbContext.Files.AsNoTracking() on entrypointObject.FileId equals entrypointFile.Id
+                join entrypointProject in _dbContext.CSharpProjects.AsNoTracking() on entrypointFile.CSharpProjectId equals entrypointProject.Id
+                where invocation.InvokedMemberId.HasValue
+                      && entrypointIds.Contains(invocation.InvokedMemberId.GetValueOrDefault())
+                      && testMember.IsTestMember
+                      && testMember.Kind == "method"
+                      && testObject.IsTestObject
+                      && testProject.SolutionId == sourceProject.SolutionId
+                      && entrypointProject.SolutionId == sourceProject.SolutionId
+                select new
+                {
+                    TestMember = testMember,
+                    TestObject = testObject,
+                    TestFile = testFile,
+                    TestProject = testProject,
+                    Entrypoint = entrypointMember,
+                    EntrypointProject = entrypointProject
+                })
+            .ToListAsync(cancellationToken);
+
+        var selected = candidateRows
+            .Select(row => new
+            {
+                row.TestMember,
+                row.TestObject,
+                row.TestFile,
+                row.TestProject,
+                row.Entrypoint,
+                row.EntrypointProject,
+                Path = pathsByEntrypoint[row.Entrypoint.Id]
+            })
+            .Where(x => !x.EntrypointProject.BuildMetadata.IsTestProject)
+            .OrderBy(x => x.Path.Count)
+            .ThenBy(x => x.EntrypointProject.Id == sourceProject.Id ? 0 : 1)
+            .ThenBy(x => x.TestMember.IsGenerated)
+            .ThenBy(x => x.TestFile.FilePath.Length)
+            .ThenBy(x => x.TestMember.Name)
+            .FirstOrDefault();
+
+        if (selected == null) return null;
+
+        var pathText = string.Join(" -> ", selected.Path);
+        return await BuildGroundedTestContextAsync(
+            new TestContextEvidenceRow(
+                selected.TestMember,
+                selected.TestObject,
+                selected.TestFile,
+                selected.TestProject,
+                "IndirectInvocation",
+                $"Test method '{selected.TestObject.Name}.{selected.TestMember.Name}' invokes entrypoint '{selected.Entrypoint.Name}', which reaches source member '{sourceMemberName}' through invocation path {pathText}.",
+                true,
+                new AccessPath
+                {
+                    TargetMemberId = sourceMemberId,
+                    EntrypointMemberId = selected.Entrypoint.Id,
+                    PathMemberIds = selected.Path,
+                    Strategy = ResolveCallerPathStrategy(ResolveMemberVisibility(selected.Entrypoint)),
+                    IsLegalFromTest = ResolveMemberVisibility(selected.Entrypoint) is MemberVisibility.Public or MemberVisibility.Internal,
+                    RequiresReflection = false
+                },
+                selected.Path),
+            sourceObjectName,
+            cancellationToken);
+    }
+
+    private async Task<TestContextCandidate?> FindHelperMediatedTestContextAsync(
+        int sourceMemberId,
+        string sourceMemberName,
+        string sourceObjectName,
+        CSharpProjectModel sourceProject,
+        CancellationToken cancellationToken)
+    {
+        var invocationEdges = await _dbContext.Invocations
+            .AsNoTracking()
+            .Where(x => x.InvokedMemberId.HasValue)
+            .Select(x => new InvocationEdge(x.MemberId, x.InvokedMemberId!.Value))
+            .ToListAsync(cancellationToken);
+        var maxDepth = _context.Project.Config.TestingConfig.GenerationConfig.TargetSelection
+            .MaxIndirectInvocationDepth;
+        var pathsByEntrypoint = FindCallerPaths(sourceMemberId, invocationEdges, maxDepth);
+        if (pathsByEntrypoint.Count == 0) return null;
+
+        var entrypointIds = pathsByEntrypoint.Keys.ToList();
+        var candidateRows = await (
+                from helperInvocation in _dbContext.Invocations.AsNoTracking()
+                join helperMember in _dbContext.Members.AsNoTracking() on helperInvocation.MemberId equals helperMember.Id
+                join testInvocation in _dbContext.Invocations.AsNoTracking() on helperMember.Id equals testInvocation.InvokedMemberId
+                join testMember in _dbContext.Members.AsNoTracking() on testInvocation.MemberId equals testMember.Id
+                join testObject in _dbContext.Objects.AsNoTracking() on testMember.ObjectEntityId equals testObject.Id
+                join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
+                join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
+                join entrypointMember in _dbContext.Members.AsNoTracking() on helperInvocation.InvokedMemberId equals entrypointMember.Id
+                where helperInvocation.InvokedMemberId.HasValue
+                      && entrypointIds.Contains(helperInvocation.InvokedMemberId.GetValueOrDefault())
+                      && helperMember.ObjectEntityId == testObject.Id
+                      && !helperMember.IsTestMember
+                      && !helperMember.IsGenerated
+                      && testMember.IsTestMember
+                      && testMember.Kind == "method"
+                      && testObject.IsTestObject
+                      && testProject.SolutionId == sourceProject.SolutionId
+                select new
+                {
+                    TestMember = testMember,
+                    TestObject = testObject,
+                    TestFile = testFile,
+                    TestProject = testProject,
+                    HelperMember = helperMember,
+                    Entrypoint = entrypointMember
+                })
+            .ToListAsync(cancellationToken);
+
+        var selected = candidateRows
+            .Where(row => IsLikelyTestSupportMember(row.HelperMember))
+            .Select(row =>
+            {
+                var sourcePath = pathsByEntrypoint[row.Entrypoint.Id];
+                var fullPath = new[] { row.HelperMember.Id }.Concat(sourcePath).ToList();
+                return new
+                {
+                    row.TestMember,
+                    row.TestObject,
+                    row.TestFile,
+                    row.TestProject,
+                    row.HelperMember,
+                    row.Entrypoint,
+                    Path = fullPath
+                };
+            })
+            .OrderBy(x => x.Path.Count)
+            .ThenBy(x => x.TestMember.IsGenerated)
+            .ThenBy(x => x.TestFile.FilePath.Length)
+            .ThenBy(x => x.TestMember.Name)
+            .FirstOrDefault();
+
+        if (selected == null) return null;
+
+        var entrypointVisibility = ResolveMemberVisibility(selected.Entrypoint);
+        var pathText = string.Join(" -> ", selected.Path);
+        return await BuildGroundedTestContextAsync(
+            new TestContextEvidenceRow(
+                selected.TestMember,
+                selected.TestObject,
+                selected.TestFile,
+                selected.TestProject,
+                "HelperMediatedPath",
+                $"Test method '{selected.TestObject.Name}.{selected.TestMember.Name}' invokes helper '{selected.HelperMember.Name}', which invokes entrypoint '{selected.Entrypoint.Name}' and reaches source member '{sourceMemberName}' through invocation path {pathText}.",
+                true,
+                new AccessPath
+                {
+                    TargetMemberId = sourceMemberId,
+                    EntrypointMemberId = selected.HelperMember.Id,
+                    PathMemberIds = selected.Path,
+                    Strategy = TestAccessStrategy.HelperMediatedPath,
+                    IsLegalFromTest = entrypointVisibility is MemberVisibility.Public or MemberVisibility.Internal,
+                    RequiresReflection = false
+                },
+                selected.Path),
+            sourceObjectName,
+            cancellationToken);
+    }
+
+    private async Task<TestContextCandidate?> FindRoslynSymbolFinderTestContextAsync(
+        int sourceMemberId,
+        string sourceMemberName,
+        MemberVisibility sourceMemberVisibility,
+        string sourceObjectName,
+        FileModel sourceFile,
+        CSharpProjectModel sourceProject,
+        string solutionFilePath,
+        CancellationToken cancellationToken)
+    {
+        if (_staticAnalysisWorkspace == null) return null;
+
+        try
+        {
+            var solution = await OpenRoslynSolutionAsync(solutionFilePath, sourceProject.FilePath, cancellationToken);
+            var sourceDocument = FindDocumentByPath(solution, sourceFile.FilePath);
+            if (sourceDocument == null) return null;
+
+            var targetSymbol = await FindSourceMemberSymbolAsync(
+                sourceDocument,
+                sourceMemberName,
+                cancellationToken);
+            if (targetSymbol == null) return null;
+
+            var references = await SymbolFinder.FindReferencesAsync(targetSymbol, solution, cancellationToken);
+            var referenceCandidates = new List<RoslynReferenceCandidate>();
+            foreach (var referencedSymbol in references)
+            foreach (var location in referencedSymbol.Locations)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!location.Location.IsInSource || location.Location.SourceTree == null) continue;
+
+                var document = solution.GetDocument(location.Location.SourceTree);
+                if (document?.FilePath == null) continue;
+
+                var containingMemberName = await FindContainingMemberNameAsync(
+                    document,
+                    location.Location.SourceSpan.Start,
+                    cancellationToken);
+                if (string.IsNullOrWhiteSpace(containingMemberName)) continue;
+
+                referenceCandidates.Add(new RoslynReferenceCandidate(
+                    NormalizeFilePath(document.FilePath),
+                    containingMemberName));
+            }
+
+            if (referenceCandidates.Count == 0) return null;
+
+            var memberNames = referenceCandidates
+                .Select(x => x.MemberName)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            var candidateRows = await (
+                    from testMember in _dbContext.Members.AsNoTracking()
+                    join testObject in _dbContext.Objects.AsNoTracking() on testMember.ObjectEntityId equals testObject.Id
+                    join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
+                    join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
+                    where memberNames.Contains(testMember.Name)
+                          && testMember.IsTestMember
+                          && testMember.Kind == "method"
+                          && testObject.IsTestObject
+                          && testProject.SolutionId == sourceProject.SolutionId
+                    select new
+                    {
+                        TestMember = testMember,
+                        TestObject = testObject,
+                        TestFile = testFile,
+                        TestProject = testProject
+                    })
+                .ToListAsync(cancellationToken);
+
+            var selected = candidateRows
+                .Where(row => referenceCandidates.Any(candidate =>
+                    string.Equals(candidate.MemberName, row.TestMember.Name, StringComparison.Ordinal) &&
+                    string.Equals(candidate.FilePath, NormalizeFilePath(row.TestFile.FilePath),
+                        StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(x => x.TestMember.IsGenerated)
+                .ThenBy(x => x.TestFile.FilePath.Length)
+                .ThenBy(x => x.TestMember.Name)
+                .FirstOrDefault();
+
+            if (selected == null) return null;
+
+            _context.Project.Logger?.Information(
+                "SymbolFinder fallback mapped source member {SourceMemberId} ({SourceMemberName}) to test member {TestMemberId} ({TestMemberName}).",
+                sourceMemberId,
+                sourceMemberName,
+                selected.TestMember.Id,
+                selected.TestMember.Name);
+
+            return await BuildGroundedTestContextAsync(
+                new TestContextEvidenceRow(
+                    selected.TestMember,
+                    selected.TestObject,
+                    selected.TestFile,
+                    selected.TestProject,
+                    "RoslynSymbolFinder",
+                    $"Roslyn SymbolFinder found a direct reference from test method '{selected.TestObject.Name}.{selected.TestMember.Name}' to source member '{sourceMemberName}' after persisted invocation edges produced no mapping.",
+                    true,
+                    new AccessPath
+                    {
+                        TargetMemberId = sourceMemberId,
+                        EntrypointMemberId = sourceMemberId,
+                        PathMemberIds = [sourceMemberId],
+                        Strategy = ResolveDirectAccessStrategy(sourceMemberVisibility),
+                        IsLegalFromTest = sourceMemberVisibility is MemberVisibility.Public or MemberVisibility.Internal,
+                        RequiresReflection = false
+                    },
+                    [sourceMemberId]),
+                sourceObjectName,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _context.Project.Logger?.Warning(
+                "SymbolFinder fallback failed for source member {SourceMemberId} ({SourceMemberName}): {Message}",
+                sourceMemberId,
+                sourceMemberName,
+                ex.Message);
+            return null;
+        }
+    }
+
+    private async Task<Solution> OpenRoslynSolutionAsync(
+        string solutionFilePath,
+        string sourceProjectPath,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(solutionFilePath))
+        {
+            try
+            {
+                return await _staticAnalysisWorkspace!.OpenSolutionAsync(solutionFilePath, cancellationToken);
+            }
+            catch when (!string.IsNullOrWhiteSpace(sourceProjectPath))
+            {
+                var project = await _staticAnalysisWorkspace!.OpenProjectAsync(sourceProjectPath, cancellationToken);
+                return project.Solution;
+            }
+        }
+
+        var fallbackProject = await _staticAnalysisWorkspace!.OpenProjectAsync(sourceProjectPath, cancellationToken);
+        return fallbackProject.Solution;
+    }
+
+    private static Document? FindDocumentByPath(Solution solution, string filePath)
+    {
+        var normalizedPath = NormalizeFilePath(filePath);
+        return solution.Projects
+            .SelectMany(x => x.Documents)
+            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.FilePath) &&
+                                 string.Equals(NormalizeFilePath(x.FilePath), normalizedPath,
+                                     StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<ISymbol?> FindSourceMemberSymbolAsync(
+        Document document,
+        string sourceMemberName,
+        CancellationToken cancellationToken)
+    {
+        var root = await document.GetSyntaxRootAsync(cancellationToken);
+        var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
+        if (root == null || semanticModel == null) return null;
+
+        foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>()
+                     .Where(x => x.Identifier.Text == sourceMemberName))
+        {
+            var symbol = semanticModel.GetDeclaredSymbol(method, cancellationToken);
+            if (symbol != null) return symbol;
+        }
+
+        foreach (var constructor in root.DescendantNodes().OfType<ConstructorDeclarationSyntax>()
+                     .Where(x => x.Identifier.Text == sourceMemberName))
+        {
+            var symbol = semanticModel.GetDeclaredSymbol(constructor, cancellationToken);
+            if (symbol != null) return symbol;
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> FindContainingMemberNameAsync(
+        Document document,
+        int position,
+        CancellationToken cancellationToken)
+    {
+        var root = await document.GetSyntaxRootAsync(cancellationToken);
+        var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
+        if (root == null || semanticModel == null) return null;
+
+        var token = root.FindToken(position);
+        var member = token.Parent?
+            .AncestorsAndSelf()
+            .OfType<MemberDeclarationSyntax>()
+            .FirstOrDefault(x => x is MethodDeclarationSyntax or ConstructorDeclarationSyntax);
+
+        if (member == null) return null;
+
+        var symbol = semanticModel.GetDeclaredSymbol(member, cancellationToken);
+        return symbol?.Name;
+    }
+
+    private static string NormalizeFilePath(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private async Task<TestContextCandidate?> FindMemberRelationshipTestContextAsync(
         int sourceMemberId,
         string sourceMemberName,
+        string sourceObjectName,
         CSharpProjectModel sourceProject,
         CancellationToken cancellationToken)
     {
@@ -794,16 +1558,21 @@ public class MethodSelectionService : IMethodSelectionService
                     testProject,
                     "MemberRelationship",
                     $"Test method '{testObject.Name}.{testMember.Name}' maps to source member '{sourceMemberName}' through member relationship '{relationship.RelationshipType}' ({testMember.Id} -> {sourceMemberId}).",
-                    true))
+                    true,
+                    null,
+                    Array.Empty<int>()))
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (candidates != null) candidates = candidates with { PathMemberIds = [sourceMemberId] };
 
         return candidates == null
             ? null
-            : await BuildGroundedTestContextAsync(candidates, cancellationToken);
+            : await BuildGroundedTestContextAsync(candidates, sourceObjectName, cancellationToken);
     }
 
     private async Task<TestContextCandidate> BuildGroundedTestContextAsync(
         TestContextEvidenceRow evidence,
+        string sourceObjectName,
         CancellationToken cancellationToken)
     {
         var testClass = evidence.TestObject.ToDomain();
@@ -836,9 +1605,13 @@ public class MethodSelectionService : IMethodSelectionService
             Dependencies = dependencies,
             TestFileContents = testFileContents,
             SupportContext = supportContext,
+            SupportBindings = DiscoverContextBindings(testMembers, evidence.TestMember, sourceObjectName),
             EvidenceKind = evidence.EvidenceKind,
             EvidenceSummary = evidence.EvidenceSummary,
-            IsGrounded = evidence.IsGrounded
+            IsGrounded = evidence.IsGrounded,
+            AccessPath = evidence.AccessPath,
+            MappingPathMemberIds = evidence.PathMemberIds,
+            SourceTestMappingId = evidence.SourceTestMappingId
         };
     }
 
@@ -1194,7 +1967,470 @@ using System;"
         public string EvidenceKind { get; init; } = "None";
         public string EvidenceSummary { get; init; } = string.Empty;
         public bool IsGrounded { get; init; }
+        public AccessPath? AccessPath { get; init; }
+        public IReadOnlyList<int> MappingPathMemberIds { get; init; } = [];
+        public IReadOnlyList<ContextBinding> SupportBindings { get; init; } = [];
+        public int? SourceTestMappingId { get; init; }
     }
+
+    private static IReadOnlyDictionary<int, IReadOnlyList<int>> FindCallerPaths(
+        int targetMemberId,
+        IReadOnlyCollection<InvocationEdge> edges,
+        int maxDepth)
+    {
+        var callersByInvokedMemberId = edges
+            .Where(x => x.CallerMemberId != x.InvokedMemberId)
+            .GroupBy(x => x.InvokedMemberId)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Select(edge => edge.CallerMemberId).Distinct().OrderBy(id => id).ToList());
+        var pathsByEntrypoint = new Dictionary<int, IReadOnlyList<int>>();
+        var queue = new Queue<IReadOnlyList<int>>();
+        queue.Enqueue([targetMemberId]);
+
+        while (queue.Count > 0)
+        {
+            var currentPath = queue.Dequeue();
+            var currentMemberId = currentPath[0];
+            var currentDepth = currentPath.Count - 1;
+            if (currentDepth >= maxDepth) continue;
+
+            if (!callersByInvokedMemberId.TryGetValue(currentMemberId, out var callers)) continue;
+
+            foreach (var callerMemberId in callers)
+            {
+                if (currentPath.Contains(callerMemberId)) continue;
+
+                var path = new[] { callerMemberId }.Concat(currentPath).ToList();
+                if (callerMemberId != targetMemberId &&
+                    (!pathsByEntrypoint.TryGetValue(callerMemberId, out var existingPath) ||
+                     path.Count < existingPath.Count))
+                    pathsByEntrypoint[callerMemberId] = path;
+
+                queue.Enqueue(path);
+            }
+        }
+
+        return pathsByEntrypoint;
+    }
+
+    private static SourceMemberTestability BuildSourceMemberTestability(
+        int sourceMemberId,
+        MemberVisibility visibility,
+        TestContextCandidate? testContext,
+        IReadOnlyList<TestEvidenceStatus> evidenceStatuses)
+    {
+        var mappingPath = testContext?.MappingPathMemberIds.Count > 0
+            ? testContext.MappingPathMemberIds
+            : [sourceMemberId];
+        var mappings = testContext?.IsGrounded == true && testContext.ExampleTestMemberId is int testMemberId
+            ?
+            [
+                new TestMappingPath
+                {
+                    TestMemberId = testMemberId,
+                    SourceMemberId = sourceMemberId,
+                    PathMemberIds = mappingPath,
+                    IsDirect = IsDirectMethodEvidence(testContext.EvidenceKind),
+                    IsObservedByCoverage = evidenceStatuses.Contains(TestEvidenceStatus.ObservedCovered),
+                    IsObservedByMutation = evidenceStatuses.Contains(TestEvidenceStatus.ObservedMutationExercised)
+                }
+            ]
+            : Array.Empty<TestMappingPath>();
+        var accessPaths = testContext?.AccessPath == null
+            ? Array.Empty<AccessPath>()
+            : [testContext.AccessPath];
+
+        return new SourceMemberTestability
+        {
+            SourceMemberId = sourceMemberId,
+            Visibility = visibility,
+            TestMappings = mappings,
+            AccessPaths = accessPaths,
+            EvidenceStatuses = evidenceStatuses,
+            SetupBindings = testContext?.SupportBindings.Count > 0
+                ? testContext.SupportBindings
+                : BuildContextBindings(testContext)
+        };
+    }
+
+    private static IReadOnlyList<ContextBinding> BuildContextBindings(TestContextCandidate? testContext)
+    {
+        if (testContext == null || string.IsNullOrWhiteSpace(testContext.SupportContext)) return [];
+
+        var bindings = new List<ContextBinding>();
+        var lines = testContext.SupportContext
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var line in lines.Take(6))
+        {
+            if (!line.Contains("builder", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("factory", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("helper", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("create", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("setup", StringComparison.OrdinalIgnoreCase) &&
+                !line.Contains("fixture", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            bindings.Add(new ContextBinding
+            {
+                NeedId = $"support:{bindings.Count + 1}",
+                NeedKind = "ExistingTestSupport",
+                BindingExpression = line,
+                BindingKind = "HelperOrFixture",
+                Reason = "Existing test support context mentions a helper, fixture, factory, builder, create, or setup member.",
+                IsPreferred = true
+            });
+        }
+
+        return bindings;
+    }
+
+    private static bool IsLikelyTestSupportMember(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        var name = member.Name ?? string.Empty;
+        var source = member.FullString ?? string.Empty;
+
+        return name.Contains("helper", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("factory", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("builder", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("build", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("setup", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("fixture", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("create", StringComparison.OrdinalIgnoreCase) ||
+               source.Contains("helper", StringComparison.OrdinalIgnoreCase) ||
+               source.Contains("factory", StringComparison.OrdinalIgnoreCase) ||
+               source.Contains("builder", StringComparison.OrdinalIgnoreCase) ||
+               source.Contains("build", StringComparison.OrdinalIgnoreCase) ||
+               source.Contains("setup", StringComparison.OrdinalIgnoreCase) ||
+               source.Contains("fixture", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<ContextBinding> DiscoverContextBindings(
+        IReadOnlyCollection<Persistence.Ef.Entities.Code.MemberEntity> testMembers,
+        Persistence.Ef.Entities.Code.MemberEntity? selectedExample,
+        string sourceObjectName)
+    {
+        var bindings = new List<ContextBinding>();
+        foreach (var member in testMembers
+                     .Where(x => !x.IsGenerated)
+                     .Where(x => x.Id != selectedExample?.Id)
+                     .OrderByDescending(x => IsPreferredSupportMember(x, sourceObjectName))
+                     .ThenBy(x => GetSupportBindingRank(x))
+                     .ThenBy(x => x.Name))
+        {
+            var binding = CreateContextBinding(member, bindings.Count + 1, sourceObjectName);
+            if (binding != null) bindings.Add(binding);
+            if (bindings.Count >= 12) break;
+        }
+
+        return bindings;
+    }
+
+    private static ContextBinding? CreateContextBinding(
+        Persistence.Ef.Entities.Code.MemberEntity member,
+        int index,
+        string sourceObjectName)
+    {
+        var kind = (member.Kind ?? string.Empty).Trim();
+        var name = member.Name ?? string.Empty;
+        var bindingKind = ResolveSupportBindingKind(member, sourceObjectName);
+        if (bindingKind == null) return null;
+
+        return new ContextBinding
+        {
+            NeedId = $"support:{index}",
+            NeedKind = ResolveSupportNeedKind(bindingKind),
+            RequiredType = ResolveSupportRequiredType(member, bindingKind, sourceObjectName),
+            BindingExpression = FormatSupportBindingExpression(member),
+            BindingKind = bindingKind,
+            SourceMemberId = member.Id,
+            Reason = ResolveSupportReason(member, bindingKind, sourceObjectName),
+            IsPreferred = IsPreferredSupportMember(member, sourceObjectName)
+        };
+    }
+
+    private static string? ResolveSupportBindingKind(
+        Persistence.Ef.Entities.Code.MemberEntity member,
+        string sourceObjectName)
+    {
+        var kind = (member.Kind ?? string.Empty).Trim();
+        var name = member.Name ?? string.Empty;
+        if (IsSetupMember(member)) return "SetupMethod";
+        if (kind.Equals("constructor", StringComparison.OrdinalIgnoreCase)) return "Constructor";
+        if (kind.Equals("field", StringComparison.OrdinalIgnoreCase)) return "Field";
+        if (kind.Equals("property", StringComparison.OrdinalIgnoreCase)) return "Property";
+        if (!kind.Equals("method", StringComparison.OrdinalIgnoreCase)) return null;
+
+        if (name.Contains("builder", StringComparison.OrdinalIgnoreCase)) return "Builder";
+        if (name.Contains("build", StringComparison.OrdinalIgnoreCase)) return "Builder";
+        if (name.Contains("factory", StringComparison.OrdinalIgnoreCase)) return "Factory";
+        if (name.Contains("create", StringComparison.OrdinalIgnoreCase)) return "Factory";
+        if (name.Contains("fixture", StringComparison.OrdinalIgnoreCase)) return "Fixture";
+        if (name.Contains("helper", StringComparison.OrdinalIgnoreCase)) return "Helper";
+
+        var returnType = ExtractReturnType(member);
+        if (IsCompatibleSupportType(returnType, sourceObjectName)) return "CompatibleReturn";
+
+        return null;
+    }
+
+    private static string ResolveSupportNeedKind(string bindingKind)
+    {
+        return bindingKind switch
+        {
+            "Constructor" => "FixtureConstruction",
+            "SetupMethod" => "LifecycleSetup",
+            "Field" or "Property" => "ReusableState",
+            "Builder" or "Factory" or "Fixture" or "Helper" or "CompatibleReturn" => "ExistingTestSupport",
+            _ => "ExistingTestSupport"
+        };
+    }
+
+    private static string? ResolveSupportRequiredType(
+        Persistence.Ef.Entities.Code.MemberEntity member,
+        string bindingKind,
+        string sourceObjectName)
+    {
+        if (bindingKind == "Constructor") return sourceObjectName;
+
+        return member.Kind.Equals("method", StringComparison.OrdinalIgnoreCase)
+            ? ExtractReturnType(member)
+            : ExtractDeclaredType(member);
+    }
+
+    private static string ResolveSupportReason(
+        Persistence.Ef.Entities.Code.MemberEntity member,
+        string bindingKind,
+        string sourceObjectName)
+    {
+        var type = ResolveSupportRequiredType(member, bindingKind, sourceObjectName);
+        var compatible = IsCompatibleSupportType(type, sourceObjectName)
+            ? " It appears compatible with the source object type."
+            : string.Empty;
+        return $"Discovered {bindingKind} support member '{member.Name}' from the selected test class.{compatible}";
+    }
+
+    private static string FormatSupportBindingExpression(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        var summary = (member.FullString ?? string.Empty)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+        return string.IsNullOrWhiteSpace(summary)
+            ? $"{member.Kind} {member.Name}"
+            : summary;
+    }
+
+    private static int GetSupportBindingRank(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        return ResolveSupportBindingKind(member, string.Empty) switch
+        {
+            "Constructor" => 0,
+            "SetupMethod" => 1,
+            "Field" => 2,
+            "Property" => 3,
+            "Builder" => 4,
+            "Factory" => 5,
+            "Fixture" => 6,
+            "Helper" => 7,
+            "CompatibleReturn" => 8,
+            _ => 99
+        };
+    }
+
+    private static bool IsPreferredSupportMember(
+        Persistence.Ef.Entities.Code.MemberEntity member,
+        string sourceObjectName)
+    {
+        var bindingKind = ResolveSupportBindingKind(member, sourceObjectName);
+        if (bindingKind == null) return false;
+        if (bindingKind is "Constructor" or "SetupMethod" or "Field" or "Property") return true;
+
+        var requiredType = ResolveSupportRequiredType(member, bindingKind, sourceObjectName);
+        return IsCompatibleSupportType(requiredType, sourceObjectName) ||
+               IsLikelyTestSupportMember(member);
+    }
+
+    private static bool IsSetupMember(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        return member.Name.Contains("setup", StringComparison.OrdinalIgnoreCase) ||
+               member.Name.Contains("initialize", StringComparison.OrdinalIgnoreCase) ||
+               member.Attributes.Any(x =>
+                   x.Contains("SetUp", StringComparison.OrdinalIgnoreCase) ||
+                   x.Contains("TestInitialize", StringComparison.OrdinalIgnoreCase) ||
+                   x.Contains("OneTimeSetUp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsCompatibleSupportType(string? typeName, string sourceObjectName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName) || string.IsNullOrWhiteSpace(sourceObjectName)) return false;
+
+        var normalizedType = NormalizeTypeName(typeName);
+        var normalizedSource = NormalizeTypeName(sourceObjectName);
+        return string.Equals(normalizedType, normalizedSource, StringComparison.OrdinalIgnoreCase) ||
+               normalizedType.EndsWith($".{normalizedSource}", StringComparison.OrdinalIgnoreCase) ||
+               normalizedType.Contains($"<{normalizedSource}>", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ExtractReturnType(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        if (!member.Kind.Equals("method", StringComparison.OrdinalIgnoreCase)) return null;
+
+        var signature = ExtractSignaturePrefix(member);
+        var nameIndex = signature.IndexOf(member.Name, StringComparison.Ordinal);
+        if (nameIndex <= 0) return null;
+
+        var prefix = signature[..nameIndex].Trim();
+        var tokens = prefix.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !IsModifierToken(x))
+            .ToList();
+        return tokens.LastOrDefault(x => !x.StartsWith("[", StringComparison.Ordinal));
+    }
+
+    private static string? ExtractDeclaredType(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        var signature = ExtractSignaturePrefix(member);
+        var nameIndex = signature.IndexOf(member.Name, StringComparison.Ordinal);
+        if (nameIndex <= 0) return null;
+
+        var prefix = signature[..nameIndex].Trim();
+        var tokens = prefix.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !IsModifierToken(x))
+            .ToList();
+        return tokens.LastOrDefault(x => !x.StartsWith("[", StringComparison.Ordinal));
+    }
+
+    private static string ExtractSignaturePrefix(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        var source = member.FullString ?? string.Empty;
+        var firstLine = source
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? string.Empty;
+        var parenIndex = firstLine.IndexOf('(');
+        var equalsIndex = firstLine.IndexOf('=');
+        var terminatorIndex = new[] { parenIndex, equalsIndex }
+            .Where(x => x >= 0)
+            .DefaultIfEmpty(firstLine.Length)
+            .Min();
+        return firstLine[..terminatorIndex].Trim();
+    }
+
+    private static string NormalizeTypeName(string typeName)
+    {
+        var normalized = typeName
+            .Replace("?", string.Empty, StringComparison.Ordinal)
+            .Replace("[]", string.Empty, StringComparison.Ordinal)
+            .Trim();
+        var genericTickIndex = normalized.IndexOf('`');
+        if (genericTickIndex > 0) normalized = normalized[..genericTickIndex];
+        return normalized;
+    }
+
+    private static bool IsModifierToken(string token)
+    {
+        return token is
+            "public" or "private" or "protected" or "internal" or
+            "static" or "readonly" or "volatile" or "async" or
+            "sealed" or "override" or "virtual" or "abstract" or
+            "extern" or "unsafe" or "new" or "partial";
+    }
+
+    private static IReadOnlyList<TestEvidenceStatus> ResolveEvidenceStatuses(
+        TestContextCandidate? testContext,
+        Persistence.Ef.Entities.Coverage.MemberCoverageEntity? coverage,
+        int undetectedMutantCount)
+    {
+        var statuses = new List<TestEvidenceStatus>();
+        if (testContext?.IsGrounded == true)
+        {
+            statuses.Add(IsDirectMethodEvidence(testContext.EvidenceKind)
+                ? TestEvidenceStatus.DirectlyMappedToTest
+                : TestEvidenceStatus.IndirectlyMappedToTest);
+        }
+
+        if (coverage == null)
+        {
+            statuses.Add(TestEvidenceStatus.EvidenceUnavailable);
+        }
+        else if (coverage.LinesCovered > 0 || coverage.LineRate > 0.0)
+        {
+            statuses.Add(TestEvidenceStatus.ObservedCovered);
+        }
+        else
+        {
+            statuses.Add(TestEvidenceStatus.ObservedUntested);
+        }
+
+        if (undetectedMutantCount > 0) statuses.Add(TestEvidenceStatus.ObservedMutationExercised);
+
+        return statuses.Distinct().ToList();
+    }
+
+    private static string BuildAccessPathSummary(
+        SourceMemberTestability testability,
+        TestContextCandidate? testContext)
+    {
+        var evidence = string.Join(", ", testability.EvidenceStatuses);
+        if (testability.AccessPaths.Count == 0)
+            return $"Context graph access: no legal access path resolved. Visibility={testability.Visibility}; evidence={evidence}.";
+
+        var accessPath = testability.AccessPaths[0];
+        var path = string.Join(" -> ", accessPath.PathMemberIds);
+        var testMapping = testContext?.ExampleTestMethodName == null
+            ? "No mapped example test."
+            : $"Mapped example test: {testContext.ExampleTestMethodName}.";
+        return
+            $"Context graph access: strategy={accessPath.Strategy}; visibility={testability.Visibility}; " +
+            $"entrypointMemberId={accessPath.EntrypointMemberId}; targetMemberId={accessPath.TargetMemberId}; " +
+            $"path={path}; legalFromTest={accessPath.IsLegalFromTest}; requiresReflection={accessPath.RequiresReflection}; " +
+            $"evidence={evidence}. {testMapping}";
+    }
+
+    private static MemberVisibility ResolveMemberVisibility(Persistence.Ef.Entities.Code.MemberEntity member)
+    {
+        if (member.Modifiers.Any(x => x.Equals("public", StringComparison.OrdinalIgnoreCase)) ||
+            member.FullString.Contains("public ", StringComparison.Ordinal))
+            return MemberVisibility.Public;
+        if (member.Modifiers.Any(x => x.Equals("private", StringComparison.OrdinalIgnoreCase)) ||
+            member.FullString.Contains("private ", StringComparison.Ordinal))
+            return MemberVisibility.Private;
+        if (member.Modifiers.Any(x => x.Equals("protected", StringComparison.OrdinalIgnoreCase)) ||
+            member.FullString.Contains("protected ", StringComparison.Ordinal))
+            return MemberVisibility.Protected;
+        if (member.Modifiers.Any(x => x.Equals("internal", StringComparison.OrdinalIgnoreCase)) ||
+            member.FullString.Contains("internal ", StringComparison.Ordinal))
+            return MemberVisibility.Internal;
+        if (member.FullString.Contains('.', StringComparison.Ordinal) &&
+            member.FullString.Contains("=>", StringComparison.Ordinal))
+            return MemberVisibility.ExplicitInterface;
+
+        return MemberVisibility.Unknown;
+    }
+
+    private static TestAccessStrategy ResolveDirectAccessStrategy(MemberVisibility visibility)
+    {
+        return visibility switch
+        {
+            MemberVisibility.Public => TestAccessStrategy.DirectPublicCall,
+            MemberVisibility.Internal => TestAccessStrategy.DirectInternalCall,
+            MemberVisibility.Protected => TestAccessStrategy.ProtectedSubclassHarness,
+            _ => TestAccessStrategy.NotReasonablyTestable
+        };
+    }
+
+    private static TestAccessStrategy ResolveCallerPathStrategy(MemberVisibility visibility)
+    {
+        return visibility switch
+        {
+            MemberVisibility.Public => TestAccessStrategy.PublicCallerPath,
+            MemberVisibility.Internal => TestAccessStrategy.InternalCallerPath,
+            MemberVisibility.Protected => TestAccessStrategy.ProtectedSubclassHarness,
+            _ => TestAccessStrategy.Unknown
+        };
+    }
+
+    private sealed record InvocationEdge(int CallerMemberId, int InvokedMemberId);
+
+    private sealed record RoslynReferenceCandidate(string FilePath, string MemberName);
 
     private sealed record TestContextEvidenceRow(
         Persistence.Ef.Entities.Code.MemberEntity TestMember,
@@ -1203,7 +2439,12 @@ using System;"
         Persistence.Ef.Entities.Code.CSharpProjectEntity TestProject,
         string EvidenceKind,
         string EvidenceSummary,
-        bool IsGrounded);
+        bool IsGrounded,
+        AccessPath? AccessPath,
+        IReadOnlyList<int> PathMemberIds)
+    {
+        public int? SourceTestMappingId { get; init; }
+    }
 
     private sealed record CandidateTestAssessment(
         CandidateTestState TestState,

@@ -2,6 +2,8 @@ namespace TestMap.Models.Testing;
 
 public class TestRunModel
 {
+    public int DbId { get; set; }
+    public int DbProjectId { get; set; }
     public string RunId { get; set; } = "";
     public string RunDate { get; set; } = "";
     public bool Success { get; set; }

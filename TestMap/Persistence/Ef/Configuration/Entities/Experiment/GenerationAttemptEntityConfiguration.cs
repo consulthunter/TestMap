@@ -14,6 +14,7 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
 
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.CandidateMethodId).HasColumnName("candidate_method_id").IsRequired();
+        builder.Property(x => x.ExperimentMatrixWorkItemId).HasColumnName("experiment_matrix_work_item_id");
         builder.Property(x => x.ProviderName).HasColumnName("provider_name").IsRequired();
         builder.Property(x => x.ModelName).HasColumnName("model_name").IsRequired();
         builder.Property(x => x.Strategy).HasColumnName("strategy").IsRequired();
@@ -38,12 +39,17 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
         builder.Property(x => x.FailureStage).HasColumnName("failure_stage").IsRequired();
         builder.Property(x => x.FailureCategory).HasColumnName("failure_category").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message").IsRequired();
-        builder.Property(x => x.RuleDecisionJson).HasColumnName("rule_decision_json").IsRequired();
+        builder.Property(x => x.RuleDecisionSnapshotJson).HasColumnName("rule_decision_snapshot_json").IsRequired();
 
         builder.HasOne(x => x.ParentAttempt)
             .WithMany()
             .HasForeignKey(x => x.ParentAttemptId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(x => x.ExperimentMatrixWorkItem)
+            .WithMany(x => x.GenerationAttempts)
+            .HasForeignKey(x => x.ExperimentMatrixWorkItemId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasMany(x => x.GenerationSteps)
             .WithOne(x => x.GenerationAttempt)
@@ -52,7 +58,9 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
 
         builder.HasOne(x => x.TestExecution)
             .WithOne(x => x.GenerationAttempt)
-            .HasForeignKey<TestExecutionEntity>(x => x.GenerationAttemptId)
+            .HasForeignKey<GeneratedTestExecutionEntity>(x => x.GenerationAttemptId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(x => x.ExperimentMatrixWorkItemId);
     }
 }

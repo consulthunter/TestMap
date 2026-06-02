@@ -1,4 +1,5 @@
 using TestMap.Models.Results;
+using TestMap.Models.MutationTesting;
 using TestMap.Persistence.Ef.Entities.MutationTesting;
 
 namespace TestMap.Persistence.Ef.Mappings;
@@ -19,12 +20,20 @@ public static class MutationTestingReportMappingExtensions
 
     public static MutationTestingReportEntity ToEntity(this StrykerMutationResults model, int projectId,
         int? testRunId,
-        double mutationScore)
+        double mutationScore,
+        MutationTestingReportScope? scope)
     {
+        scope ??= MutationTestingReportScope.SolutionBaseline();
         return new MutationTestingReportEntity
         {
             ProjectId = projectId,
             TestRunId = testRunId,
+            ExperimentRunId = scope.ExperimentRunId,
+            ScopeKind = scope.ScopeKind,
+            IsBaseline = scope.IsBaseline,
+            SourceProjectPath = scope.SourceProjectPath,
+            TestProjectPath = scope.TestProjectPath,
+            TargetFramework = scope.TargetFramework,
             SchemaVersion = model.schemaVersion,
             ProjectRoot = model.projectRoot,
             MutationScore = mutationScore,

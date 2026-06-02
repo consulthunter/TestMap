@@ -40,7 +40,7 @@ public class GenerateTestService : IGenerateTestService
     private readonly IGeneratedTestExecutionService _generatedTestExecutionService;
     private readonly IGenerationValidationService _generationValidationService;
     private readonly IGenerationAcceptanceService _generationAcceptanceService;
-    private readonly BranchWorkspaceService _workspace;
+    private readonly IGenerationWorkspaceService _workspace;
 
     public GenerateTestService(
         ProjectContext context,
@@ -54,7 +54,7 @@ public class GenerateTestService : IGenerateTestService
         IGeneratedTestExecutionService generatedTestExecutionService,
         IGenerationValidationService generationValidationService,
         IGenerationAcceptanceService generationAcceptanceService,
-        BranchWorkspaceService workspace)
+        IGenerationWorkspaceService workspace)
     {
         _context = context;
         _config = config;
@@ -242,7 +242,7 @@ public class GenerateTestService : IGenerateTestService
                 candidateTest,
                 testMethodName,
                 actionExecutorMode,
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
             if (!executionResult.ApplicationSucceeded || !File.Exists(method.TestFilePath))
             {
@@ -460,6 +460,8 @@ public class GenerateTestService : IGenerateTestService
             TestDependencies = request.TestDependencies,
             CoverageGapSummary = request.CoverageGapSummary,
             MutationSummary = request.MutationSummary,
+            CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
+            CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
             Provider = request.Provider,
             Temperature = request.Temperature,
             StepErrorRetries = request.StepErrorRetries,
@@ -492,6 +494,8 @@ public class GenerateTestService : IGenerateTestService
             ProjectTestMetadataSummary = request.ProjectTestMetadataSummary,
             CoverageGapSummary = request.CoverageGapSummary,
             MutationSummary = request.MutationSummary,
+            CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
+            CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
             ErrorLogs = request.ErrorLogs,
             StructuredErrors = request.StructuredErrors,
             PriorConversationTranscript = request.PriorConversationTranscript,

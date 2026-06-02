@@ -17,9 +17,14 @@ public sealed class DefaultSetupProcessExecutor : ISetupProcessExecutor
         };
 
         using var process = Process.Start(startInfo)!;
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
+
+        Task.WaitAll(stdoutTask, stderrTask);
+        var stdout = stdoutTask.Result;
+        var stderr = stderrTask.Result;
 
         if (throwOnFailure && process.ExitCode != 0)
             throw new InvalidOperationException(

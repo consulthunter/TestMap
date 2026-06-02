@@ -28,6 +28,14 @@ public class MutantSurvivedTestEntityConfiguration : IEntityTypeConfiguration<Mu
             .IsRequired();
         builder.Property(x => x.ContentHash).HasColumnName("content_hash").IsRequired();
 
-        builder.HasIndex(x => x.ContentHash).IsUnique();
+        builder.HasIndex(x => new
+            {
+                x.MutantId,
+                x.TestMemberId,
+                x.StrykerTestId,
+                x.TestName,
+                x.ContentHash
+            })
+            .IsUnique();
     }
 }

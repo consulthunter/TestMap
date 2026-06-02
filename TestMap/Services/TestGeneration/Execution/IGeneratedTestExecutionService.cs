@@ -14,6 +14,7 @@ public interface IGeneratedTestExecutionService
         string generatedTest,
         string testMethodName,
         TestActionExecutorMode? mode = null,
+        int? experimentRunId = null,
         CancellationToken cancellationToken = default);
 }
 

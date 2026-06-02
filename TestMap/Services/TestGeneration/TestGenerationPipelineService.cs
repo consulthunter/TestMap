@@ -729,6 +729,9 @@ Full test file for local context:
 Relevant helper/setup members already present in that file:
 {request.TestSupportContext}
 
+Context graph access path:
+{request.AccessPathSummary}
+
 Example test metadata:
 {request.ExampleTestMetadataSummary}
 
@@ -773,6 +776,15 @@ And this method under test:
 
 Context graph and resolution hints:
 {contextSummary}
+
+Candidate method test intentions:
+{request.CandidateTestIntentionsSummary}
+
+Type construction guidance:
+{request.CandidateTypeConstructionSummary}
+
+Selected access path:
+{request.AccessPathSummary}
 
 Produce strict JSON for the arrange plan in this shape:
 {{
@@ -820,6 +832,15 @@ Arrange plan:
 Context graph and resolution hints:
 {contextSummary}
 
+Candidate method test intentions:
+{request.CandidateTestIntentionsSummary}
+
+Type construction guidance:
+{request.CandidateTypeConstructionSummary}
+
+Selected access path:
+{request.AccessPathSummary}
+
 Return strict JSON in this shape:
 {{
   ""inputs"": [""var id = 1;""],
@@ -844,6 +865,9 @@ Method under test:
 
 Input plan:
 {JsonSerializer.Serialize(inputPlan)}
+
+Selected access path:
+{request.AccessPathSummary}
 
 Return strict JSON in this shape:
 {{
@@ -923,6 +947,15 @@ Assertion plan:
 Context graph and resolution hints:
 {contextSummary}
 
+Candidate method test intentions:
+{request.CandidateTestIntentionsSummary}
+
+Type construction guidance:
+{request.CandidateTypeConstructionSummary}
+
+Selected access path:
+{request.AccessPathSummary}
+
 Use this example test from the same class for style and framework conventions:
 {request.ExampleTest}
 
@@ -955,6 +988,7 @@ Requirements:
 - Include an appropriate test attribute for {request.TestFramework}
 - Include an XML doc comment describing the scenario
 - Include // Arrange, // Act, // Assert comments
+- Follow the selected context graph access path. Do not call non-public target members directly unless the access path explicitly allows it.
 - Ensure the code is valid C# and internally consistent
 - Do not include any explanation outside the code block
 
@@ -980,6 +1014,15 @@ The full current test file is:
 
 Reusable helper/setup members already available:
 {request.TestSupportContext}
+
+Context graph access path:
+{request.AccessPathSummary}
+
+Candidate method test intentions:
+{request.CandidateTestIntentionsSummary}
+
+Type construction guidance:
+{request.CandidateTypeConstructionSummary}
 
 The test class dependencies are:
 {request.TestDependencies}
@@ -1021,6 +1064,15 @@ The full current test file is:
 
 Reusable helper/setup members already available:
 {request.TestSupportContext}
+
+Context graph access path:
+{request.AccessPathSummary}
+
+Candidate method test intentions:
+{request.CandidateTestIntentionsSummary}
+
+Type construction guidance:
+{request.CandidateTypeConstructionSummary}
 
 The build succeeded, but behavior or coverage was insufficient.
 
@@ -1200,6 +1252,9 @@ Respond with only the complete test method code wrapped in ```.";
         public MetricsDrivenPath? MetricsPath { get; init; }
         public required string CoverageGapSummary { get; init; }
         public required string MutationSummary { get; init; }
+        public required string CandidateTestIntentionsSummary { get; init; }
+        public required string CandidateTypeConstructionSummary { get; init; }
+        public required string AccessPathSummary { get; init; }
 
         public static GenerationPromptEvidence FromRequest(TestGenerationRequest request)
         {
@@ -1219,7 +1274,10 @@ Respond with only the complete test method code wrapped in ```.";
                 TestDependencies = request.TestDependencies,
                 MetricsPath = request.MetricsPath,
                 CoverageGapSummary = request.CoverageGapSummary,
-                MutationSummary = request.MutationSummary
+                MutationSummary = request.MutationSummary,
+                CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
+                CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
+                AccessPathSummary = request.AccessPathSummary
             };
         }
     }

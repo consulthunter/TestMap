@@ -59,10 +59,18 @@ public sealed class ExperimentResultsWriterTests
                         RepoName = "repo",
                         SourceMethodName = "Method,WithComma",
                         SourceMethodSignature = "void Method()",
+                        CandidateTestIntentionsSummary = "- Tests branch A",
+                        CandidateTypeConstructionSummary = "SUT: Demo",
+                        CandidateMetadataJson = "{\"intentions\":1}",
                         Provider = AiProvider.OpenAi,
                         GenerationApproach = TestGenerationApproach.MetricsDriven,
                         ContextMode = GenerationContextMode.NoHistory,
                         BudgetMode = GenerationBudgetMode.PassAt1,
+                        SourceMemberVisibility = "Private",
+                        AccessStrategy = "PublicCallerPath",
+                        AccessPathMemberIds = "12>10",
+                        TestMappingCount = 1,
+                        SetupBindingCount = 2,
                         RunDate = new DateTime(2026, 4, 30, 0, 0, 0, DateTimeKind.Utc),
                         GeneratedTestCompiled = true,
                         GeneratedTestExecuted = true,
@@ -78,9 +86,13 @@ public sealed class ExperimentResultsWriterTests
             Assert.Contains("baseline_test_mi,baseline_test_cc,baseline_test_coupling,baseline_test_dit,baseline_test_sloc,baseline_test_eloc", text);
             Assert.Contains("generated_test_mi,generated_test_cc,generated_test_coupling,generated_test_dit,generated_test_sloc,generated_test_eloc", text);
             Assert.Contains("roslyn_diagnostics_before_raw_count,roslyn_diagnostics_after_raw_count,new_actionable_roslyn_diagnostics_count", text);
+            Assert.Contains("source_member_visibility,access_strategy,access_path_member_ids,test_mapping_count,setup_binding_count", text);
+            Assert.Contains("candidate_test_intentions_summary,candidate_type_construction_summary,candidate_metadata_json", text);
             Assert.Contains("tool_observed_outcome", text);
             Assert.DoesNotContain(",classification,", text);
             Assert.Contains("\"Method,WithComma\"", text);
+            Assert.Contains("\"{\"\"intentions\"\":1}\"", text);
+            Assert.Contains("Private,PublicCallerPath,12>10,1,2", text);
         }
         finally
         {

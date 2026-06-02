@@ -6,7 +6,7 @@ namespace TestMap.Persistence.Ef.Mapping.Experiment;
 
 public static class TestExecutionMappingExtensions
 {
-    public static TestExecution ToDomain(this TestExecutionEntity entity)
+    public static TestExecution ToDomain(this GeneratedTestExecutionEntity entity)
     {
         var structured = ParseStructuredErrors(entity.StructuredErrors);
         var classification = ParseClassification(entity.TestClassification);
@@ -33,8 +33,8 @@ public static class TestExecutionMappingExtensions
             ValidationResultJson = entity.ValidationResultJson,
             Accepted = entity.Accepted,
             AcceptanceReason = EmptyToNull(entity.AcceptanceReason),
-            ValidationRuleDecisionJson = entity.ValidationRuleDecisionJson,
-            ClassificationRuleDecisionJson = entity.ClassificationRuleDecisionJson,
+            ValidationRuleDecisionSnapshotJson = entity.ValidationRuleDecisionSnapshotJson,
+            ClassificationRuleDecisionSnapshotJson = entity.ClassificationRuleDecisionSnapshotJson,
             FailureKind = failureKind,
             CompilationErrors = EmptyToNull(entity.CompilationErrors),
             RuntimeErrors = EmptyToNull(entity.RuntimeErrors),
@@ -52,7 +52,7 @@ public static class TestExecutionMappingExtensions
         };
     }
 
-    public static TestExecutionEntity ToEntity(this TestExecution execution)
+    public static GeneratedTestExecutionEntity ToEntity(this TestExecution execution)
     {
         var classification = ResolveClassification(execution);
         var compilationErrors = execution.CompilationErrors;
@@ -79,7 +79,7 @@ public static class TestExecutionMappingExtensions
                     break;
             }
 
-        return new TestExecutionEntity
+        return new GeneratedTestExecutionEntity
         {
             Id = execution.Id,
             GenerationAttemptId = execution.GenerationAttemptId,
@@ -103,8 +103,8 @@ public static class TestExecutionMappingExtensions
             ValidationResultJson = execution.ValidationResultJson,
             Accepted = execution.Accepted,
             AcceptanceReason = execution.AcceptanceReason ?? string.Empty,
-            ValidationRuleDecisionJson = execution.ValidationRuleDecisionJson,
-            ClassificationRuleDecisionJson = execution.ClassificationRuleDecisionJson,
+            ValidationRuleDecisionSnapshotJson = execution.ValidationRuleDecisionSnapshotJson,
+            ClassificationRuleDecisionSnapshotJson = execution.ClassificationRuleDecisionSnapshotJson,
             ExecutionTime = execution.ExecutedAt == default ? DateTime.UtcNow : execution.ExecutedAt,
             StructuredErrors = SerializeStructuredErrors(execution)
         };
@@ -126,7 +126,7 @@ public static class TestExecutionMappingExtensions
             : TestClassification.ValidationFailed;
     }
 
-    private static TestFailureKind InferFailureKind(TestExecutionEntity entity)
+    private static TestFailureKind InferFailureKind(GeneratedTestExecutionEntity entity)
     {
         if (!string.IsNullOrWhiteSpace(entity.CompilationErrors)) return TestFailureKind.Compilation;
 
@@ -137,7 +137,7 @@ public static class TestExecutionMappingExtensions
         return entity.TestPassed ? TestFailureKind.None : TestFailureKind.Unknown;
     }
 
-    private static bool InferTestsExecuted(TestExecutionEntity entity)
+    private static bool InferTestsExecuted(GeneratedTestExecutionEntity entity)
     {
         if (!entity.CompilationSucceeded) return false;
         if (entity.TestPassed) return true;

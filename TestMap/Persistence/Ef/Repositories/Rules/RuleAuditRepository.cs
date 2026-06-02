@@ -92,7 +92,7 @@ public class RuleAuditRepository
             ExperimentRunId = experimentRunId,
             CandidateMethodId = candidateMethodId,
             GenerationAttemptId = generationAttemptId,
-            TestExecutionId = testExecutionId,
+            GeneratedTestExecutionId = testExecutionId,
             DecisionKind = decision.DecisionKind,
             Value = decision.Value,
             RuleId = decision.RuleId,

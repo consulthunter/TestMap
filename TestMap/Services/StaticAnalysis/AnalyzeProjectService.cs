@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.MSBuild;
 using TestMap.App;
@@ -25,6 +26,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private readonly InvocationRepository _invocationRepository;
     private readonly RuleAuditRepository _ruleAuditRepository;
     private readonly IStaticAnalysisWorkspace _staticAnalysisWorkspace;
+    private readonly SourceTestMappingRefreshService _sourceTestMappingRefreshService;
+    private readonly Dictionary<string, HashSet<string>> _dispatchTargetAliases = new(StringComparer.Ordinal);
 
     public AnalyzeProjectService(
         ProjectContext context,
@@ -37,7 +40,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         MemberRelationshipRepository memberRelationshipRepository,
         InvocationRepository invocationRepository,
         RuleAuditRepository ruleAuditRepository,
-        IStaticAnalysisWorkspace staticAnalysisWorkspace)
+        IStaticAnalysisWorkspace staticAnalysisWorkspace,
+        SourceTestMappingRefreshService sourceTestMappingRefreshService)
     {
         _context = context;
         _cSharpProjectRepository = cSharpProjectRepository;
@@ -50,10 +54,15 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         _invocationRepository = invocationRepository;
         _ruleAuditRepository = ruleAuditRepository;
         _staticAnalysisWorkspace = staticAnalysisWorkspace;
+        _sourceTestMappingRefreshService = sourceTestMappingRefreshService;
     }
 
-    public async Task AnalyzeProjectAsync(CSharpProjectModel analysisProject)
+    public async Task AnalyzeProjectAsync(
+        CSharpProjectModel analysisProject,
+        Dictionary<string, int>? sharedMemberIds = null)
     {
+        sharedMemberIds ??= new Dictionary<string, int>(StringComparer.Ordinal);
+
         await EnsureProjectPersistedAsync(analysisProject);
 
         var project = await _staticAnalysisWorkspace.RefreshProjectAsync(analysisProject.FilePath);
@@ -78,7 +87,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             analysisProject.DocumentFilePaths,
             StringComparer.OrdinalIgnoreCase);
 
-        var state = new AnalysisState(projectDocumentPaths);
+        var state = new AnalysisState(projectDocumentPaths, sharedMemberIds);
 
         foreach (var document in project.Documents)
         {
@@ -88,6 +97,9 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         }
 
         await PersistRelationshipsAsync(state);
+        await _sourceTestMappingRefreshService.RefreshForProjectAsync(
+            _context.Project.DbId,
+            analysisProject.SolutionId);
     }
 
     private static RoslynProject RemoveSourceGenerators(RoslynProject project)
@@ -162,6 +174,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
                 var memberId = await _memberRepository.InsertOrUpdateAsync(pendingMember.Model);
                 state.MemberIds[pendingMember.SymbolKey] = memberId;
+                CollectDispatchAliases(pendingMember.Symbol, pendingMember.SymbolKey);
 
                 CollectSignatureRelationships(objectKey, pendingMember.Symbol, pendingMember.SymbolKey, state);
                 CollectBodyRelationships(
@@ -169,6 +182,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     pendingMember.SymbolKey,
                     memberDeclaration,
                     pendingMember.Model.IsTestMember,
+                    pendingMember.Symbol,
+                    document.FilePath,
                     semanticModel,
                     state);
             }
@@ -349,6 +364,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         string memberKey,
         MemberDeclarationSyntax declaration,
         bool isTestMember,
+        ISymbol memberSymbol,
+        string callerFilePath,
         SemanticModel semanticModel,
         AnalysisState state)
     {
@@ -361,8 +378,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 continue;
 
             var symbol = ResolveReferencedSymbol(node, semanticModel);
-            if (node is InvocationExpressionSyntax assertionInvocation &&
-                isTestMember &&
+            if (isTestMember &&
+                node is InvocationExpressionSyntax assertionInvocation &&
                 (symbol == null || !state.IsProjectSymbol(symbol)) &&
                 CSharpAnalysisRules.IsAssertionInvocation(assertionInvocation, symbol))
             {
@@ -371,7 +388,51 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     null,
                     node.ToFullString().Trim(),
                     CreateLocation(node),
-                    true));
+                    true,
+                    "AssertionOnly",
+                    symbol,
+                    node,
+                    memberSymbol,
+                    callerFilePath));
+                continue;
+            }
+
+            var invocationLike = node is InvocationExpressionSyntax or ObjectCreationExpressionSyntax;
+            // Cross-project invocation: the symbol is in another project within the solution
+            // (IsInSource = true) but not in the current project's document set. Record the
+            // invocation edge so BFS in MethodSelectionService can traverse test→production
+            // and production→production boundaries across project boundaries.
+            // Relationship and object-dependency recording remain project-scoped to avoid
+            // cross-project noise in those tables.
+            if (invocationLike &&
+                symbol != null &&
+                !state.IsProjectSymbol(symbol) &&
+                AnalysisState.IsSolutionSymbol(symbol) &&
+                symbol is IMethodSymbol)
+            {
+                state.Invocations.Add(new PendingInvocation(
+                    memberKey,
+                    GetSymbolKey(symbol),
+                    node.ToFullString().Trim(),
+                    CreateLocation(node),
+                    IsAssertionInvocation(node, isTestMember, symbol),
+                    "Resolved",
+                    symbol,
+                    node,
+                    memberSymbol,
+                    callerFilePath));
+                foreach (var targetKey in GetDispatchAliasKeys(symbol))
+                    state.Invocations.Add(new PendingInvocation(
+                        memberKey,
+                        targetKey,
+                        node.ToFullString().Trim(),
+                        CreateLocation(node),
+                        IsAssertionInvocation(node, isTestMember, symbol),
+                        "Resolved",
+                        symbol,
+                        node,
+                        memberSymbol,
+                        callerFilePath));
                 continue;
             }
 
@@ -383,13 +444,36 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                 var targetMemberKey = GetSymbolKey(symbol);
                 state.MemberRelationships.Add(new PendingRelationship(memberKey, targetMemberKey, relationshipType));
 
-                if (node is InvocationExpressionSyntax invocationExpression)
+                if (invocationLike)
+                {
+                    // Direct invocation edge (always record for all member kinds —
+                    // production→production edges are needed by MethodSelectionService BFS).
                     state.Invocations.Add(new PendingInvocation(
                         memberKey,
-                        targetMemberKey,
+                        GetSymbolKey(symbol),
                         node.ToFullString().Trim(),
                         CreateLocation(node),
-                        isTestMember && CSharpAnalysisRules.IsAssertionInvocation(invocationExpression, symbol)));
+                        IsAssertionInvocation(node, isTestMember, symbol),
+                        "Resolved",
+                        symbol,
+                        node,
+                        memberSymbol,
+                        callerFilePath));
+                    // Dispatch alias keys: interface/abstract → concrete implementations
+                    // pre-built by CollectDispatchAliases; O(1) lookup, no type walk.
+                    foreach (var aliasTargetKey in GetDispatchAliasKeys(symbol))
+                        state.Invocations.Add(new PendingInvocation(
+                            memberKey,
+                            aliasTargetKey,
+                            node.ToFullString().Trim(),
+                            CreateLocation(node),
+                            IsAssertionInvocation(node, isTestMember, symbol),
+                            "Resolved",
+                            symbol,
+                            node,
+                            memberSymbol,
+                            callerFilePath));
+                }
             }
 
             if (symbol.ContainingType != null && state.IsProjectSymbol(symbol.ContainingType))
@@ -429,7 +513,22 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             int? invokedMemberId = null;
             if (invocation.TargetKey != null)
             {
-                if (!state.MemberIds.TryGetValue(invocation.TargetKey, out var resolvedInvokedMemberId)) continue;
+                if (!state.MemberIds.TryGetValue(invocation.TargetKey, out var resolvedInvokedMemberId))
+                {
+                    await _invocationRepository.InsertOrUpdateAsync(
+                        new InvocationModel(
+                            invocation.Location,
+                            memberId: memberId,
+                            invokedMemberId: null,
+                            isAssertion: invocation.IsAssertion,
+                            fullString: invocation.FullString,
+                            resolutionStatus: "UnresolvedTarget",
+                            targetSymbol: invocation.TargetSymbol,
+                            syntaxKind: invocation.SyntaxKind,
+                            callerMemberSymbol: invocation.CallerMemberSymbol,
+                            callerFilePath: invocation.CallerFilePath));
+                    continue;
+                }
 
                 invokedMemberId = resolvedInvokedMemberId;
             }
@@ -440,8 +539,61 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     memberId: memberId,
                     invokedMemberId: invokedMemberId,
                     isAssertion: invocation.IsAssertion,
-                    fullString: invocation.FullString));
+                    fullString: invocation.FullString,
+                    resolutionStatus: invocation.ResolutionStatus,
+                    targetSymbol: invocation.TargetSymbol,
+                    syntaxKind: invocation.SyntaxKind,
+                    callerMemberSymbol: invocation.CallerMemberSymbol,
+                    callerFilePath: invocation.CallerFilePath));
         }
+    }
+
+    private static bool IsAssertionInvocation(SyntaxNode node, bool isTestMember, ISymbol symbol)
+    {
+        return isTestMember &&
+               node is InvocationExpressionSyntax invocationExpression &&
+               CSharpAnalysisRules.IsAssertionInvocation(invocationExpression, symbol);
+    }
+
+    private void CollectDispatchAliases(ISymbol memberSymbol, string memberKey)
+    {
+        if (memberSymbol is not IMethodSymbol methodSymbol) return;
+
+        foreach (var explicitInterfaceImplementation in methodSymbol.ExplicitInterfaceImplementations)
+            AddDispatchAlias(GetSymbolKey(explicitInterfaceImplementation.OriginalDefinition), memberKey);
+
+        if (methodSymbol.ContainingType != null)
+            foreach (var interfaceType in methodSymbol.ContainingType.AllInterfaces)
+            foreach (var interfaceMember in interfaceType.GetMembers(methodSymbol.Name).OfType<IMethodSymbol>())
+            {
+                var implementation = methodSymbol.ContainingType.FindImplementationForInterfaceMember(interfaceMember);
+                if (implementation is IMethodSymbol implementationMethod &&
+                    SymbolEqualityComparer.Default.Equals(
+                        implementationMethod.OriginalDefinition,
+                        methodSymbol.OriginalDefinition))
+                    AddDispatchAlias(GetSymbolKey(interfaceMember.OriginalDefinition), memberKey);
+            }
+
+        for (var overridden = methodSymbol.OverriddenMethod; overridden != null; overridden = overridden.OverriddenMethod)
+            AddDispatchAlias(GetSymbolKey(overridden.OriginalDefinition), memberKey);
+    }
+
+    private void AddDispatchAlias(string dispatchTargetKey, string implementationKey)
+    {
+        if (!_dispatchTargetAliases.TryGetValue(dispatchTargetKey, out var implementationKeys))
+        {
+            implementationKeys = new HashSet<string>(StringComparer.Ordinal);
+            _dispatchTargetAliases[dispatchTargetKey] = implementationKeys;
+        }
+
+        implementationKeys.Add(implementationKey);
+    }
+
+    private IReadOnlyCollection<string> GetDispatchAliasKeys(ISymbol dispatchTarget)
+    {
+        return _dispatchTargetAliases.TryGetValue(GetSymbolKey(dispatchTarget), out var implementationKeys)
+            ? implementationKeys
+            : [];
     }
 
     private string ResolveTestFramework(MemberDeclarationSyntax declaration)
@@ -525,6 +677,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
         return symbol switch
         {
+            // Extension method called in reduced form (e.g. "hello".Shout()).
+            // ReducedFrom gives the original static declaration, whose symbol key matches
+            // what was stored when the declaring project was analyzed.
+            IMethodSymbol { ReducedFrom: not null } reducedMethod
+                => reducedMethod.ReducedFrom.OriginalDefinition,
             IMethodSymbol methodSymbol => methodSymbol.OriginalDefinition,
             IPropertySymbol propertySymbol => propertySymbol,
             IFieldSymbol fieldSymbol => fieldSymbol,
@@ -575,24 +732,47 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     private sealed class AnalysisState
     {
         private readonly HashSet<string> _projectDocumentPaths;
+        private readonly Dictionary<string, int> _sharedMemberIds;
 
-        public AnalysisState(HashSet<string> projectDocumentPaths)
+        public AnalysisState(HashSet<string> projectDocumentPaths, Dictionary<string, int> sharedMemberIds)
         {
             _projectDocumentPaths = projectDocumentPaths;
+            _sharedMemberIds = sharedMemberIds;
         }
 
         public Dictionary<string, int> ObjectIds { get; } = new(StringComparer.Ordinal);
-        public Dictionary<string, int> MemberIds { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Shared across all project analyses in a solution run. Populated as members are
+        /// persisted; cross-project targets are resolvable here once their containing project
+        /// has been analyzed (topological order guarantees this for production→test direction).
+        /// </summary>
+        public Dictionary<string, int> MemberIds => _sharedMemberIds;
+
         public HashSet<PendingRelationship> ObjectRelationships { get; } = new();
         public HashSet<PendingRelationship> MemberRelationships { get; } = new();
         public HashSet<PendingInvocation> Invocations { get; } = new();
 
+        /// <summary>
+        /// Returns true if the symbol's source file is within the current project's document set.
+        /// Used to scope relationship and object-dependency recording to the current project.
+        /// </summary>
         public bool IsProjectSymbol(ISymbol symbol)
         {
             return symbol.Locations.Any(location =>
                 location.IsInSource &&
                 location.SourceTree?.FilePath != null &&
                 _projectDocumentPaths.Contains(location.SourceTree.FilePath));
+        }
+
+        /// <summary>
+        /// Returns true if the symbol has any source location, meaning it belongs to a project
+        /// in the current solution rather than an external assembly (BCL, NuGet package).
+        /// BCL methods have no <see cref="Location.IsInSource"/> locations and are excluded.
+        /// </summary>
+        public static bool IsSolutionSymbol(ISymbol symbol)
+        {
+            return symbol.Locations.Any(location => location.IsInSource);
         }
     }
 
@@ -605,5 +785,15 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         string? TargetKey,
         string FullString,
         CodeLocation Location,
-        bool IsAssertion);
+        bool IsAssertion,
+        string ResolutionStatus,
+        ISymbol? TargetSymbolValue,
+        SyntaxNode SyntaxNode,
+        ISymbol CallerMemberSymbolValue,
+        string CallerFilePath)
+    {
+        public string TargetSymbol { get; } = TargetSymbolValue?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? string.Empty;
+        public string SyntaxKind { get; } = SyntaxNode.Kind().ToString();
+        public string CallerMemberSymbol { get; } = CallerMemberSymbolValue.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+    }
 }

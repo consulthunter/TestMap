@@ -14,6 +14,11 @@ public static class InvocationMappingExtensions
             IsAssertion = model.IsAssertion,
             Location = model.Location,
             FullString = model.FullString,
+            ResolutionStatus = model.ResolutionStatus,
+            TargetSymbol = model.TargetSymbol,
+            SyntaxKind = model.SyntaxKind,
+            CallerMemberSymbol = model.CallerMemberSymbol,
+            CallerFilePath = model.CallerFilePath,
             ContentHash = model.ContentHash
         };
     }
@@ -26,7 +31,12 @@ public static class InvocationMappingExtensions
             entity.MemberId,
             entity.InvokedMemberId,
             entity.IsAssertion,
-            entity.FullString
+            entity.FullString,
+            entity.ResolutionStatus,
+            entity.TargetSymbol,
+            entity.SyntaxKind,
+            entity.CallerMemberSymbol,
+            entity.CallerFilePath
         );
     }
 }

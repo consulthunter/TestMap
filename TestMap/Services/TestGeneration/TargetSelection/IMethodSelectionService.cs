@@ -43,6 +43,7 @@ public interface IMethodSelectionService
 public class CandidateMethodContext
 {
     public required CandidateMethod Method { get; init; }
+    public int? SourceTestMappingId { get; init; }
     public required string MethodSignature { get; init; }
     public required string ContainingClass { get; init; }
     public required string TestNamespace { get; init; }
@@ -65,9 +66,14 @@ public class CandidateMethodContext
     public required string TestDependencies { get; init; }
     public required string CoverageGapSummary { get; init; }
     public string MutationSummary { get; init; } = "No surviving or no-coverage mutants are available for this method.";
+    public string CandidateTestIntentionsSummary { get; init; } = "No branch-derived test intentions were identified.";
+    public string CandidateTypeConstructionSummary { get; init; } = "No type construction guidance was identified.";
+    public string CandidateMetadataJson { get; init; } = "{}";
     public string ContextEvidenceKind { get; init; } = "None";
     public string ContextEvidenceSummary { get; init; } = string.Empty;
     public bool HasGroundedTestContext { get; init; }
+    public SourceMemberTestability? Testability { get; init; }
+    public string AccessPathSummary { get; init; } = "No context graph access path was resolved.";
 }
 
 public sealed class CandidateSourceLocation

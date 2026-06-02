@@ -12,4 +12,6 @@ public class TestResultEntity
     public TimeSpan Duration { get; set; }
     public string? ErrorMessage { get; set; }
     public string? StackTrace { get; set; }
+
+    public virtual TestRunEntity? TestRun { get; set; }
 }

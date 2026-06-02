@@ -11,6 +11,7 @@ public class GenerationAttempt
 {
     public int Id { get; set; }
     public int CandidateMethodId { get; set; }
+    public int? ExperimentMatrixWorkItemId { get; set; }
     public AiProvider Provider { get; set; }
     public string? ModelName { get; set; }
     public TestGenerationObjective Objective { get; set; } = TestGenerationObjective.TestSuiteExpansion;
@@ -27,7 +28,7 @@ public class GenerationAttempt
     public bool IsRepairAttempt { get; set; }
     public int? ParentAttemptId { get; set; }
     public int? ParentAttemptNumber { get; set; }
-    public string RuleDecisionJson { get; set; } = string.Empty;
+    public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int TotalTokensUsed { get; set; }

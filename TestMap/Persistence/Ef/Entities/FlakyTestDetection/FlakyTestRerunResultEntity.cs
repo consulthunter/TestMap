@@ -4,7 +4,7 @@ public class FlakyTestRerunResultEntity
 {
     public int Id { get; set; }
     public string RunId { get; set; } = string.Empty;
-    public int TestExecutionResultId { get; set; }
+    public int TestResultId { get; set; }
     public int AttemptNumber { get; set; }
     public string Outcome { get; set; } = string.Empty;
     public double DurationMs { get; set; }

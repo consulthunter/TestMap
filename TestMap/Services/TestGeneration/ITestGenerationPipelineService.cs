@@ -66,6 +66,9 @@ public class TestGenerationRequest
     public required string TestDependencies { get; init; }
     public required string CoverageGapSummary { get; init; }
     public string MutationSummary { get; init; } = "No surviving or no-coverage mutants are available for this method.";
+    public string CandidateTestIntentionsSummary { get; init; } = "No branch-derived test intentions were identified.";
+    public string CandidateTypeConstructionSummary { get; init; } = "No type construction guidance was identified.";
+    public string AccessPathSummary { get; init; } = "No context graph access path was resolved.";
     public required AiProvider Provider { get; init; }
     public double Temperature { get; init; } = 0.0;
     public int StepErrorRetries { get; init; }
@@ -95,6 +98,9 @@ public class TestRepairRequest
     public required string ProjectTestMetadataSummary { get; init; }
     public required string CoverageGapSummary { get; init; }
     public string MutationSummary { get; init; } = "No surviving or no-coverage mutants are available for this method.";
+    public string CandidateTestIntentionsSummary { get; init; } = "No branch-derived test intentions were identified.";
+    public string CandidateTypeConstructionSummary { get; init; } = "No type construction guidance was identified.";
+    public string AccessPathSummary { get; init; } = "No context graph access path was resolved.";
     public required string ErrorLogs { get; init; }
     public string? StructuredErrors { get; init; }
     public string? PriorConversationTranscript { get; init; }

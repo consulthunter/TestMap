@@ -6,6 +6,45 @@ namespace TestMap.UnitTests.TestExecution;
 
 public sealed class BuildTestDockerCommandFactoryTests
 {
+    [Theory]
+    [Trait("Category", "Unit")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CreateMutationReportScope_ForTargetedIteration_ReturnsSourceProjectScope(bool isMutationBaseline)
+    {
+        var request = BuildTestRunRequest.CreateIteration(
+            "tests/Sample.Tests/Sample.Tests.csproj",
+            "net10.0",
+            "DoWork",
+            "src/Sample/Sample.csproj",
+            experimentRunId: 42,
+            isMutationBaseline);
+
+        var scope = request.CreateMutationReportScope();
+
+        Assert.Equal("SourceProject", scope.ScopeKind);
+        Assert.Equal(isMutationBaseline, scope.IsBaseline);
+        Assert.Equal(42, scope.ExperimentRunId);
+        Assert.Equal(Path.GetFullPath("src/Sample/Sample.csproj"), scope.SourceProjectPath);
+        Assert.Equal(Path.GetFullPath("tests/Sample.Tests/Sample.Tests.csproj"), scope.TestProjectPath);
+        Assert.Equal("net10.0", scope.TargetFramework);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CreateMutationReportScope_ForCoverageOnlyIteration_ReturnsSolutionBaselineScope()
+    {
+        var request = BuildTestRunRequest.CreateIteration(
+            "tests/Sample.Tests/Sample.Tests.csproj",
+            "net10.0",
+            "DoWork");
+
+        var scope = request.CreateMutationReportScope();
+
+        Assert.Equal("Solution", scope.ScopeKind);
+        Assert.True(scope.IsBaseline);
+    }
+
     /// <summary>
     /// Verifies that Docker context selection chooses Windows only when required and otherwise avoids stale Windows contexts.
     /// </summary>
@@ -297,12 +336,14 @@ public sealed class BuildTestDockerCommandFactoryTests
             "testmap-runner",
             "iteration_123",
             "/app/project/src/Sample/Sample.csproj",
-            "/app/project/tests/Sample.Tests/Sample.Tests.csproj");
+            "/app/project/tests/Sample.Tests/Sample.Tests.csproj",
+            "net9.0");
 
         Assert.Equal(
-            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --project \"Sample.csproj\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\"",
+            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --project \"/app/project/src/Sample/Sample.csproj\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\" --target-framework \"net9.0\"",
             args);
-        Assert.Contains("--project \"Sample.csproj\"", args);
+        Assert.Contains("--project \"/app/project/src/Sample/Sample.csproj\"", args);
+        Assert.Contains("--target-framework \"net9.0\"", args);
         Assert.DoesNotContain("--solution", args);
     }
 

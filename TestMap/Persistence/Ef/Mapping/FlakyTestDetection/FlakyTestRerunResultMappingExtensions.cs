@@ -11,7 +11,7 @@ public static class FlakyTestRerunResultMappingExtensions
         {
             Id = entity.Id,
             RunId = entity.RunId,
-            TestExecutionResultId = entity.TestExecutionResultId,
+            TestResultId = entity.TestResultId,
             AttemptNumber = entity.AttemptNumber,
             Outcome = entity.Outcome,
             DurationMs = entity.DurationMs,
@@ -26,7 +26,7 @@ public static class FlakyTestRerunResultMappingExtensions
         {
             Id = model.Id,
             RunId = model.RunId,
-            TestExecutionResultId = model.TestExecutionResultId,
+            TestResultId = model.TestResultId,
             AttemptNumber = model.AttemptNumber,
             Outcome = model.Outcome,
             DurationMs = model.DurationMs,

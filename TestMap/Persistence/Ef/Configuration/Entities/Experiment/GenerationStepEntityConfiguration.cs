@@ -28,6 +28,6 @@ public class GenerationStepEntityConfiguration : IEntityTypeConfiguration<Genera
         builder.Property(x => x.ValidationResult).HasColumnName("validation_result");
         builder.Property(x => x.InputTokens).HasColumnName("input_tokens");
         builder.Property(x => x.OutputTokens).HasColumnName("output_tokens");
-        builder.Property(x => x.RuleDecisionJson).HasColumnName("rule_decision_json");
+        builder.Property(x => x.RuleDecisionSnapshotJson).HasColumnName("rule_decision_snapshot_json");
     }
 }

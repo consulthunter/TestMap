@@ -7,6 +7,7 @@ using TestMap.Services.TestGeneration.Acceptance;
 using TestMap.Services.TestGeneration.Classification;
 using TestMap.Services.TestGeneration.Evidence;
 using TestMap.Services.TestGeneration.Execution;
+using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
 
 namespace TestMap.UnitTests.TestGeneration;
@@ -169,6 +170,69 @@ public sealed class GenerationDecisionServicesTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void Validation_ClassifiesDirectNonPublicCallAsAccessStrategyViolation()
+    {
+        var service = new GenerationValidationService();
+
+        var result = service.Validate(
+            new GeneratedTestExecutionResult
+            {
+                GeneratedTestCode = "public void Generated() { var sut = new TargetService(); sut.Target(); }",
+                CodeExtracted = true,
+                MethodNameExtracted = true,
+                SyntaxValid = true,
+                CompilationSucceeded = true,
+                TestsExecuted = true,
+                AllTestsPassed = true,
+                CoverageImprovement = 0.12
+            },
+            CreateContextWithAccessPath(MemberVisibility.Private, TestAccessStrategy.PublicCallerPath),
+            new GenerationEvidencePackage
+            {
+                MetricsPath = MetricsDrivenPath.Coverage
+            });
+
+        Assert.Equal(GenerationValidationOutcome.Failed, result.Outcome);
+        Assert.Equal(GenerationValidationConfidence.High, result.Confidence);
+        Assert.Equal(GenerationValidationFailureClass.AccessStrategyViolation, result.FailureClass);
+        Assert.Contains(result.RuleDecisions, x =>
+            x.RuleId == GenerationValidationRuleDefinitions.AccessStrategyViolated.Id &&
+            x.Value == "AccessStrategyViolated");
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Validation_AllowsEntrypointCallForNonPublicTarget()
+    {
+        var service = new GenerationValidationService();
+
+        var result = service.Validate(
+            new GeneratedTestExecutionResult
+            {
+                GeneratedTestCode = "public void Generated() { var sut = new TargetService(); sut.PublicTarget(); }",
+                CodeExtracted = true,
+                MethodNameExtracted = true,
+                SyntaxValid = true,
+                CompilationSucceeded = true,
+                TestsExecuted = true,
+                AllTestsPassed = true,
+                CoverageImprovement = 0.12
+            },
+            CreateContextWithAccessPath(MemberVisibility.Private, TestAccessStrategy.PublicCallerPath),
+            new GenerationEvidencePackage
+            {
+                MetricsPath = MetricsDrivenPath.Coverage
+            });
+
+        Assert.Equal(GenerationValidationOutcome.Passed, result.Outcome);
+        Assert.Null(result.FailureClass);
+        Assert.Contains(result.RuleDecisions, x =>
+            x.RuleId == GenerationValidationRuleDefinitions.AccessStrategyRespected.Id &&
+            x.Value == "AccessStrategyRespected");
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void Acceptance_RejectsWhenRequiredCoverageDeltaIsMissing()
     {
         var service = new GenerationAcceptanceService();
@@ -194,6 +258,69 @@ public sealed class GenerationDecisionServicesTests
         Assert.False(result.Accepted);
         Assert.Equal("Coverage did not improve enough.", result.Reason);
         Assert.Contains(result.RuleDecisions, x => x.Value == "RejectedMinCoverageDelta");
+    }
+
+    private static CandidateMethodContext CreateContextWithAccessPath(
+        MemberVisibility visibility,
+        TestAccessStrategy strategy)
+    {
+        return new CandidateMethodContext
+        {
+            Method = new CandidateMethod
+            {
+                MemberId = 10,
+                MethodName = "Target",
+                SourceCode = "private int Target() => 1;",
+                Signature = "private int Target()",
+                BaselineCoverage = 0
+            },
+            MethodSignature = "private int Target()",
+            ContainingClass = "public class TargetService { private int Target() => 1; public int PublicTarget() => Target(); }",
+            TestNamespace = "Source.Tests",
+            TestClassName = "TargetServiceTests",
+            TestFilePath = "TargetServiceTests.cs",
+            SourceFilePath = "TargetService.cs",
+            SourceLocation = new CandidateSourceLocation
+            {
+                SourceFilePath = "TargetService.cs",
+                StartLine = 1,
+                EndLine = 1
+            },
+            SourceProjectPath = "Source.csproj",
+            TestProjectPath = "Source.Tests.csproj",
+            TargetBuildFramework = "net10.0",
+            SolutionFilePath = "Source.sln",
+            ExampleTest = string.Empty,
+            ExampleTestMetadataSummary = string.Empty,
+            ProjectTestMetadataSummary = string.Empty,
+            TestClass = string.Empty,
+            TestFileContents = string.Empty,
+            TestSupportContext = string.Empty,
+            TestFramework = "xUnit",
+            TestDependencies = string.Empty,
+            CoverageGapSummary = string.Empty,
+            MutationSummary = string.Empty,
+            Testability = new SourceMemberTestability
+            {
+                SourceMemberId = 10,
+                Visibility = visibility,
+                TestMappings = [],
+                AccessPaths =
+                [
+                    new AccessPath
+                    {
+                        TargetMemberId = 10,
+                        EntrypointMemberId = 12,
+                        PathMemberIds = [12, 10],
+                        Strategy = strategy,
+                        IsLegalFromTest = true,
+                        RequiresReflection = false
+                    }
+                ],
+                EvidenceStatuses = [TestEvidenceStatus.IndirectlyMappedToTest],
+                SetupBindings = []
+            }
+        };
     }
 
     [Fact]

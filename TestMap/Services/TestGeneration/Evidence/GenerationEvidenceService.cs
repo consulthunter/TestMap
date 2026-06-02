@@ -64,6 +64,9 @@ public sealed class GenerationEvidenceService : IGenerationEvidenceService
             MetricsPath = options.MetricsPath,
             CandidateContext = options.CandidateContext,
             StrategyInstruction = BuildStrategyInstruction(options.Approach, options.MetricsPath),
+            CandidateTestIntentionsSummary = options.CandidateContext.CandidateTestIntentionsSummary,
+            CandidateTypeConstructionSummary = options.CandidateContext.CandidateTypeConstructionSummary,
+            CandidateMetadataJson = options.CandidateContext.CandidateMetadataJson,
             Coverage = coverage,
             Mutation = mutation,
             RuleDecisions = ruleDecisions

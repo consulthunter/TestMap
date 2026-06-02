@@ -14,7 +14,7 @@ public class FlakyTestRerunResultEntityConfiguration : IEntityTypeConfiguration<
 
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.RunId).HasColumnName("run_id").IsRequired();
-        builder.Property(x => x.TestExecutionResultId).HasColumnName("test_execution_result_id").IsRequired();
+        builder.Property(x => x.TestResultId).HasColumnName("test_result_id").IsRequired();
         builder.Property(x => x.AttemptNumber).HasColumnName("attempt_number").IsRequired();
         builder.Property(x => x.Outcome).HasColumnName("outcome").IsRequired();
         builder.Property(x => x.DurationMs).HasColumnName("duration_ms").IsRequired();
@@ -22,6 +22,6 @@ public class FlakyTestRerunResultEntityConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
 
         builder.HasIndex(x => x.RunId);
-        builder.HasIndex(x => x.TestExecutionResultId);
+        builder.HasIndex(x => x.TestResultId);
     }
 }

@@ -14,6 +14,7 @@ public class CoverageReportEntityConfiguration : IEntityTypeConfiguration<Covera
 
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.ProjectId).HasColumnName("project_id").IsRequired();
+        builder.Property(x => x.TestRunId).HasColumnName("test_run_id");
         builder.Property(x => x.LineRate).HasColumnName("line_rate").IsRequired();
         builder.Property(x => x.BranchRate).HasColumnName("branch_rate").IsRequired();
         builder.Property(x => x.Complexity).HasColumnName("complexity").IsRequired();
@@ -24,5 +25,12 @@ public class CoverageReportEntityConfiguration : IEntityTypeConfiguration<Covera
         builder.Property(x => x.BranchesCovered).HasColumnName("branches_covered").IsRequired();
         builder.Property(x => x.BranchesValid).HasColumnName("branches_valid").IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
+
+        builder.HasOne(x => x.TestRun)
+            .WithMany(x => x.CoverageReports)
+            .HasForeignKey(x => x.TestRunId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(x => x.TestRunId);
     }
 }

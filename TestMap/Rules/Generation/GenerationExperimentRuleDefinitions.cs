@@ -23,6 +23,7 @@ public static class GenerationExperimentRuleDefinitions
     public static RuleDefinition ResumeResultsFileRewritten { get; } = Define("generation.experiment.resume-results-file-rewritten", "Results file rewritten on resume", "The results file was rewritten on resume.");
     public static RuleDefinition ResumeResultsFileAppended { get; } = Define("generation.experiment.resume-results-file-appended", "Results file appended on resume", "The results file was appended on resume.");
     public static RuleDefinition ResumeAttemptKeyGenerated { get; } = Define("generation.experiment.resume-attempt-key-generated", "Deterministic attempt key generated", "A deterministic resume key was generated from matrix values.");
+    public static RuleDefinition ContextAccessPathSelected { get; } = Define("generation.experiment.context-access-path-selected", "Context access path selected", "The selected context graph access path and setup bindings were captured for a generation attempt.");
 
     public static IReadOnlyList<RuleDefinition> All { get; } =
     [
@@ -41,7 +42,8 @@ public static class GenerationExperimentRuleDefinitions
         ResumeRunningPreserved,
         ResumeResultsFileRewritten,
         ResumeResultsFileAppended,
-        ResumeAttemptKeyGenerated
+        ResumeAttemptKeyGenerated,
+        ContextAccessPathSelected
     ];
 
     private static RuleDefinition Define(string id, string name, string description)

@@ -7,6 +7,7 @@ public class CandidateInventoryEntity
     public int Id { get; set; }
     public int ProjectId { get; set; }
     public int SourceMemberId { get; set; }
+    public int? SourceTestMappingId { get; set; }
     public int? ExistingTestMemberId { get; set; }
     [MaxLength(500)] public string SourceMethodName { get; set; } = string.Empty;
     [MaxLength(2000)] public string SourceMethodSignature { get; set; } = string.Empty;
@@ -27,5 +28,18 @@ public class CandidateInventoryEntity
     public string TestStateReason { get; set; } = string.Empty;
     public DateTime SelectionTime { get; set; }
     [MaxLength(100)] public string BaselineRunId { get; set; } = string.Empty;
+    [MaxLength(100)] public string ContextEvidenceKind { get; set; } = "None";
+    public string ContextEvidenceSummary { get; set; } = string.Empty;
+    public bool HasGroundedTestContext { get; set; }
+    public int? MappedTestMemberId { get; set; }
+    [MaxLength(500)] public string MappedTestMethodName { get; set; } = string.Empty;
+    [MaxLength(100)] public string AccessPathStrategy { get; set; } = string.Empty;
+    public string AccessPathMemberIdsJson { get; set; } = "[]";
+    public string TraceSummary { get; set; } = string.Empty;
+    public string TraceJson { get; set; } = "{}";
+    public string TestIntentionsSummary { get; set; } = string.Empty;
+    public string TypeConstructionSummary { get; set; } = string.Empty;
+    public string CandidateMetadataJson { get; set; } = "{}";
     public DateTime CreatedAt { get; set; }
+    public virtual SourceTestMappingEntity? SourceTestMapping { get; set; }
 }

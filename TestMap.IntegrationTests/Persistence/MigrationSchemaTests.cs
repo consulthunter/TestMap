@@ -1,0 +1,183 @@
+using System.Data;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using TestMap.Persistence.Ef;
+
+namespace TestMap.IntegrationTests.Persistence;
+
+/// <summary>
+/// Integration tests that verify the EF Core migration chain against a real file-based
+/// SQLite database. Each test creates a unique temp file and deletes it on completion.
+/// These tests are the acceptance criteria for "migrations as source of truth":
+/// <c>MigrateAsync</c> on a blank database must produce a correct, complete schema.
+/// </summary>
+[Trait("Category", "Integration")]
+[Trait("Execution", "LocalOnly")]
+public sealed class MigrationSchemaTests
+{
+    /// <summary>
+    /// Running MigrateAsync on a blank SQLite file creates all expected application tables.
+    /// This is the primary acceptance test for the migration reset — it would have failed
+    /// before InitialCreate.Up was properly populated.
+    /// </summary>
+    [Fact]
+    public async Task MigrateAsync_OnBlankDatabase_CreatesAllExpectedTables()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var tables = await GetTableNamesAsync(db);
+
+            // Core project and code tables
+            Assert.Contains("projects", tables);
+            Assert.Contains("csharp_solutions", tables);
+            Assert.Contains("csharp_projects", tables);
+            Assert.Contains("members", tables);
+            Assert.Contains("invocations", tables);
+
+            // Testing
+            Assert.Contains("test_runs", tables);
+            Assert.Contains("test_results", tables);
+
+            // Coverage and mutation
+            Assert.Contains("coverage_reports", tables);
+            Assert.Contains("coverage_gaps", tables);
+            Assert.Contains("mutation_testing_reports", tables);
+            Assert.Contains("mutants", tables);
+
+            // Experiment
+            Assert.Contains("experiment_runs", tables);
+            Assert.Contains("candidate_inventory", tables);
+            Assert.Contains("candidate_methods", tables);
+            Assert.Contains("generation_attempts", tables);
+            Assert.Contains("generated_test_executions", tables);
+            Assert.Contains("source_test_mappings", tables);
+            Assert.Contains("source_test_mapping_trace_steps", tables);
+
+            // Rules and risk
+            Assert.Contains("rule_definitions", tables);
+            Assert.Contains("rule_decisions", tables);
+        });
+    }
+
+    /// <summary>
+    /// Running MigrateAsync a second time on an already-migrated database does not throw.
+    /// </summary>
+    [Fact]
+    public async Task MigrateAsync_CalledTwice_IsIdempotent()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+            var ex = await Record.ExceptionAsync(() => db.Database.MigrateAsync());
+
+            Assert.Null(ex);
+        });
+    }
+
+    /// <summary>
+    /// After migration exactly one migration ID is recorded in __EFMigrationsHistory,
+    /// matching the single InitialCreate migration.
+    /// </summary>
+    [Fact]
+    public async Task MigrationHistory_ContainsExactlyOneMigration_Named_InitialCreate()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
+
+            Assert.Single(applied);
+            Assert.Contains("InitialCreate", applied[0]);
+        });
+    }
+
+    /// <summary>
+    /// After migration the database has no pending migrations — the schema is fully up to date.
+    /// </summary>
+    [Fact]
+    public async Task MigrateAsync_LeavesNoPendingMigrations()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+
+            Assert.Empty(pending);
+        });
+    }
+
+    /// <summary>
+    /// TestMapDatabaseInitializer.InitializeAsync produces the same result as calling
+    /// MigrateAsync directly, including the projects table being present.
+    /// </summary>
+    [Fact]
+    public async Task DatabaseInitializer_InitializeAsync_ProducesCompleteSchema()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            var initializer = new TestMapDatabaseInitializer();
+            await initializer.InitializeAsync(db);
+
+            var tables = await GetTableNamesAsync(db);
+
+            Assert.Contains("projects", tables);
+            Assert.Contains("candidate_inventory", tables);
+            Assert.Contains("generation_attempts", tables);
+            Assert.Empty(await db.Projects.ToListAsync());
+        });
+    }
+
+    // ─── Infrastructure ───────────────────────────────────────────────────────
+
+    private static async Task WithTempDatabaseAsync(Func<TestMapDbContext, string, Task> test)
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"testmap_migration_{Guid.NewGuid():N}.db");
+        try
+        {
+            var options = new DbContextOptionsBuilder<TestMapDbContext>()
+                .UseSqlite($"Data Source={dbPath}")
+                .Options;
+
+            await using var db = new TestMapDbContext(options);
+            await test(db, dbPath);
+        }
+        finally
+        {
+            // Clear the SQLite connection pool so the file handle is released before deletion.
+            SqliteConnection.ClearAllPools();
+
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+            var walPath = dbPath + "-wal";
+            var shmPath = dbPath + "-shm";
+            if (File.Exists(walPath)) File.Delete(walPath);
+            if (File.Exists(shmPath)) File.Delete(shmPath);
+        }
+    }
+
+    private static async Task<IReadOnlyList<string>> GetTableNamesAsync(TestMapDbContext db)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table'
+              AND name NOT LIKE 'sqlite_%'
+              AND name != '__EFMigrationsHistory'
+            ORDER BY name;
+            """;
+
+        var tables = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            tables.Add(reader.GetString(0));
+
+        return tables;
+    }
+}

@@ -9,6 +9,7 @@ public class CandidateMethod
 {
     public int Id { get; set; }
     public int ExperimentRunId { get; set; }
+    public int? CandidateInventoryId { get; set; }
     public int MemberId { get; set; }
     public int? ExistingTestMemberId { get; set; }
     public string MethodName { get; set; } = string.Empty;
@@ -33,6 +34,9 @@ public class CandidateMethod
     public CandidateTestState TestState { get; set; } = CandidateTestState.Unknown;
     public CandidateActionKind RecommendedAction { get; set; } = CandidateActionKind.None;
     public string TestStateReason { get; set; } = string.Empty;
+    public string TestIntentionsSummary { get; set; } = string.Empty;
+    public string TypeConstructionSummary { get; set; } = string.Empty;
+    public string CandidateMetadataJson { get; set; } = "{}";
     public DateTime SelectionTime { get; set; }
 
     public virtual ExperimentRun? ExperimentRun { get; set; }

@@ -22,5 +22,12 @@ public class TestResultEntityConfiguration : IEntityTypeConfiguration<TestResult
         builder.Property(x => x.Duration).HasColumnName("duration").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message");
         builder.Property(x => x.StackTrace).HasColumnName("stack_trace");
+
+        builder.HasOne(x => x.TestRun)
+            .WithMany(x => x.Results)
+            .HasForeignKey(x => x.TestRunId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(x => x.TestRunId);
     }
 }

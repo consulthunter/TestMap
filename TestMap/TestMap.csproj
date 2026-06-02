@@ -10,6 +10,7 @@
 
     <ItemGroup>
         <Folder Include="Config\" />
+        <Folder Include="Docker\validation\" />
         <Folder Include="Logs\**" />
         <Folder Include="Migrations\" />
         <Folder Include="Output\**" />

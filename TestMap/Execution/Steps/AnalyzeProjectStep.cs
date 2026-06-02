@@ -1,4 +1,5 @@
 using TestMap.App;
+using TestMap.Models.Code;
 using TestMap.Services.StaticAnalysis;
 
 namespace TestMap.Execution.Steps;
@@ -20,7 +21,12 @@ public class AnalyzeProjectStep : IPipelineStep
         context.Logger.Information(
             $"Number of projects in {context.Project.ProjectId}: {context.Project.Projects.Count}");
 
-        foreach (var project in context.Project.Projects)
+        // Shared dictionary accumulates symbol-key → DB member ID across all project analyses.
+        // Combined with topological ordering below, this lets cross-project invocations
+        // (test → production) be resolved without DB round trips.
+        var sharedMemberIds = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var project in TopologicallySorted(context.Project.Projects))
             try
             {
                 if (!_analyzedProjectIds.Add(project.FilePath))
@@ -29,12 +35,45 @@ public class AnalyzeProjectStep : IPipelineStep
                     continue;
                 }
 
-                // Mark as analyzed before or after to avoid double work in concurrency
-                await _analyzeProjectService.AnalyzeProjectAsync(project);
+                await _analyzeProjectService.AnalyzeProjectAsync(project, sharedMemberIds);
             }
             catch (Exception e)
             {
                 context.Logger.Error(e, "Project analysis failed for {ProjectFilePath}", project.FilePath);
             }
+    }
+
+    /// <summary>
+    /// Returns projects sorted so that every dependency comes before the projects that
+    /// depend on it (dependencies-first topological order). Production projects are
+    /// therefore always processed before the test projects that reference them.
+    /// Projects with no matching dependencies in the input list are treated as roots.
+    /// </summary>
+    private static IEnumerable<CSharpProjectModel> TopologicallySorted(
+        IReadOnlyList<CSharpProjectModel> projects)
+    {
+        var byPath = projects.ToDictionary(
+            p => p.FilePath,
+            p => p,
+            StringComparer.OrdinalIgnoreCase);
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<CSharpProjectModel>(projects.Count);
+
+        void Visit(CSharpProjectModel project)
+        {
+            if (!visited.Add(project.FilePath)) return;
+
+            foreach (var refPath in project.ProjectReferences)
+                if (byPath.TryGetValue(refPath, out var dependency))
+                    Visit(dependency);
+
+            result.Add(project);
+        }
+
+        foreach (var project in projects)
+            Visit(project);
+
+        return result;
     }
 }

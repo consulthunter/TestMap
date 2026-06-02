@@ -36,7 +36,6 @@ public class TestMapDbContext : DbContext
     public DbSet<MutantEntity> Mutants => Set<MutantEntity>();
     public DbSet<MutantSurvivedTestEntity> MutantSurvivedTests => Set<MutantSurvivedTestEntity>();
     public DbSet<CandidateMethodRiskScoreEntity> CandidateMethodRiskScores => Set<CandidateMethodRiskScoreEntity>();
-    public DbSet<TestExecutionResultEntity> TestExecutionResults => Set<TestExecutionResultEntity>();
     public DbSet<FlakyTestScoreEntity> FlakyTestScores => Set<FlakyTestScoreEntity>();
     public DbSet<FlakyTestRerunResultEntity> FlakyTestRerunResults => Set<FlakyTestRerunResultEntity>();
     public DbSet<TestResultEntity> TestResults => Set<TestResultEntity>();
@@ -45,10 +44,12 @@ public class TestMapDbContext : DbContext
     public DbSet<ExperimentRunEntity> ExperimentRuns => Set<ExperimentRunEntity>();
     public DbSet<ExperimentMatrixWorkItemEntity> ExperimentMatrixWorkItems => Set<ExperimentMatrixWorkItemEntity>();
     public DbSet<CandidateInventoryEntity> CandidateInventory => Set<CandidateInventoryEntity>();
+    public DbSet<SourceTestMappingEntity> SourceTestMappings => Set<SourceTestMappingEntity>();
+    public DbSet<SourceTestMappingTraceStepEntity> SourceTestMappingTraceSteps => Set<SourceTestMappingTraceStepEntity>();
     public DbSet<CandidateMethodEntity> CandidateMethods => Set<CandidateMethodEntity>();
     public DbSet<GenerationAttemptEntity> GenerationAttempts => Set<GenerationAttemptEntity>();
     public DbSet<GenerationStepEntity> GenerationSteps => Set<GenerationStepEntity>();
-    public DbSet<TestExecutionEntity> TestExecutions => Set<TestExecutionEntity>();
+    public DbSet<GeneratedTestExecutionEntity> TestExecutions => Set<GeneratedTestExecutionEntity>();
     public DbSet<RuleDefinitionEntity> RuleDefinitions => Set<RuleDefinitionEntity>();
     public DbSet<RuleDecisionEntity> RuleDecisions => Set<RuleDecisionEntity>();
 

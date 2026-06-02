@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models.Generation;
 using TestMap.Services.StaticAnalysis;
+using TestMap.Services.TestGeneration.Construction;
 
 namespace TestMap.Services.TestGeneration.Context;
 
@@ -138,16 +139,27 @@ public sealed class ContextGraphService : IContextGraphService
 
         foreach (var parameter in methodSymbol.Parameters)
         {
-            var typeName = parameter.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
-            var requiresMocking = RequiresMocking(parameter.Type);
+            var abstractType = parameter.Type;
+            var requiresMocking = RequiresMocking(abstractType);
+            // Only look for a concrete stand-in when mocking is the current outcome AND the
+            // type is a class (not an interface, and type-token types like System.Type are
+            // already excluded because RequiresMocking returns false for them).
+            var concreteSubtype = requiresMocking && abstractType.TypeKind == TypeKind.Class
+                ? FindConcreteSubtype(abstractType, semanticModel.Compilation)
+                : null;
+            var resolvedType = (ITypeSymbol?)concreteSubtype ?? abstractType;
+            var typeName = resolvedType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+            requiresMocking = concreteSubtype == null && requiresMocking;
             nodes.Add(new ContextGraphNode
             {
                 NodeId = $"param:{parameter.Name}",
                 NodeType = "MethodParameter",
                 TypeName = typeName,
                 VariableName = parameter.Name,
-                SourceSummary = $"Method parameter {parameter.Name} of type {typeName}.",
-                ConstructionHint = BuildConstructionHint(parameter.Type, parameter.Name),
+                SourceSummary = $"Method parameter {parameter.Name} of type {abstractType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)}.",
+                ConstructionHint = concreteSubtype != null
+                    ? BuildAbstractSubstitutionHint(abstractType, concreteSubtype, parameter.Name)
+                    : BuildConstructionHint(abstractType, parameter.Name),
                 RequiresMocking = requiresMocking,
                 IsResolved = !requiresMocking
             });
@@ -160,12 +172,16 @@ public sealed class ContextGraphService : IContextGraphService
             nodes.Add(new ContextGraphNode
             {
                 NodeId = "sut",
-                NodeType = "SystemUnderTest",
+                NodeType = methodSymbol.IsStatic ? "StaticCallTarget" : "SystemUnderTest",
                 TypeName = typeName,
-                VariableName = "sut",
-                DependsOnNodeIds = methodSymbol.Parameters.Select(x => $"param:{x.Name}").ToList(),
+                VariableName = methodSymbol.IsStatic ? null : "sut",
+                DependsOnNodeIds = methodSymbol.IsStatic
+                    ? []
+                    : methodSymbol.Parameters.Select(x => $"param:{x.Name}").ToList(),
                 SourceSummary = $"Containing type {typeName}.",
-                ConstructionHint = BuildConstructorHint(containingType),
+                ConstructionHint = methodSymbol.IsStatic
+                    ? $"Call {typeName}.{methodSymbol.Name}(...) directly; no SUT instance is required."
+                    : BuildConstructorHint(containingType),
                 RequiresMocking = false,
                 IsResolved = true
             });
@@ -203,7 +219,9 @@ public sealed class ContextGraphService : IContextGraphService
                 NodeType = "FixtureHint",
                 TypeName = string.Empty,
                 SourceSummary = hint,
-                ConstructionHint = "Reuse this existing fixture/setup helper when it matches the scenario.",
+                ConstructionHint = IsNoHelpersFoundMessage(hint)
+                    ? "No existing helper found; construct all test dependencies from scratch."
+                    : "Reuse this existing fixture/setup helper when it matches the scenario.",
                 RequiresMocking = false,
                 IsResolved = true
             });
@@ -227,17 +245,28 @@ public sealed class ContextGraphService : IContextGraphService
             if (type == null) continue;
 
             var typeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+            var isExpectedException = IsExpectedExceptionCreation(creation);
             yield return new ContextGraphNode
             {
                 NodeId = $"creates:{type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}",
-                NodeType = "ConstructedDependency",
+                NodeType = isExpectedException ? "ExpectedException" : "ConstructedDependency",
                 TypeName = typeName,
-                SourceSummary = $"Method body creates {typeName}.",
-                ConstructionHint = $"The method already constructs {typeName}; avoid duplicating setup unless needed.",
+                SourceSummary = isExpectedException
+                    ? $"Method body throws {typeName}."
+                    : $"Method body creates {typeName}.",
+                ConstructionHint = isExpectedException
+                    ? $"Assert the thrown {typeName} when targeting this guard path; do not arrange it as an input dependency."
+                    : $"The method already constructs {typeName}; avoid duplicating setup unless needed.",
                 RequiresMocking = false,
                 IsResolved = true
             };
         }
+    }
+
+    private static bool IsExpectedExceptionCreation(ObjectCreationExpressionSyntax creation)
+    {
+        return creation.FirstAncestorOrSelf<ThrowStatementSyntax>() != null ||
+               creation.FirstAncestorOrSelf<ThrowExpressionSyntax>() != null;
     }
 
     private static string BuildConstructorHint(INamedTypeSymbol containingType)
@@ -262,11 +291,14 @@ public sealed class ContextGraphService : IContextGraphService
         var typeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
         if (RequiresMocking(type)) return $"Create a mock or fake for {typeName}.";
 
-        return BuildConstructionHint(typeName, name);
+        return TestInputConstructionAdvisor.ForSymbol(type, name).Summary;
     }
 
     private static bool RequiresMocking(ITypeSymbol type)
     {
+        if (TestInputConstructionAdvisor.ForSymbol(type, string.Empty).Strategy == "type-token")
+            return false;
+
         return type.TypeKind == TypeKind.Interface ||
                type.IsAbstract ||
                RequiresMocking(type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat));
@@ -295,15 +327,21 @@ public sealed class ContextGraphService : IContextGraphService
         var className = ExtractClassName(request.ContainingClass);
         if (!string.IsNullOrWhiteSpace(className))
         {
+            var isStaticMethod = IsStaticMethodSignature(request.MethodSignature) ||
+                                 IsStaticClass(request.ContainingClass, className);
             nodes.Add(new ContextGraphNode
             {
                 NodeId = "sut",
-                NodeType = "SystemUnderTest",
+                NodeType = isStaticMethod ? "StaticCallTarget" : "SystemUnderTest",
                 TypeName = className,
-                VariableName = "sut",
-                DependsOnNodeIds = parameters.Select(x => $"param:{x.Name}").ToList(),
+                VariableName = isStaticMethod ? null : "sut",
+                DependsOnNodeIds = isStaticMethod
+                    ? []
+                    : parameters.Select(x => $"param:{x.Name}").ToList(),
                 SourceSummary = $"Containing class {className}.",
-                ConstructionHint = FindConstructorHint(request.ContainingClass, className),
+                ConstructionHint = isStaticMethod
+                    ? $"Call {className}.{request.MethodName}(...) directly; no SUT instance is required."
+                    : FindConstructorHint(request.ContainingClass, className),
                 RequiresMocking = false,
                 IsResolved = true
             });
@@ -331,7 +369,9 @@ public sealed class ContextGraphService : IContextGraphService
                 NodeType = "FixtureHint",
                 TypeName = string.Empty,
                 SourceSummary = hint,
-                ConstructionHint = "Reuse this existing fixture/setup helper when it matches the scenario.",
+                ConstructionHint = IsNoHelpersFoundMessage(hint)
+                    ? "No existing helper found; construct all test dependencies from scratch."
+                    : "Reuse this existing fixture/setup helper when it matches the scenario.",
                 RequiresMocking = false,
                 IsResolved = true
             });
@@ -383,6 +423,16 @@ public sealed class ContextGraphService : IContextGraphService
             : $"Construct or access {className} using available test fixture setup.";
     }
 
+    private static bool IsStaticMethodSignature(string methodSignature)
+    {
+        return Regex.IsMatch(methodSignature, @"\bstatic\b");
+    }
+
+    private static bool IsStaticClass(string containingClass, string className)
+    {
+        return Regex.IsMatch(containingClass, $@"\bstatic\s+class\s+{Regex.Escape(className)}\b");
+    }
+
     private static IReadOnlyList<string> FindStaticFactories(string containingClass, string className)
     {
         return Regex.Matches(containingClass, $@"\bstatic\s+{Regex.Escape(className)}\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(")
@@ -407,24 +457,117 @@ public sealed class ContextGraphService : IContextGraphService
 
     private static bool RequiresMocking(string typeName)
     {
-        var normalized = typeName.Trim().TrimEnd('?');
-        return normalized.StartsWith('I') &&
-               normalized.Length > 1 &&
-               char.IsUpper(normalized[1]) &&
-               normalized != "Int32";
+        return TestInputConstructionAdvisor.RequiresMocking(typeName);
     }
 
     private static string BuildConstructionHint(string typeName, string name)
     {
-        var normalized = typeName.Trim().TrimEnd('?');
-        return normalized switch
+        return TestInputConstructionAdvisor.ForTypeName(typeName, name).Summary;
+    }
+
+    /// <summary>
+    /// For abstract class parameters, searches the Roslyn compilation for the simplest
+    /// non-abstract public subtype. Returns null for interfaces or non-abstract types.
+    /// </summary>
+    private static INamedTypeSymbol? FindConcreteSubtype(ITypeSymbol abstractType, Compilation compilation)
+    {
+        if (abstractType.TypeKind == TypeKind.Interface || !abstractType.IsAbstract)
+            return null;
+
+        return GetAllNamedTypes(compilation.GlobalNamespace)
+            .Where(t => !t.IsAbstract
+                     && !t.IsGenericType
+                     && t.DeclaredAccessibility == Accessibility.Public
+                     && InheritsFrom(t, abstractType)
+                     && t.InstanceConstructors.Any(c =>
+                         !c.IsStatic && c.DeclaredAccessibility == Accessibility.Public))
+            .OrderBy(ConcreteSubtypeScore)
+            .FirstOrDefault();
+    }
+
+    private static IEnumerable<INamedTypeSymbol> GetAllNamedTypes(INamespaceSymbol ns)
+    {
+        foreach (var type in ns.GetTypeMembers())
+            yield return type;
+        foreach (var child in ns.GetNamespaceMembers())
+            foreach (var type in GetAllNamedTypes(child))
+                yield return type;
+    }
+
+    private static bool InheritsFrom(INamedTypeSymbol candidate, ITypeSymbol target)
+    {
+        var baseType = candidate.BaseType;
+        while (baseType != null)
         {
-            "string" or "String" => $"Use a meaningful string value for {name}.",
-            "int" or "Int32" or "long" or "Int64" => $"Use a simple numeric value for {name}.",
-            "bool" or "Boolean" => $"Choose true or false for {name} based on the scenario.",
-            _ when RequiresMocking(normalized) => $"Create a mock or fake for {normalized}.",
-            _ => $"Construct {normalized} with the smallest valid test data."
-        };
+            if (SymbolEqualityComparer.Default.Equals(baseType, target) ||
+                SymbolEqualityComparer.Default.Equals(baseType.OriginalDefinition, target.OriginalDefinition))
+                return true;
+            baseType = baseType.BaseType;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Scores a concrete subtype candidate: prefers the fewest required constructor parameters,
+    /// with a large penalty for any parameter that is itself abstract or interface-typed.
+    /// </summary>
+    private static int ConcreteSubtypeScore(INamedTypeSymbol type)
+    {
+        var ctor = type.InstanceConstructors
+            .Where(c => !c.IsStatic && c.DeclaredAccessibility == Accessibility.Public)
+            .OrderBy(c => c.Parameters.Length)
+            .FirstOrDefault();
+        if (ctor == null) return int.MaxValue;
+
+        var complexParams = ctor.Parameters.Count(p =>
+            p.Type.TypeKind == TypeKind.Interface ||
+            p.Type.IsAbstract ||
+            (p.Type.TypeKind == TypeKind.Class &&
+             p.Type.SpecialType == SpecialType.None &&
+             !IsKnownFrameworkSimpleType(p.Type)));
+
+        return ctor.Parameters.Length + complexParams * 100;
+    }
+
+    private static bool IsKnownFrameworkSimpleType(ITypeSymbol type)
+    {
+        if (type.SpecialType != SpecialType.None) return true;
+        return type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) is
+            "global::System.String" or
+            "global::System.DateTime" or
+            "global::System.Guid" or
+            "global::System.TimeSpan" or
+            "global::System.DateOnly" or
+            "global::System.TimeOnly";
+    }
+
+    private static string BuildAbstractSubstitutionHint(
+        ITypeSymbol abstractType,
+        INamedTypeSymbol concreteType,
+        string name)
+    {
+        var abstractName = abstractType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+        var concreteName = concreteType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+        var ctor = concreteType.InstanceConstructors
+            .Where(c => !c.IsStatic && c.DeclaredAccessibility == Accessibility.Public)
+            .OrderBy(c => c.Parameters.Length)
+            .FirstOrDefault();
+        var ctorParams = ctor?.Parameters.Length == 0
+            ? string.Empty
+            : ctor == null
+                ? "..."
+                : string.Join(", ", ctor.Parameters.Select(p =>
+                    $"{p.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)} {p.Name}"));
+        return $"Concrete stand-in for abstract {abstractName}: construct as new {concreteName}({ctorParams}).";
+    }
+
+    private static bool IsNoHelpersFoundMessage(string hint)
+    {
+        return hint.StartsWith("No ", StringComparison.OrdinalIgnoreCase) ||
+               hint.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+               hint.Contains("none found", StringComparison.OrdinalIgnoreCase) ||
+               hint.Contains("no helpers", StringComparison.OrdinalIgnoreCase) ||
+               hint.Contains("no setup", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record ParameterInfo(string TypeName, string Name);

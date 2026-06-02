@@ -4,20 +4,25 @@ using TestMap.Persistence.Ef;
 
 namespace TestMap.UnitTests.Persistence;
 
+/// <summary>
+/// Tests for <see cref="TestMapDatabaseInitializer"/>. Verifies that the initializer
+/// drives schema creation via migrations on a blank in-memory database.
+/// </summary>
 public sealed class TestMapDatabaseInitializerTests
 {
+    /// <summary>
+    /// On a completely blank in-memory database, InitializeAsync runs all pending migrations
+    /// and produces a schema that includes the core projects table.
+    /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task InitializeAsync_CreatesSchemaWhenInitialMigrationCreatedOnlyHistoryTable()
+    public async Task InitializeAsync_OnBlankDatabase_CreatesSchemaViaMigration()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
-
         await using var db = CreateDbContext(connection);
-        await db.Database.MigrateAsync();
-        Assert.False(await TableExistsAsync(connection, "projects"));
 
-        var initializer = new TestMapDatabaseInitializer(new SqliteSchemaCompatibilityService());
+        var initializer = new TestMapDatabaseInitializer();
         await initializer.InitializeAsync(db);
 
         Assert.True(await TableExistsAsync(connection, "projects"));
@@ -25,49 +30,32 @@ public sealed class TestMapDatabaseInitializerTests
         Assert.Empty(await db.Projects.ToListAsync());
     }
 
+    /// <summary>
+    /// Calling InitializeAsync twice on the same already-migrated database does not throw.
+    /// MigrateAsync is idempotent when all migrations have been applied.
+    /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task InitializeAsync_ThrowsClearErrorWhenApplicationTablesExistButProjectsIsMissing()
+    public async Task InitializeAsync_CalledTwice_IsIdempotent()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
-
         await using var db = CreateDbContext(connection);
-        await ExecuteNonQueryAsync(connection, "CREATE TABLE legacy_table (id INTEGER NOT NULL);");
+        var initializer = new TestMapDatabaseInitializer();
 
-        var initializer = new TestMapDatabaseInitializer(new SqliteSchemaCompatibilityService());
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => initializer.InitializeAsync(db));
-
-        Assert.Contains("missing required table 'projects'", ex.Message);
-        Assert.Contains("legacy_table", ex.Message);
-    }
-
-    [Fact]
-    [Trait("Category", "Unit")]
-    public async Task InitializeAsync_RepairsOrphanCompatibilityTablesWhenCoreSchemaIsMissing()
-    {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        await using var db = CreateDbContext(connection);
-        await ExecuteNonQueryAsync(connection, "CREATE TABLE rule_definitions (id INTEGER NOT NULL);");
-        await ExecuteNonQueryAsync(connection, "CREATE TABLE coverage_gaps (id INTEGER NOT NULL);");
-
-        var initializer = new TestMapDatabaseInitializer(new SqliteSchemaCompatibilityService());
         await initializer.InitializeAsync(db);
+        var ex = await Record.ExceptionAsync(() => initializer.InitializeAsync(db));
 
-        Assert.True(await TableExistsAsync(connection, "projects"));
-        Assert.True(await TableExistsAsync(connection, "rule_definitions"));
-        Assert.True(await TableExistsAsync(connection, "coverage_gaps"));
-        Assert.Empty(await db.Projects.ToListAsync());
+        Assert.Null(ex);
     }
+
+    // ─── Infrastructure ───────────────────────────────────────────────────────
 
     private static TestMapDbContext CreateDbContext(SqliteConnection connection)
     {
         var options = new DbContextOptionsBuilder<TestMapDbContext>()
             .UseSqlite(connection)
             .Options;
-
         return new TestMapDbContext(options);
     }
 
@@ -75,15 +63,8 @@ public sealed class TestMapDatabaseInitializerTests
     {
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name = $tableName;";
-        command.Parameters.Add(new SqliteParameter("$tableName", tableName));
+        command.Parameters.AddWithValue("$tableName", tableName);
         var result = await command.ExecuteScalarAsync();
         return result != null;
-    }
-
-    private static async Task ExecuteNonQueryAsync(SqliteConnection connection, string sql)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        await command.ExecuteNonQueryAsync();
     }
 }

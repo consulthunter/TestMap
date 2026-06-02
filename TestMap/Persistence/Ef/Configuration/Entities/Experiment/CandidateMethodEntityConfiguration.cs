@@ -14,6 +14,7 @@ public class CandidateMethodEntityConfiguration : IEntityTypeConfiguration<Candi
 
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.ExperimentRunId).HasColumnName("experiment_run_id").IsRequired();
+        builder.Property(x => x.CandidateInventoryId).HasColumnName("candidate_inventory_id");
         builder.Property(x => x.SourceMemberId).HasColumnName("source_member_id").IsRequired();
         builder.Property(x => x.ExistingTestMemberId).HasColumnName("existing_test_member_id");
         builder.Property(x => x.SourceMethodName).HasColumnName("source_method_name").IsRequired();
@@ -34,11 +35,21 @@ public class CandidateMethodEntityConfiguration : IEntityTypeConfiguration<Candi
         builder.Property(x => x.TestState).HasColumnName("test_state");
         builder.Property(x => x.RecommendedAction).HasColumnName("recommended_action");
         builder.Property(x => x.TestStateReason).HasColumnName("test_state_reason");
+        builder.Property(x => x.TestIntentionsSummary).HasColumnName("test_intentions_summary");
+        builder.Property(x => x.TypeConstructionSummary).HasColumnName("type_construction_summary");
+        builder.Property(x => x.CandidateMetadataJson).HasColumnName("candidate_metadata_json");
         builder.Property(x => x.SelectionTime).HasColumnName("selection_time").IsRequired();
 
         builder.HasMany(x => x.GenerationAttempts)
             .WithOne(x => x.CandidateMethod)
             .HasForeignKey(x => x.CandidateMethodId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(x => x.CandidateInventory)
+            .WithMany()
+            .HasForeignKey(x => x.CandidateInventoryId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(x => x.CandidateInventoryId);
     }
 }

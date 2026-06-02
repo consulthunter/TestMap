@@ -106,7 +106,14 @@ public sealed class CollectTestsEndToEndTests : IDisposable
         Assert.True(File.Exists(validationCsvPath));
         var validationCsv = await File.ReadAllTextAsync(validationCsvPath);
         Assert.Contains("https://github.com/testmap-fixtures/TestMap-Example.git", validationCsv);
-        Assert.Contains("testmap-fixtures,TestMap-Example,True", validationCsv);
+        var validationRow = ReadSingleCsvRecord(validationCsv);
+        Assert.Equal("testmap-fixtures", validationRow["Owner"]);
+        Assert.Equal("TestMap-Example", validationRow["Repo"]);
+        Assert.Equal("False", validationRow["Restores"]);
+        Assert.Equal("False", validationRow["Builds"]);
+        Assert.Equal("False", validationRow["TestsRun"]);
+        Assert.Equal("True", validationRow["TestsPass"]);
+        Assert.Equal("e2e-seeded-baseline", validationRow["BaselineRunId"]);
     }
 
     public void Dispose()
@@ -149,9 +156,8 @@ public sealed class CollectTestsEndToEndTests : IDisposable
     private static async Task InitializeDatabaseAsync(ServiceProvider provider)
     {
         var db = provider.GetRequiredService<TestMapDbContext>();
-        var schemaCompatibility = provider.GetRequiredService<SqliteSchemaCompatibilityService>();
-        await db.Database.MigrateAsync();
-        await schemaCompatibility.EnsureCompatibleAsync(db);
+        var initializer = provider.GetRequiredService<TestMapDatabaseInitializer>();
+        await initializer.InitializeAsync(db);
     }
 
     private static TestMapConfig CreateConfig(
@@ -174,8 +180,11 @@ public sealed class CollectTestsEndToEndTests : IDisposable
                 },
                 Docker =
                 {
-                    Context = "desktop-linux",
-                    Image = "testmap-runner"
+                    DefaultContext = "desktop-linux",
+                    Images =
+                    {
+                        ValidationSdkAll = "testmap-runner"
+                    }
                 },
                 Frameworks = new Dictionary<string, List<string>>
                 {
@@ -241,6 +250,60 @@ public sealed class CollectTestsEndToEndTests : IDisposable
         {
             File.SetAttributes(file, FileAttributes.Normal);
         }
+    }
+
+    private static IReadOnlyDictionary<string, string> ReadSingleCsvRecord(string csv)
+    {
+        var lines = csv
+            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+        Assert.True(lines.Count >= 2, "Expected project-validation.csv to contain a header and at least one row.");
+
+        var headers = SplitCsvLine(lines[0]);
+        var values = SplitCsvLine(lines[1]);
+        Assert.Equal(headers.Count, values.Count);
+
+        return headers
+            .Select((header, index) => new { header, value = values[index] })
+            .ToDictionary(x => x.header, x => x.value, StringComparer.Ordinal);
+    }
+
+    private static IReadOnlyList<string> SplitCsvLine(string line)
+    {
+        var values = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < line.Length; i++)
+        {
+            var currentChar = line[i];
+            if (currentChar == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+
+                continue;
+            }
+
+            if (currentChar == ',' && !inQuotes)
+            {
+                values.Add(current.ToString());
+                current.Clear();
+                continue;
+            }
+
+            current.Append(currentChar);
+        }
+
+        values.Add(current.ToString());
+        return values;
     }
 
     private sealed class SeedPassingTestRunStep(TestMapDbContext dbContext) : IPipelineStep

@@ -20,7 +20,7 @@ public class GenerationStepEntity
     public string ValidationResult { get; set; } = string.Empty;
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
-    public string RuleDecisionJson { get; set; } = string.Empty;
+    public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
 
     public virtual GenerationAttemptEntity? GenerationAttempt { get; set; }
 }

@@ -13,6 +13,7 @@ public static class GenerationAttemptMappingExtensions
         {
             Id = entity.Id,
             CandidateMethodId = entity.CandidateMethodId,
+            ExperimentMatrixWorkItemId = entity.ExperimentMatrixWorkItemId,
             Provider = Enum.TryParse<AiProvider>(entity.ProviderName, true, out var provider)
                 ? provider
                 : AiProvider.OpenAi,
@@ -38,7 +39,7 @@ public static class GenerationAttemptMappingExtensions
             AttemptNumber = entity.AttemptNumber,
             IsRepairAttempt = entity.IsRepairAttempt,
             ParentAttemptId = entity.ParentAttemptId,
-            RuleDecisionJson = entity.RuleDecisionJson,
+            RuleDecisionSnapshotJson = entity.RuleDecisionSnapshotJson,
             StartedAt = entity.StartTime,
             CompletedAt = entity.EndTime,
             TotalTokensUsed = entity.TotalTokensUsed,
@@ -61,6 +62,7 @@ public static class GenerationAttemptMappingExtensions
         {
             Id = attempt.Id,
             CandidateMethodId = attempt.CandidateMethodId,
+            ExperimentMatrixWorkItemId = attempt.ExperimentMatrixWorkItemId,
             ProviderName = attempt.Provider.ToString(),
             ModelName = attempt.ModelName ?? string.Empty,
             Strategy = attempt.BudgetMode.ToString(),
@@ -87,7 +89,7 @@ public static class GenerationAttemptMappingExtensions
             FailureStage = ResolveFailureStage(attempt) ?? string.Empty,
             FailureCategory = ResolveFailureCategory(attempt) ?? string.Empty,
             ErrorMessage = ResolvePersistedErrorMessage(attempt) ?? string.Empty,
-            RuleDecisionJson = attempt.RuleDecisionJson
+            RuleDecisionSnapshotJson = attempt.RuleDecisionSnapshotJson
         };
     }
 
@@ -155,18 +157,8 @@ public static class GenerationAttemptMappingExtensions
 
     private static GenerationBudgetMode ResolveBudgetMode(GenerationAttemptEntity entity)
     {
-        if (Enum.TryParse<GenerationBudgetMode>(entity.BudgetMode, true, out var budgetMode))
-            return budgetMode;
-
-        if (Enum.TryParse<GenerationBudgetMode>(entity.Strategy, true, out var budgetModeFromLegacyStrategy))
-            return budgetModeFromLegacyStrategy;
-
-        return entity.Strategy switch
-        {
-            "Pass1" => GenerationBudgetMode.PassAt1,
-            "Pass5" => GenerationBudgetMode.PassAt5,
-            "Repair5" => GenerationBudgetMode.PassAt1RepairAt5,
-            _ => GenerationBudgetMode.PassAt1
-        };
+        return Enum.TryParse<GenerationBudgetMode>(entity.BudgetMode, true, out var budgetMode)
+            ? budgetMode
+            : GenerationBudgetMode.PassAt1;
     }
 }

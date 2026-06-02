@@ -6,6 +6,10 @@ namespace TestMap.Services.Configuration;
 
 public class SetupService
 {
+    public const string ValidationImageName = "testmap-validation-sdk-all:latest";
+    public const string AgentToolImagePrefix = "testmap-agent-eval-";
+    public const string AgentBaseImageName = "testmap-dotnet-agent-base:0.1";
+
     private readonly string _basePath;
     private readonly string _parentDir;
     private readonly TextWriter _output;
@@ -106,21 +110,21 @@ public class SetupService
         };
     }
 
-    private void BuildForContext(string contextName, string dockerfilePath, string imageName)
+    private void BuildForContext(string contextName, string dockerfilePath, string imageName, string? contextDir = null)
     {
         var dockerRoot = GetDockerRoot();
         var sourceRoot = Directory.GetParent(dockerRoot)?.FullName ?? _basePath;
-        var contextDir = dockerRoot;
+        var buildContextDir = contextDir ?? dockerRoot;
         var networkArgs = CreateDockerBuildNetworkArgs(contextName);
 
         _output.WriteLine($"Docker source root: {sourceRoot}");
-        _output.WriteLine($"Docker context dir: {contextDir}");
+        _output.WriteLine($"Docker context dir: {buildContextDir}");
         _output.WriteLine($"Dockerfile: {dockerfilePath}");
         _output.WriteLine($"Image: {imageName}");
 
         var result = _processExecutor.Run(
             "docker",
-            $"--context {contextName} build{networkArgs} -t {imageName} -f \"{dockerfilePath}\" \"{contextDir}\"",
+            $"--context {contextName} build{networkArgs} -t {imageName} -f \"{dockerfilePath}\" \"{buildContextDir}\"",
             false);
 
         WriteProcessOutput(result);
@@ -163,7 +167,7 @@ public class SetupService
 
     public void BuildAllImages()
     {
-        _output.WriteLine("=== Building Linux Image ===");
+        _output.WriteLine("=== Building Linux Validation Image ===");
         if (!EnsureDockerContextReady("desktop-linux", "linux"))
             throw new InvalidOperationException("Docker Linux context is not available.");
 
@@ -171,10 +175,12 @@ public class SetupService
         BuildForContext(
             "desktop-linux",
             linuxDockerfile,
-            "net-sdk-all:latest"
+            ValidationImageName
         );
 
-        _output.WriteLine("=== Building Windows Image ===");
+        BuildAgenticToolImages();
+
+        _output.WriteLine("=== Building Windows Validation Image ===");
 
         if (!CanBuildWindowsImages())
         {
@@ -185,8 +191,60 @@ public class SetupService
         BuildForContext(
             "desktop-windows",
             GetDockerfile("windows"),
-            "net-sdk-all:latest"
+            ValidationImageName
         );
+    }
+
+    private void BuildAgenticToolImages()
+    {
+        var agenticToolsRoot = GetAgenticToolsRoot();
+        if (string.IsNullOrWhiteSpace(agenticToolsRoot))
+        {
+            _output.WriteLine("Skipping agentic tool image builds: no agentic-tools Docker directory was found.");
+            return;
+        }
+
+        _output.WriteLine("=== Building Agentic Tool Base Image ===");
+
+        var baseDockerfile = Path.Combine(agenticToolsRoot, "testmap-dotnet-agent-base", "Dockerfile");
+        if (!File.Exists(baseDockerfile))
+            throw new InvalidOperationException($"Agentic tool base Dockerfile not found at '{baseDockerfile}'.");
+
+        BuildForContext(
+            "desktop-linux",
+            baseDockerfile,
+            AgentBaseImageName,
+            agenticToolsRoot);
+
+        foreach (var toolDirectory in Directory.EnumerateDirectories(agenticToolsRoot).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            var toolName = Path.GetFileName(toolDirectory);
+            if (toolName.Equals("common", StringComparison.OrdinalIgnoreCase) ||
+                toolName.Equals("testmap-dotnet-agent-base", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var toolDockerfile = Path.Combine(toolDirectory, "Dockerfile");
+            if (!File.Exists(toolDockerfile)) continue;
+
+            EnsureAgentToolRunnerExists(toolDirectory, toolName);
+
+            _output.WriteLine($"=== Building Agentic Tool Image: {toolName} ===");
+            BuildForContext(
+                "desktop-linux",
+                toolDockerfile,
+                $"{AgentToolImagePrefix}{toolName}:latest",
+                agenticToolsRoot);
+        }
+    }
+
+    private static void EnsureAgentToolRunnerExists(string toolDirectory, string toolName)
+    {
+        if (Directory.EnumerateFiles(toolDirectory, "run-*.sh").Any()) return;
+
+        throw new InvalidOperationException(
+            $"Agentic tool '{toolName}' must provide a runner script matching 'run-*.sh'.");
     }
 
     private void EnsureDockerDesktopStarted()
@@ -394,6 +452,8 @@ public class SetupService
     {
         var candidates = new[]
         {
+            Path.Combine(basePath, "Docker", "validation"),
+            Path.Combine(basePath, "TestMap", "Docker", "validation"),
             Path.Combine(basePath, "Docker"),
             Path.Combine(basePath, "TestMap", "Docker")
         };
@@ -410,6 +470,17 @@ public class SetupService
     private string GetDockerRoot()
     {
         return ResolveDockerRoot(_basePath);
+    }
+
+    private string GetAgenticToolsRoot()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(_basePath, "Docker", "agentic-tools"),
+            Path.Combine(_basePath, "TestMap", "Docker", "agentic-tools")
+        };
+
+        return candidates.FirstOrDefault(Directory.Exists) ?? string.Empty;
     }
 
     private void WriteProcessOutput(SetupProcessExecutionResult result)

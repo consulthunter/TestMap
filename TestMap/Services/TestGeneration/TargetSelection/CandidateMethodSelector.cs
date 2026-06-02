@@ -10,9 +10,6 @@ namespace TestMap.Services.TestGeneration.TargetSelection;
 
 public sealed class CandidateMethodSelector
 {
-    // Temporary experiment switch. Set to false to restore selection of all non-test source methods.
-    private const bool TemporaryPublicMethodCandidatesOnly = true;
-
     private readonly ProjectContext _context;
     private readonly TestMapDbContext _dbContext;
     private readonly TestMapConfig _config;
@@ -89,6 +86,9 @@ public sealed class CandidateMethodSelector
     {
         var candidateData = await (
                 from member in _dbContext.Members.AsNoTracking()
+                join sourceObject in _dbContext.Objects.AsNoTracking() on member.ObjectEntityId equals sourceObject.Id
+                join sourceFile in _dbContext.Files.AsNoTracking() on sourceObject.FileId equals sourceFile.Id
+                join sourceProject in _dbContext.CSharpProjects.AsNoTracking() on sourceFile.CSharpProjectId equals sourceProject.Id
                 let selectedCoverage = (
                         from coverage in _dbContext.MemberCoverages
                         join report in _dbContext.CoverageReports on coverage.CoverageReportId equals report.Id
@@ -104,9 +104,8 @@ public sealed class CandidateMethodSelector
                     .FirstOrDefault()
                 where !member.IsTestMember
                       && !member.IsGenerated
+                      && !sourceObject.IsTestObject
                       && member.Kind == "method"
-                      && (!TemporaryPublicMethodCandidatesOnly ||
-                          EF.Functions.Like(member.FullString, "%public %"))
                       && selectedCoverage != null
                 orderby selectedCoverage.LineRate ascending, selectedCoverage.Complexity descending
                 select new
@@ -115,11 +114,16 @@ public sealed class CandidateMethodSelector
                     member.Name,
                     member.FullString,
                     selectedCoverage.LineRate,
-                    selectedCoverage.Complexity
+                    selectedCoverage.Complexity,
+                    SourceFilePath = sourceFile.FilePath,
+                    SourceProjectPath = sourceProject.FilePath,
+                    sourceProject.BuildMetadata
                 })
             .ToListAsync(cancellationToken);
 
         return candidateData
+            .Where(x => !x.BuildMetadata.IsTestProject)
+            .Where(x => !IsLikelyTestPath(x.SourceFilePath) && !IsLikelyTestPath(x.SourceProjectPath))
             .Select(x => new CandidateSelectionRow(
                 x.Id,
                 x.Name,
@@ -127,5 +131,20 @@ public sealed class CandidateMethodSelector
                 x.LineRate,
                 x.Complexity))
             .ToList();
+    }
+
+    private static bool IsLikelyTestPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        var normalized = path.Replace('\\', '/');
+        return normalized.StartsWith("test/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("tests/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("/test/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("/tests/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains(".tests/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains(".test/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.EndsWith(".Tests.csproj", StringComparison.OrdinalIgnoreCase) ||
+               normalized.EndsWith(".Test.csproj", StringComparison.OrdinalIgnoreCase);
     }
 }

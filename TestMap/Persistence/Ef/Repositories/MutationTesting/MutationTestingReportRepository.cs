@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.Code;
+using TestMap.Models.MutationTesting;
 using TestMap.Models.Results;
 using TestMap.Persistence.Ef.Entities.MutationTesting;
 using TestMap.Persistence.Ef.Mappings;
@@ -31,20 +32,34 @@ public class MutationTestingReportRepository
         StrykerMutationResults model,
         int projectId,
         int? testRunId,
-        double mutationScore)
+        double mutationScore,
+        MutationTestingReportScope? scope = null)
     {
+        scope ??= MutationTestingReportScope.SolutionBaseline();
         var existing = await _context.MutationTestingReports.FirstOrDefaultAsync(x =>
             x.ProjectId == projectId &&
             x.TestRunId == testRunId &&
+            x.ExperimentRunId == scope.ExperimentRunId &&
+            x.ScopeKind == scope.ScopeKind &&
+            x.IsBaseline == scope.IsBaseline &&
+            x.SourceProjectPath == scope.SourceProjectPath &&
+            x.TestProjectPath == scope.TestProjectPath &&
+            x.TargetFramework == scope.TargetFramework &&
             x.SchemaVersion == model.schemaVersion &&
             x.ProjectRoot == model.projectRoot);
 
         if (existing != null)
         {
-            if (HasChanged(existing, model, testRunId, mutationScore))
+            if (HasChanged(existing, model, testRunId, mutationScore, scope))
             {
                 existing.MutationScore = mutationScore;
                 existing.TestRunId = testRunId;
+                existing.ExperimentRunId = scope.ExperimentRunId;
+                existing.ScopeKind = scope.ScopeKind;
+                existing.IsBaseline = scope.IsBaseline;
+                existing.SourceProjectPath = scope.SourceProjectPath;
+                existing.TestProjectPath = scope.TestProjectPath;
+                existing.TargetFramework = scope.TargetFramework;
                 existing.Files = model.files;
                 existing.TestFiles = model.testFiles;
                 existing.Thresholds = model.thresholds;
@@ -55,7 +70,7 @@ public class MutationTestingReportRepository
             return existing.Id;
         }
 
-        var entity = model.ToEntity(projectId, testRunId, mutationScore);
+        var entity = model.ToEntity(projectId, testRunId, mutationScore, scope);
         _context.MutationTestingReports.Add(entity);
         await _context.SaveChangesAsync();
         await PersistMutantsAsync(entity.Id, model);
@@ -67,14 +82,54 @@ public class MutationTestingReportRepository
         return await _context.MutationTestingReports.AnyAsync(x => x.ProjectId == projectId);
     }
 
+    public async Task<double?> GetLatestSourceProjectBaselineScoreAsync(
+        int projectId,
+        int? experimentRunId,
+        string sourceProjectPath,
+        string testProjectPath,
+        string? targetFramework,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = MutationTestingReportScope.SourceProject(
+            true,
+            experimentRunId,
+            sourceProjectPath,
+            testProjectPath,
+            targetFramework);
+
+        var query = _context.MutationTestingReports
+            .Where(x =>
+                x.ProjectId == projectId &&
+                x.ScopeKind == scope.ScopeKind &&
+                x.IsBaseline &&
+                x.SourceProjectPath == scope.SourceProjectPath &&
+                x.TestProjectPath == scope.TestProjectPath &&
+                x.TargetFramework == scope.TargetFramework);
+
+        if (experimentRunId.HasValue)
+            query = query.Where(x => x.ExperimentRunId == experimentRunId);
+
+        return await query
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => (double?)x.MutationScore)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     private static bool HasChanged(
         MutationTestingReportEntity entity,
         StrykerMutationResults model,
         int? testRunId,
-        double mutationScore)
+        double mutationScore,
+        MutationTestingReportScope scope)
     {
         return entity.MutationScore != mutationScore ||
                entity.TestRunId != testRunId ||
+               entity.ExperimentRunId != scope.ExperimentRunId ||
+               entity.ScopeKind != scope.ScopeKind ||
+               entity.IsBaseline != scope.IsBaseline ||
+               entity.SourceProjectPath != scope.SourceProjectPath ||
+               entity.TestProjectPath != scope.TestProjectPath ||
+               entity.TargetFramework != scope.TargetFramework ||
                entity.SchemaVersion != model.schemaVersion ||
                entity.ProjectRoot != model.projectRoot;
     }

@@ -1,13 +1,13 @@
 using TestMap.Models.FlakyTestDetection;
-using TestMap.Persistence.Ef.Repositories.FlakyTestDetection;
+using TestMap.Persistence.Ef.Repositories.Testing;
 
 namespace TestMap.Services.FlakyTestDetection;
 
 public class TestExecutionHistoryService : ITestExecutionHistoryService
 {
-    private readonly TestExecutionResultRepository _repository;
+    private readonly TestResultRepository _repository;
 
-    public TestExecutionHistoryService(TestExecutionResultRepository repository)
+    public TestExecutionHistoryService(TestResultRepository repository)
     {
         _repository = repository;
     }

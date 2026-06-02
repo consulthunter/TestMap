@@ -1,4 +1,5 @@
 using TestMap.Models.Generation;
+using TestMap.Services.TestGeneration.Construction;
 
 namespace TestMap.Services.TestGeneration.Context;
 
@@ -44,6 +45,17 @@ public sealed class ContextResolutionService : IContextResolutionService
             };
         }
 
+        if (node.NodeType == "StaticCallTarget")
+        {
+            return new ContextResolutionResult
+            {
+                NodeId = node.NodeId,
+                Success = true,
+                CodeSnippet = string.Empty,
+                Explanation = node.ConstructionHint
+            };
+        }
+
         return new ContextResolutionResult
         {
             NodeId = node.NodeId,
@@ -55,14 +67,6 @@ public sealed class ContextResolutionService : IContextResolutionService
 
     private static string BuildParameterSnippet(string typeName, string variableName)
     {
-        var normalized = typeName.Trim().TrimEnd('?');
-        return normalized switch
-        {
-            "string" or "String" => $"var {variableName} = \"value\";",
-            "int" or "Int32" => $"var {variableName} = 1;",
-            "long" or "Int64" => $"var {variableName} = 1L;",
-            "bool" or "Boolean" => $"var {variableName} = true;",
-            _ => $"var {variableName} = new {normalized}();"
-        };
+        return TestInputConstructionAdvisor.BuildParameterSnippet(typeName, variableName);
     }
 }

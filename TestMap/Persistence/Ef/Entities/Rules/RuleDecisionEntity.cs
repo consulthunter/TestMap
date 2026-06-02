@@ -1,4 +1,5 @@
 using TestMap.Models.Rules;
+using TestMap.Persistence.Ef.Entities.Experiment;
 
 namespace TestMap.Persistence.Ef.Entities.Rules;
 
@@ -12,7 +13,7 @@ public class RuleDecisionEntity
     public int? ExperimentRunId { get; set; }
     public int? CandidateMethodId { get; set; }
     public int? GenerationAttemptId { get; set; }
-    public int? TestExecutionId { get; set; }
+    public int? GeneratedTestExecutionId { get; set; }
     public string DecisionKind { get; set; } = string.Empty;
     public string Value { get; set; } = string.Empty;
     public string RuleId { get; set; } = string.Empty;
@@ -21,4 +22,9 @@ public class RuleDecisionEntity
     public List<RuleEvidenceRecord> Evidence { get; set; } = new();
     public string Notes { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+
+    public virtual ExperimentRunEntity? ExperimentRun { get; set; }
+    public virtual CandidateMethodEntity? CandidateMethod { get; set; }
+    public virtual GenerationAttemptEntity? GenerationAttempt { get; set; }
+    public virtual GeneratedTestExecutionEntity? GeneratedTestExecution { get; set; }
 }

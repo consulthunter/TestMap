@@ -22,9 +22,16 @@ public static class ProjectMappingExtensions
 
     public static ProjectModel ToDomain(this ProjectEntity project)
     {
-        return new ProjectModel
+        return new ProjectModel(
+            gitHubUrl: project.WebUrl ?? string.Empty,
+            owner: project.Owner,
+            repoName: project.RepoName,
+            directoryPath: project.DirectoryPath,
+            databasePath: project.DatabasePath)
         {
-            GitHubUrl = project.WebUrl ?? string.Empty
+            DbId = project.Id,
+            Branch = project.Branch,
+            LastAnalyzedCommit = project.LastAnalyzedCommit
         };
     }
 }

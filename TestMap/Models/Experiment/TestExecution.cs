@@ -21,8 +21,8 @@ public class TestExecution
     public string ValidationResultJson { get; set; } = string.Empty;
     public bool? Accepted { get; set; }
     public string? AcceptanceReason { get; set; }
-    public string ValidationRuleDecisionJson { get; set; } = string.Empty;
-    public string ClassificationRuleDecisionJson { get; set; } = string.Empty;
+    public string ValidationRuleDecisionSnapshotJson { get; set; } = string.Empty;
+    public string ClassificationRuleDecisionSnapshotJson { get; set; } = string.Empty;
     public TestFailureKind FailureKind { get; set; } = TestFailureKind.None;
     public string? CompilationErrors { get; set; }
     public string? RuntimeErrors { get; set; }

@@ -45,6 +45,19 @@ public class MutantEntityConfiguration : IEntityTypeConfiguration<MutantEntity>
         builder.Property(x => x.ContentHash).HasColumnName("content_hash").IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
 
-        builder.HasIndex(x => x.ContentHash).IsUnique();
+        builder.HasMany(x => x.SurvivedTests)
+            .WithOne(x => x.Mutant)
+            .HasForeignKey(x => x.MutantId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(x => new
+            {
+                x.MutationTestingReportId,
+                x.StrykerMutantId,
+                x.FilePath,
+                x.MutatorName,
+                x.ContentHash
+            })
+            .IsUnique();
     }
 }

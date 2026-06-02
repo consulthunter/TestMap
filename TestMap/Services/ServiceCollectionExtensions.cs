@@ -90,7 +90,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITestActionExecutor, ActionAwareTestActionExecutor>();
         services.AddScoped<IGeneratedTestApplicationService, GeneratedTestApplicationService>();
         services.AddScoped<RollbackWorkspaceService>();
-        services.AddScoped<BranchWorkspaceService>();
+        services.AddScoped<IGenerationWorkspaceService, BranchWorkspaceService>();
         services.AddScoped<CollectCoverageResultsService>();
         services.AddScoped<CollectMutationTestingResultsService>();
         services.AddScoped<CollectTestResultsService>();
@@ -153,6 +153,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddScoped<IRepoOperations, RepoOperations.RepoOperations>();
         services.AddScoped<IStaticAnalysisWorkspace, StaticAnalysisWorkspace>();
+        services.AddScoped<IRoslynSourceTestTraceService, RoslynSourceTestTraceService>();
         services.AddScoped<IAnalyzeProjectService, AnalyzeProjectService>();
         services.AddScoped<ICodeMetricsService, CodeMetricsService>();
         services.AddScoped<ITestMetadataEnrichmentService, TestMetadataEnrichmentService>();
@@ -203,7 +204,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MemberCoverageRepository>();
         services.AddScoped<MutationTestingReportRepository>();
         services.AddScoped<CandidateMethodRiskScoreRepository>();
-        services.AddScoped<TestExecutionResultRepository>();
         services.AddScoped<FlakyTestScoreRepository>();
         services.AddScoped<FlakyTestRerunResultRepository>();
         services.AddScoped<TestRunRepository>();
@@ -222,6 +222,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ExperimentRunRepository>();
         services.AddScoped<ExperimentMatrixWorkItemRepository>();
         services.AddScoped<CandidateInventoryRepository>();
+        services.AddScoped<SourceTestMappingRefreshService>();
         services.AddScoped<CandidateMethodRepository>();
         services.AddScoped<GenerationAttemptRepository>();
         services.AddScoped<GenerationStepRepository>();
@@ -239,6 +240,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICandidateSelectionStrategy, RiskWeightedCandidateSelectionStrategy>();
         services.AddScoped<ICandidateSelectionStrategy, MetricDrivenCandidateSelectionStrategy>();
         services.AddScoped<CandidateMethodSelector>();
+        services.AddScoped<ICandidateMethodMetadataService, CandidateMethodMetadataService>();
         services.AddScoped<IMethodSelectionService, MethodSelectionService>();
         services.AddScoped<IExperimentOrchestrationService, ExperimentOrchestrationService>();
         services.AddScoped<IExperimentAnalysisService, ExperimentAnalysisService>();
@@ -327,7 +329,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(configurationService);
         services.AddSingleton(config);
         services.AddScoped<ProjectContext>(_ => context);
-        services.AddScoped<SqliteSchemaCompatibilityService>();
         services.AddScoped<TestMapDatabaseInitializer>();
 
         // Add database

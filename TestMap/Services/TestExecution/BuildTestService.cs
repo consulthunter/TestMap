@@ -107,7 +107,8 @@ public class BuildTestService : IBuildTestService
                 {
                     await RunDockerTargetedMutationAsync(
                         request.MutationSourceProjectPath,
-                        request.TargetProjectPath);
+                        request.TargetProjectPath,
+                        request.TargetFramework);
                     await WaitForActiveContainerAsync(true);
                     _completedMutationTargets.Add(request.MutationSourceProjectPath);
                 }
@@ -171,9 +172,13 @@ public class BuildTestService : IBuildTestService
             }
 
             var testRunId = await _testRunRepository.InsertOrUpdateAsync(result, _context.Project.DbId);
+            await _resultCollector.LinkCoverageReportAsync(testRunId, LatestCoverageReport);
             if (LatestTestResults.Count > 0) await _testResultRepository.InsertAsync(LatestTestResults, testRunId);
             if (_latestMutationReports.Count > 0)
-                await _resultCollector.PersistMutationReportsAsync(testRunId, _latestMutationReports);
+                await _resultCollector.PersistMutationReportsAsync(
+                    testRunId,
+                    _latestMutationReports,
+                    request.CreateMutationReportScope());
 
             var analyzedCommit = _context.Project.Commit ?? _context.CurrentCommit;
             if (!string.IsNullOrWhiteSpace(analyzedCommit))
@@ -253,7 +258,7 @@ public class BuildTestService : IBuildTestService
     {
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
-        var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
+        var imageName = ValidationDockerImage;
         var quotedRunId = QuoteDockerArgument(_runId);
         var quotedSolutions = QuoteDockerArgument(solutions);
 
@@ -281,7 +286,7 @@ public class BuildTestService : IBuildTestService
     {
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
-        var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
+        var imageName = ValidationDockerImage;
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
@@ -348,7 +353,7 @@ public class BuildTestService : IBuildTestService
     {
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
-        var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
+        var imageName = ValidationDockerImage;
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
@@ -370,7 +375,7 @@ public class BuildTestService : IBuildTestService
     {
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
-        var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
+        var imageName = ValidationDockerImage;
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
@@ -391,7 +396,7 @@ public class BuildTestService : IBuildTestService
     {
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
-        var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
+        var imageName = ValidationDockerImage;
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
@@ -408,11 +413,14 @@ public class BuildTestService : IBuildTestService
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
 
-    private async Task RunDockerTargetedMutationAsync(string sourceProjectPath, string testProjectPath)
+    private async Task RunDockerTargetedMutationAsync(
+        string sourceProjectPath,
+        string testProjectPath,
+        string? targetFramework)
     {
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
-        var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
+        var imageName = ValidationDockerImage;
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
@@ -426,6 +434,7 @@ public class BuildTestService : IBuildTestService
             _runId,
             GetContainerPath(sourceProjectPath),
             GetContainerPath(testProjectPath),
+            targetFramework,
             WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
@@ -446,7 +455,7 @@ public class BuildTestService : IBuildTestService
     {
         var localDir = _context.Project.DirectoryPath!;
         var context = CurrentDockerContext;
-        var imageName = _context.Project.Config.RuntimeConfig.Docker.Image;
+        var imageName = ValidationDockerImage;
 
         await _dockerCommandRunner.EnsureDockerContextReadyAsync(context);
         await RemoveContainerIfExistsAsync(_containerName);
@@ -755,11 +764,14 @@ public class BuildTestService : IBuildTestService
 
     private string CurrentDockerContext =>
         string.IsNullOrWhiteSpace(_dockerContextOverride)
-            ? _context.Project.Config.RuntimeConfig.Docker.Context
+            ? _context.Project.Config.RuntimeConfig.Docker.DefaultContext
             : _dockerContextOverride;
 
     private string WindowsNetwork =>
         _context.Project.Config.RuntimeConfig.Docker.WindowsNetwork;
+
+    private string ValidationDockerImage =>
+        _context.Project.Config.RuntimeConfig.Docker.Images.ValidationSdkAll;
 
     private static string ResolveDockerOs(string dockerContext)
     {
@@ -771,7 +783,7 @@ public class BuildTestService : IBuildTestService
     private string ResolveDockerContext(bool requiresWindows)
     {
         return BuildTestDockerCommandFactory.ResolveDockerContext(
-            _context.Project.Config.RuntimeConfig.Docker.Context,
+            _context.Project.Config.RuntimeConfig.Docker.DefaultContext,
             requiresWindows,
             _pathMapper);
     }

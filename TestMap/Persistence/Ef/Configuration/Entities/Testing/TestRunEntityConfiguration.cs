@@ -30,5 +30,7 @@ public class TestRunEntityConfiguration : IEntityTypeConfiguration<TestRunEntity
                     ? null
                     : JsonSerializer.Deserialize<FailureAnalysisModel>(v, (JsonSerializerOptions?)null));
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
+
+        builder.HasIndex(x => x.RunId).IsUnique();
     }
 }

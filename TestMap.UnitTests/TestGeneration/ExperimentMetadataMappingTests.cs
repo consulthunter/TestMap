@@ -29,7 +29,7 @@ public sealed class ExperimentMetadataMappingTests
             AttemptNumber = 2,
             IsRepairAttempt = true,
             ParentAttemptId = 9,
-            RuleDecisionJson = "[]",
+            RuleDecisionSnapshotJson = "[]",
             StartedAt = DateTime.UtcNow
         };
 
@@ -61,14 +61,14 @@ public sealed class ExperimentMetadataMappingTests
             Response = "",
             Success = true,
             StartedAt = DateTime.UtcNow,
-            RuleDecisionJson = "[]"
+            RuleDecisionSnapshotJson = "[]"
         };
 
         var roundTrip = step.ToEntity().ToDomain();
 
         Assert.Equal(GenerationStepStatus.Fallback, roundTrip.Status);
         Assert.Equal("disabled by ablation", roundTrip.SkipReason);
-        Assert.Equal("[]", roundTrip.RuleDecisionJson);
+        Assert.Equal("[]", roundTrip.RuleDecisionSnapshotJson);
     }
 
     [Fact]
@@ -82,8 +82,8 @@ public sealed class ExperimentMetadataMappingTests
             CoverageImprovement = 0.2,
             Classification = TestClassification.FailedEvidencePositive,
             ValidationResultJson = "{\"CoverageImproved\":true}",
-            ValidationRuleDecisionJson = "[]",
-            ClassificationRuleDecisionJson = "[]",
+            ValidationRuleDecisionSnapshotJson = "[]",
+            ClassificationRuleDecisionSnapshotJson = "[]",
             ExecutedAt = DateTime.UtcNow
         };
 
@@ -91,15 +91,15 @@ public sealed class ExperimentMetadataMappingTests
 
         Assert.Equal(TestClassification.FailedEvidencePositive, roundTrip.Classification);
         Assert.Equal("{\"CoverageImproved\":true}", roundTrip.ValidationResultJson);
-        Assert.Equal("[]", roundTrip.ValidationRuleDecisionJson);
-        Assert.Equal("[]", roundTrip.ClassificationRuleDecisionJson);
+        Assert.Equal("[]", roundTrip.ValidationRuleDecisionSnapshotJson);
+        Assert.Equal("[]", roundTrip.ClassificationRuleDecisionSnapshotJson);
     }
 
     [Fact]
     [Trait("Category", "Unit")]
     public void TestExecutionMapping_RejectsOldOutcomeLabels()
     {
-        var entity = new TestMap.Persistence.Ef.Entities.Experiment.TestExecutionEntity
+        var entity = new TestMap.Persistence.Ef.Entities.Experiment.GeneratedTestExecutionEntity
         {
             GenerationAttemptId = 1,
             TestClassification = "Approved",

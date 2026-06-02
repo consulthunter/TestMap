@@ -14,7 +14,7 @@ public class CandidateInventoryRepository
         _context = context;
     }
 
-    public async Task ReplaceForProjectStrategyAsync(
+    public async Task<IReadOnlyList<CandidateInventoryItem>> ReplaceForProjectStrategyAsync(
         int projectId,
         TargetSelectionStrategy strategy,
         IReadOnlyCollection<CandidateInventoryItem> items,
@@ -27,13 +27,12 @@ public class CandidateInventoryRepository
 
         if (existing.Count > 0) _context.CandidateInventory.RemoveRange(existing);
 
-        if (items.Count > 0)
-        {
-            var entities = items.Select(x => x.ToEntity()).ToList();
-            _context.CandidateInventory.AddRange(entities);
-        }
+        var entities = items.Select(x => x.ToEntity()).ToList();
+        if (entities.Count > 0) _context.CandidateInventory.AddRange(entities);
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        return entities.Select(x => x.ToDomain()).ToList();
     }
 
     public Task<int> CountAsync(

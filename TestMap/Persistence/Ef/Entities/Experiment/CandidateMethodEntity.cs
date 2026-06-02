@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Persistence.Ef.Entities.Rules;
 
 namespace TestMap.Persistence.Ef.Entities.Experiment;
 
@@ -6,6 +7,7 @@ public class CandidateMethodEntity
 {
     public int Id { get; set; }
     public int ExperimentRunId { get; set; }
+    public int? CandidateInventoryId { get; set; }
     public int SourceMemberId { get; set; }
     public int? ExistingTestMemberId { get; set; }
     [MaxLength(500)] public string SourceMethodName { get; set; } = string.Empty;
@@ -26,10 +28,20 @@ public class CandidateMethodEntity
     [MaxLength(50)] public string TestState { get; set; } = string.Empty;
     [MaxLength(50)] public string RecommendedAction { get; set; } = string.Empty;
     public string TestStateReason { get; set; } = string.Empty;
+    public string TestIntentionsSummary { get; set; } = string.Empty;
+    public string TypeConstructionSummary { get; set; } = string.Empty;
+    public string CandidateMetadataJson { get; set; } = "{}";
     public DateTime SelectionTime { get; set; }
 
     public virtual ExperimentRunEntity? ExperimentRun { get; set; }
+    public virtual CandidateInventoryEntity? CandidateInventory { get; set; }
 
     public virtual ICollection<GenerationAttemptEntity> GenerationAttempts { get; set; } =
         new List<GenerationAttemptEntity>();
+
+    public virtual ICollection<ExperimentMatrixWorkItemEntity> ExperimentMatrixWorkItems { get; set; } =
+        new List<ExperimentMatrixWorkItemEntity>();
+
+    public virtual ICollection<RuleDecisionEntity> RuleDecisions { get; set; } =
+        new List<RuleDecisionEntity>();
 }

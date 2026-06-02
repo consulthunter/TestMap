@@ -19,6 +19,11 @@ public class InvocationEntityConfiguration : IEntityTypeConfiguration<Invocation
         builder.Property(x => x.InvokedMemberId).HasColumnName("invoked_member_id");
         builder.Property(x => x.IsAssertion).HasColumnName("is_assertion").IsRequired();
         builder.Property(x => x.FullString).HasColumnName("full_string").IsRequired();
+        builder.Property(x => x.ResolutionStatus).HasColumnName("resolution_status").HasMaxLength(50);
+        builder.Property(x => x.TargetSymbol).HasColumnName("target_symbol");
+        builder.Property(x => x.SyntaxKind).HasColumnName("syntax_kind").HasMaxLength(100);
+        builder.Property(x => x.CallerMemberSymbol).HasColumnName("caller_member_symbol");
+        builder.Property(x => x.CallerFilePath).HasColumnName("caller_file_path");
         builder.Property(x => x.Location)
             .HasColumnName("location")
             .HasConversion(

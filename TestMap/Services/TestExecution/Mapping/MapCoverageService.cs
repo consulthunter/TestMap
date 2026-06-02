@@ -155,6 +155,16 @@ public class MapCoverageService(
         await dbContext.SaveChangesAsync();
     }
 
+    public async Task LinkToTestRunAsync(CoverageReportModel report, int testRunId)
+    {
+        var entity = await dbContext.CoverageReports.FirstOrDefaultAsync(x =>
+            x.ProjectId == context.Project.DbId && x.Timestamp == report.Timestamp);
+        if (entity == null || entity.TestRunId == testRunId) return;
+
+        entity.TestRunId = testRunId;
+        await dbContext.SaveChangesAsync();
+    }
+
     private static List<CoverageGapModel> BuildCoverageGaps(
         MemberCoverageModel memberCoverage,
         Models.Code.MemberModel memberModel,

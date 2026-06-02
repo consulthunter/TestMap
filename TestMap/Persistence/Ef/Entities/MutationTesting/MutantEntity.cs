@@ -19,4 +19,8 @@ public class MutantEntity
     public List<string> KilledBy { get; set; } = new();
     public string ContentHash { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public virtual MutationTestingReportEntity? MutationTestingReport { get; set; }
+    public virtual ICollection<MutantSurvivedTestEntity> SurvivedTests { get; set; } =
+        new List<MutantSurvivedTestEntity>();
 }

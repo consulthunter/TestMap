@@ -50,10 +50,21 @@ public class InvocationRepository
 
         if (existing != null)
         {
-            if (existing.ContentHash != model.ContentHash || existing.IsAssertion != model.IsAssertion)
+            if (existing.ContentHash != model.ContentHash ||
+                existing.IsAssertion != model.IsAssertion ||
+                existing.ResolutionStatus != model.ResolutionStatus ||
+                existing.TargetSymbol != model.TargetSymbol ||
+                existing.SyntaxKind != model.SyntaxKind ||
+                existing.CallerMemberSymbol != model.CallerMemberSymbol ||
+                existing.CallerFilePath != model.CallerFilePath)
             {
                 existing.ContentHash = model.ContentHash;
                 existing.IsAssertion = model.IsAssertion;
+                existing.ResolutionStatus = model.ResolutionStatus;
+                existing.TargetSymbol = model.TargetSymbol;
+                existing.SyntaxKind = model.SyntaxKind;
+                existing.CallerMemberSymbol = model.CallerMemberSymbol;
+                existing.CallerFilePath = model.CallerFilePath;
                 await _context.SaveChangesAsync();
             }
 

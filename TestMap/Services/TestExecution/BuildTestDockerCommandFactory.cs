@@ -129,14 +129,19 @@ internal static class BuildTestDockerCommandFactory
         string runId,
         string containerSourceProjectPath,
         string containerTestProjectPath,
+        string? targetFramework,
         string windowsNetwork = "")
     {
+        var frameworkArgs = string.IsNullOrWhiteSpace(targetFramework)
+            ? string.Empty
+            : $" --target-framework {Quote(targetFramework)}";
+
         return CreateRunnerArgs(
             dockerContext,
             containerName,
             mount,
             imageName,
-            $"dotnet-stryker-project --run-id {Quote(runId)} --report-name {Quote(Path.GetFileNameWithoutExtension(containerSourceProjectPath))} --project {Quote(Path.GetFileName(containerSourceProjectPath))} --test-project {Quote(containerTestProjectPath)}",
+            $"dotnet-stryker-project --run-id {Quote(runId)} --report-name {Quote(Path.GetFileNameWithoutExtension(containerSourceProjectPath))} --project {Quote(containerSourceProjectPath)} --test-project {Quote(containerTestProjectPath)}{frameworkArgs}",
             windowsNetwork);
     }
 

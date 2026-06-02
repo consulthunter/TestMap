@@ -11,6 +11,7 @@ public static class CandidateMethodMappingExtensions
         {
             Id = entity.Id,
             ExperimentRunId = entity.ExperimentRunId,
+            CandidateInventoryId = entity.CandidateInventoryId,
             MemberId = entity.SourceMemberId,
             ExistingTestMemberId = entity.ExistingTestMemberId,
             MethodName = entity.SourceMethodName,
@@ -34,6 +35,9 @@ public static class CandidateMethodMappingExtensions
                 ? action
                 : CandidateActionKind.None,
             TestStateReason = entity.TestStateReason,
+            TestIntentionsSummary = entity.TestIntentionsSummary,
+            TypeConstructionSummary = entity.TypeConstructionSummary,
+            CandidateMetadataJson = entity.CandidateMetadataJson,
             SelectionTime = entity.SelectionTime
         };
     }
@@ -44,6 +48,7 @@ public static class CandidateMethodMappingExtensions
         {
             Id = candidateMethod.Id,
             ExperimentRunId = candidateMethod.ExperimentRunId,
+            CandidateInventoryId = candidateMethod.CandidateInventoryId,
             SourceMemberId = candidateMethod.MemberId,
             ExistingTestMemberId = candidateMethod.ExistingTestMemberId,
             SourceMethodName = candidateMethod.MethodName,
@@ -64,6 +69,9 @@ public static class CandidateMethodMappingExtensions
             TestState = candidateMethod.TestState.ToString(),
             RecommendedAction = candidateMethod.RecommendedAction.ToString(),
             TestStateReason = candidateMethod.TestStateReason,
+            TestIntentionsSummary = candidateMethod.TestIntentionsSummary,
+            TypeConstructionSummary = candidateMethod.TypeConstructionSummary,
+            CandidateMetadataJson = candidateMethod.CandidateMetadataJson,
             SelectionTime = candidateMethod.SelectionTime == default ? DateTime.UtcNow : candidateMethod.SelectionTime
         };
     }

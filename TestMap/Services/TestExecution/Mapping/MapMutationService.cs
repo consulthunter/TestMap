@@ -1,4 +1,5 @@
 using TestMap.App;
+using TestMap.Models.MutationTesting;
 using TestMap.Models.Results;
 using TestMap.Persistence.Ef.Repositories.MutationTesting;
 
@@ -8,7 +9,10 @@ public class MapMutationService(
     ProjectContext context,
     MutationTestingReportRepository mutationTestingReportRepository)
 {
-    public async Task<double> MapAsync(StrykerMutationResults report, int? testRunId = null)
+    public async Task<double> MapAsync(
+        StrykerMutationResults report,
+        int? testRunId = null,
+        MutationTestingReportScope? scope = null)
     {
         if (context.Project.DbId == 0)
         {
@@ -17,7 +21,7 @@ public class MapMutationService(
         }
 
         var score = CalculateMutationScore(report);
-        await mutationTestingReportRepository.InsertOrUpdateAsync(report, context.Project.DbId, testRunId, score);
+        await mutationTestingReportRepository.InsertOrUpdateAsync(report, context.Project.DbId, testRunId, score, scope);
         return score;
     }
 

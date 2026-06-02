@@ -27,4 +27,6 @@ public class ExperimentMatrixWorkItemEntity
 
     public virtual ExperimentRunEntity? ExperimentRun { get; set; }
     public virtual CandidateMethodEntity? CandidateMethod { get; set; }
+    public virtual ICollection<GenerationAttemptEntity> GenerationAttempts { get; set; } =
+        new List<GenerationAttemptEntity>();
 }

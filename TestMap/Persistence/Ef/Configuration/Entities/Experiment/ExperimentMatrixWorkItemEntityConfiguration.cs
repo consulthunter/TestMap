@@ -42,7 +42,7 @@ public sealed class ExperimentMatrixWorkItemEntityConfiguration : IEntityTypeCon
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne(x => x.CandidateMethod)
-            .WithMany()
+            .WithMany(x => x.ExperimentMatrixWorkItems)
             .HasForeignKey(x => x.CandidateMethodId)
             .OnDelete(DeleteBehavior.Cascade);
     }

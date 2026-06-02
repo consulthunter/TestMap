@@ -11,9 +11,21 @@
       "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
     },
     "Docker": {
-      "Image": "net-sdk-all",
-      "Context": "desktop-linux",
-      "WindowsNetwork": "nat"
+      "DefaultContext": "desktop-linux",
+      "WindowsContext": "desktop-windows",
+      "WindowsNetwork": "nat",
+      "Images": {
+        "ValidationSdkAll": "testmap-validation-sdk-all:latest",
+        "AgentTools": {
+          "codex": "testmap-agent-eval-codex:latest",
+          "claude": "testmap-agent-eval-claude:latest",
+          "copilot": "testmap-agent-eval-copilot:latest",
+          "openhands": "testmap-agent-eval-openhands:latest",
+          "mini-swe-agent": "testmap-agent-eval-mini-swe-agent:latest",
+          "aider": "testmap-agent-eval-aider:latest",
+          "gemini": "testmap-agent-eval-gemini:latest"
+        }
+      }
     },
     "Frameworks": {
       "NUnit": [
@@ -52,13 +64,16 @@
       "TargetSelection": {
         "Strategy": "existing",
         "CandidateLimit": 20,
-        "ContextMappingMode": "heuristic-with-grounded-preference"
+        "ContextMappingMode": "heuristic-with-grounded-preference",
+        "MaxTestCodeDepth": 3,
+        "MaxProductionCallDepth": 3,
+        "MaxIndirectInvocationDepth": 2
       },
       "Steps": {
         "EnableEvidencePackage": true,
-        "EnableContextGraph": false,
-        "EnableContextResolution": false,
-        "EnableRoslynValidation": false,
+        "EnableContextGraph": true,
+        "EnableContextResolution": true,
+        "EnableRoslynValidation": true,
         "EnableScenario": true,
         "EnableMethodName": true,
         "EnableArrangePlan": true,
@@ -161,12 +176,9 @@
     "GenerationApproach": "metrics-driven",
     "Executor": "basic-extension",
     "Approaches": [
-      "naive",
       "metrics-driven"
     ],
     "MetricsPaths": [
-      "coverage",
-      "mutation",
       "coverage-and-mutation"
     ],
     "BudgetModes": [
@@ -174,10 +186,9 @@
       "pass-at5",
       "pass-at1-repair-at5"
     ],
-    "ContextMappingMode": "direct-invocation-only",
-    "CompareHistoryModes": true,
+    "ContextMappingMode": "heuristic-with-grounded-preference",
+    "CompareHistoryModes": false,
     "ContextModes": [
-      "no-history",
       "chained-history"
     ],
     "StepAblation": {
@@ -204,7 +215,7 @@
       "CustomOpenAi"
     ],
     "PreferredProvider": "CustomOpenAi",
-    "CandidateLimit": 20,
+    "CandidateLimit": 10,
     "MinCoverageThreshold": 0.0,
     "MaxCoverageThreshold": 0.99,
     "StepErrorRetries": 3,

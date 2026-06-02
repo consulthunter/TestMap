@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Persistence.Ef.Entities.Rules;
 
 namespace TestMap.Persistence.Ef.Entities.Experiment;
 
@@ -17,4 +18,7 @@ public class ExperimentRunEntity
 
     public virtual ICollection<CandidateMethodEntity> CandidateMethods { get; set; } =
         new List<CandidateMethodEntity>();
+
+    public virtual ICollection<RuleDecisionEntity> RuleDecisions { get; set; } =
+        new List<RuleDecisionEntity>();
 }

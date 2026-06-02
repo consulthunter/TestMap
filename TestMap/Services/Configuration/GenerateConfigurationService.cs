@@ -37,8 +37,19 @@ public class GenerateConfigurationService(string configurationFilePath, string b
         config.RuntimeConfig.MaxConcurrency = 5;
         config.RuntimeConfig.RunDateFormat = "yyyy-MM-dd";
 
-        config.RuntimeConfig.Docker.Context = "desktop-linux";
-        config.RuntimeConfig.Docker.Image = "net-sdk-all";
+        config.RuntimeConfig.Docker.DefaultContext = "desktop-linux";
+        config.RuntimeConfig.Docker.WindowsContext = "desktop-windows";
+        config.RuntimeConfig.Docker.Images.ValidationSdkAll = SetupService.ValidationImageName;
+        config.RuntimeConfig.Docker.Images.AgentTools = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["codex"] = $"{SetupService.AgentToolImagePrefix}codex:latest",
+            ["claude"] = $"{SetupService.AgentToolImagePrefix}claude:latest",
+            ["copilot"] = $"{SetupService.AgentToolImagePrefix}copilot:latest",
+            ["openhands"] = $"{SetupService.AgentToolImagePrefix}openhands:latest",
+            ["mini-swe-agent"] = $"{SetupService.AgentToolImagePrefix}mini-swe-agent:latest",
+            ["aider"] = $"{SetupService.AgentToolImagePrefix}aider:latest",
+            ["gemini"] = $"{SetupService.AgentToolImagePrefix}gemini:latest"
+        };
 
         config.RuntimeConfig.Frameworks = new Dictionary<string, List<string>>
         {
