@@ -1,3 +1,4 @@
+using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 
@@ -11,10 +12,6 @@ public class ExperimentConfig
     public TestGenerationObjective Objective { get; set; } = TestGenerationObjective.TestSuiteExpansion;
     public TargetSelectionStrategy? CandidateSelectionStrategy { get; set; }
     public TestContextMappingMode? ContextMappingMode { get; set; }
-    public TestGenerationApproach GenerationApproach { get; set; } =
-        TestGenerationApproach.MetricsDriven;
-    public TestActionExecutorMode Executor { get; set; } =
-        TestActionExecutorMode.BasicExtension;
     public List<TestGenerationApproach> Approaches { get; set; } =
     [
         TestGenerationApproach.MetricsDriven
@@ -44,4 +41,6 @@ public class ExperimentConfig
     public int StepErrorRetries { get; set; } = 0;
     public int StepRetryDelayMs { get; set; } = 1000;
     public ExperimentResumeConfig Resume { get; set; } = new();
+    public ExperimentEvaluationConfig Evaluation { get; set; } = new();
+    public List<ExperimentToolConfig> Tools { get; set; } = new();
 }

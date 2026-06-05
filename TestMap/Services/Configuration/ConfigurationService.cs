@@ -65,6 +65,7 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
 
         Config.AiProviderConfig.GoogleGemini.ApiKey = GetConfiguredValue(
             Config.AiProviderConfig.GoogleGemini.ApiKey,
+            "GEMINI_API_KEY",
             "GOOGLE_GEMINI_API_KEY",
             "GOOGLE_API_KEY");
 
@@ -81,6 +82,11 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
         Config.AiProviderConfig.CustomOpenAi.ApiKey = GetConfiguredValue(
             Config.AiProviderConfig.CustomOpenAi.ApiKey,
             "CUSTOM_API_KEY");
+
+        Config.AiProviderConfig.Anthropic.ApiKey = GetConfiguredValue(
+            Config.AiProviderConfig.Anthropic.ApiKey,
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_KEY");
     }
 
     private async Task ReadTargetAsync()

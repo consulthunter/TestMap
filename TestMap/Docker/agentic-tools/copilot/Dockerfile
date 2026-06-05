@@ -13,4 +13,6 @@ RUN chmod +x /runner/common/agent-runner-lib.sh /runner/run-copilot.sh
 
 WORKDIR /workspace
 
+USER testmap-agent
+
 ENTRYPOINT ["/runner/run-copilot.sh"]

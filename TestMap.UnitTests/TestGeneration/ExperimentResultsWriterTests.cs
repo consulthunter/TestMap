@@ -80,7 +80,7 @@ public sealed class ExperimentResultsWriterTests
 
             var text = await File.ReadAllTextAsync(path);
 
-            Assert.Contains("experiment_run_id,repo_url,repo_owner", text);
+            Assert.Contains("experiment_run_id,producer_lane,tool_id,tool_run_status,tool_validation_outcome,tool_artifact_path,tool_changed_files_count,tool_attempt_targeted_baseline_id,tool_post_attempt_test_run_id,repo_url", text);
             Assert.DoesNotContain("metrics_path", text);
             Assert.Contains("source_method_mi,source_method_cc,source_method_coupling,source_method_dit,source_method_sloc,source_method_eloc", text);
             Assert.Contains("baseline_test_mi,baseline_test_cc,baseline_test_coupling,baseline_test_dit,baseline_test_sloc,baseline_test_eloc", text);
@@ -89,6 +89,7 @@ public sealed class ExperimentResultsWriterTests
             Assert.Contains("source_member_visibility,access_strategy,access_path_member_ids,test_mapping_count,setup_binding_count", text);
             Assert.Contains("candidate_test_intentions_summary,candidate_type_construction_summary,candidate_metadata_json", text);
             Assert.Contains("tool_observed_outcome", text);
+            Assert.Contains("testmap", text);
             Assert.DoesNotContain(",classification,", text);
             Assert.Contains("\"Method,WithComma\"", text);
             Assert.Contains("\"{\"\"intentions\"\":1}\"", text);

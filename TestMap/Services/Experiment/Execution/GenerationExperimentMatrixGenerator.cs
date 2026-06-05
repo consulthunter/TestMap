@@ -31,9 +31,7 @@ public sealed class GenerationExperimentMatrixGenerator : IGenerationExperimentM
             _testMapConfig.TestingConfig.GenerationConfig.Steps);
         decisions.AddRange(stepVariants.RuleDecisions);
 
-        var approaches = config.Approaches.Count > 0
-            ? config.Approaches.Distinct().ToList()
-            : [config.GenerationApproach];
+        var approaches = config.Approaches.Distinct().ToList();
         var budgetModes = config.BudgetModes.Count > 0
             ? config.BudgetModes.Distinct().ToList()
             : [GenerationBudgetMode.PassAt1];

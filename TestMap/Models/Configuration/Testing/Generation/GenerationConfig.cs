@@ -20,4 +20,5 @@ public class GenerationConfig
     public TargetSelectionConfig TargetSelection { get; set; } = new();
     public TestBootstrapConfig Bootstrap { get; set; } = new();
     public TestAcceptanceConfig Acceptance { get; set; } = new();
+    public GenerationProducerConfig Producer { get; set; } = new();
 }

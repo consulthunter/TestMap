@@ -6,6 +6,7 @@ using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories;
 using TestMap.Persistence.Ef.Repositories.Code;
 using TestMap.Persistence.Ef.Repositories.Coverage;
+using TestMap.Persistence.Ef.Repositories.AgentTools;
 using TestMap.Persistence.Ef.Repositories.Experiment;
 using TestMap.Persistence.Ef.Repositories.FlakyTestDetection;
 using TestMap.Persistence.Ef.Repositories.MutationTesting;
@@ -41,8 +42,11 @@ using TestMap.Services.TestGeneration.Editing;
 using TestMap.Services.TestGeneration.Execution;
 using TestMap.Services.TestGeneration.Strategies;
 using TestMap.Services.TestGeneration.Workspace;
+using TestMap.Services.AgentTools;
+using TestMap.Services.Experiment.Evaluation;
 using TestMap.Services.Experiment.Execution;
 using TestMap.Services.Experiment.Reporting;
+using TestMap.Services.Experiment.TaskCards;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.TargetSelection.Strategies;
 using TestMap.Services.TestGeneration.Validation;
@@ -99,6 +103,23 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MapMutationService>();
         services.AddRiskScoring();
         services.AddFlakyTestDetection();
+        services.AddAgentToolServices();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Adds agent tool evaluation services.
+    /// Note: IAgentToolRunner is NOT registered globally. Production call sites choose the
+    /// Docker runner explicitly, while tests can provide local test doubles.
+    /// </summary>
+    public static IServiceCollection AddAgentToolServices(this IServiceCollection services)
+    {
+        services.AddScoped<IAgentToolEnvironmentResolver, AgentToolEnvironmentResolver>();
+        services.AddScoped<DockerToolRunner>();
+        services.AddScoped<ToolAttemptRepository>();
+        services.AddScoped<ToolAttemptGeneratedTestRepository>();
+        services.AddScoped<TaskCardWriter>();
 
         return services;
     }
@@ -227,6 +248,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<GenerationAttemptRepository>();
         services.AddScoped<GenerationStepRepository>();
         services.AddScoped<TestExecutionRepository>();
+        services.AddScoped<ISourceTestMappingRefreshService>(sp =>
+            sp.GetRequiredService<SourceTestMappingRefreshService>());
 
         return services;
     }
@@ -249,6 +272,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IGenerationExperimentMatrixGenerator, GenerationExperimentMatrixGenerator>();
         services.AddScoped<IGenerationBudgetExecutor, GenerationBudgetExecutor>();
         services.AddScoped<IExperimentResumeService, ExperimentResumeService>();
+        services.AddScoped<ITargetedBaselineService, TargetedBaselineService>();
+        services.AddScoped<IToolPostAttemptRefreshService, ToolPostAttemptRefreshService>();
+        services.AddScoped<IToolPostAttemptAnalysisService, ToolPostAttemptAnalysisService>();
+        services.AddScoped<IToolAttemptGeneratedTestService, ToolAttemptGeneratedTestService>();
+        services.AddScoped<IToolPostAttemptMeasurementService, ToolPostAttemptMeasurementService>();
 
         return services;
     }
@@ -328,6 +356,7 @@ public static class ServiceCollectionExtensions
         // Add singletons
         services.AddSingleton(configurationService);
         services.AddSingleton(config);
+        services.AddSingleton(config.RuntimeConfig);
         services.AddScoped<ProjectContext>(_ => context);
         services.AddScoped<TestMapDatabaseInitializer>();
 

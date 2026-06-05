@@ -7,6 +7,14 @@ namespace TestMap.Services.Experiment.Reporting;
 public sealed class ExperimentResultFileRow
 {
     public int ExperimentRunId { get; init; }
+    public string ProducerLane { get; init; } = "testmap";
+    public string ToolId { get; init; } = string.Empty;
+    public string ToolRunStatus { get; init; } = string.Empty;
+    public string ToolValidationOutcome { get; init; } = string.Empty;
+    public string ToolArtifactPath { get; init; } = string.Empty;
+    public int ToolChangedFilesCount { get; init; }
+    public int? ToolAttemptTargetedBaselineId { get; init; }
+    public int? ToolPostAttemptTestRunId { get; init; }
     public string RepoUrl { get; init; } = string.Empty;
     public string RepoOwner { get; init; } = string.Empty;
     public string RepoName { get; init; } = string.Empty;

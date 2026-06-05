@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TestMap.App;
+using TestMap.Models.AgentTools;
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
@@ -10,12 +12,17 @@ using TestMap.Models.Rules;
 using TestMap.Models.RiskScoring;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.Experiment;
+using TestMap.Persistence.Ef.Repositories.AgentTools;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
 using TestMap.Rules;
 using TestMap.Rules.Generation;
+using TestMap.Services.AgentTools;
+using TestMap.Services.Experiment.Evaluation;
+using TestMap.Services.Experiment.Evaluation.AgentTools;
 using TestMap.Services.Configuration;
 using TestMap.Services.Rules;
 using TestMap.Services.Experiment.Reporting;
+using TestMap.Services.Experiment.TaskCards;
 using TestMap.Services.TestExecution;
 using TestMap.Services.TestGeneration;
 using TestMap.Services.TestGeneration.Classification;
@@ -53,6 +60,14 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     private readonly IExperimentResultsWriter _resultsWriter;
     private readonly ProjectArtifactCleanupService _artifactCleanupService;
     private readonly TestMapDbContext _dbContext;
+    private readonly DockerToolRunner _dockerToolRunner;
+    private readonly IAgentToolEnvironmentResolver _agentToolEnvironmentResolver;
+    private readonly ToolAttemptRepository _toolAttemptRepo;
+    private readonly TaskCardWriter _taskCardWriter;
+    private readonly ITargetedBaselineService _targetedBaselineService;
+    private readonly IToolPostAttemptAnalysisService _toolPostAttemptAnalysisService;
+    private readonly IToolAttemptGeneratedTestService _toolAttemptGeneratedTestService;
+    private readonly IToolPostAttemptMeasurementService _toolPostAttemptMeasurementService;
 
     private readonly
         IReadOnlyDictionary<TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach,
@@ -61,7 +76,6 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     private readonly RollbackWorkspaceService _workspace;
     private ExperimentConfig? _activeExperimentConfig;
     private int? _activeExperimentRunId;
-    private ITestGenerationApproach? _activeGenerationApproach;
 
     public ExperimentOrchestrationService(
         ProjectContext context,
@@ -86,6 +100,14 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         IExperimentResultsWriter resultsWriter,
         ProjectArtifactCleanupService artifactCleanupService,
         TestMapDbContext dbContext,
+        DockerToolRunner dockerToolRunner,
+        IAgentToolEnvironmentResolver agentToolEnvironmentResolver,
+        ToolAttemptRepository toolAttemptRepo,
+        TaskCardWriter taskCardWriter,
+        ITargetedBaselineService targetedBaselineService,
+        IToolPostAttemptAnalysisService toolPostAttemptAnalysisService,
+        IToolAttemptGeneratedTestService toolAttemptGeneratedTestService,
+        IToolPostAttemptMeasurementService toolPostAttemptMeasurementService,
         IEnumerable<ITestGenerationApproach> generationApproaches,
         RollbackWorkspaceService workspace)
     {
@@ -111,6 +133,14 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _resultsWriter = resultsWriter;
         _artifactCleanupService = artifactCleanupService;
         _dbContext = dbContext;
+        _dockerToolRunner = dockerToolRunner;
+        _agentToolEnvironmentResolver = agentToolEnvironmentResolver;
+        _toolAttemptRepo = toolAttemptRepo;
+        _taskCardWriter = taskCardWriter;
+        _targetedBaselineService = targetedBaselineService;
+        _toolPostAttemptAnalysisService = toolPostAttemptAnalysisService;
+        _toolAttemptGeneratedTestService = toolAttemptGeneratedTestService;
+        _toolPostAttemptMeasurementService = toolPostAttemptMeasurementService;
         _generationApproaches = generationApproaches.ToDictionary(x => x.Strategy);
         _workspace = workspace;
     }
@@ -120,7 +150,6 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CancellationToken cancellationToken = default)
     {
         _activeExperimentConfig = config;
-        _activeGenerationApproach = ResolveGenerationApproach(config.GenerationApproach);
         await _workspace.EnsureWorkspaceReadyAsync(cancellationToken);
         _artifactCleanupService.CleanupProjectDirectory(false);
         var experimentStopwatch = Stopwatch.StartNew();
@@ -128,8 +157,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _context.Project.Logger?.Information("=== Starting Experiment Run ===");
         _context.Project.Logger?.Information($"Providers: {string.Join(", ", config.IncludeProviders)}");
         _context.Project.Logger?.Information($"Budget Modes: {string.Join(", ", config.BudgetModes)}");
-        _context.Project.Logger?.Information($"Generation approach: {config.GenerationApproach}");
-        _context.Project.Logger?.Information($"Executor: {config.Executor}");
+        _context.Project.Logger?.Information($"Approaches: {string.Join(", ", config.Approaches)}");
         _context.Project.Logger?.Information(
             $"Candidate selection override: {config.CandidateSelectionStrategy?.ToString() ?? "<global>"}");
         _context.Project.Logger?.Information($"Candidate limit: {config.CandidateLimit}");
@@ -142,7 +170,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ProjectId = _context.Project.DbId,
             Objective = config.Objective.ToString(),
             CandidateSelectionStrategy = config.CandidateSelectionStrategy?.ToString()
-                                         ?? config.GenerationApproach.ToString(),
+                                         ?? string.Empty,
             CandidateLimit = config.CandidateLimit,
             ResultsFilePath = ResolveResultsFilePath(config),
             Status = "Running"
@@ -166,15 +194,24 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 await SaveRiskScoreAsync(method, cancellationToken);
             }
 
-            var providers = GetProvidersToTest(config);
-            var matrix = _matrixGenerator.Generate(config, providers);
-            await _ruleDecisionRecorder.RecordAsync(
-                _context.Project.DbId,
-                RuleDecisionScope.ExperimentRun(experimentRun.Id),
-                matrix.RuleDecisions,
-                experimentRunId: experimentRun.Id,
-                cancellationToken: cancellationToken);
-            _context.Project.Logger?.Information("Expanded {MatrixCount} experiment matrix item(s).", matrix.Items.Count);
+            var matrix = new GenerationExperimentMatrix();
+            if (config.Evaluation.TestMap.Enabled)
+            {
+                var providers = GetProvidersToTest(config);
+                matrix = _matrixGenerator.Generate(config, providers);
+                await _ruleDecisionRecorder.RecordAsync(
+                    _context.Project.DbId,
+                    RuleDecisionScope.ExperimentRun(experimentRun.Id),
+                    matrix.RuleDecisions,
+                    experimentRunId: experimentRun.Id,
+                    cancellationToken: cancellationToken);
+                _context.Project.Logger?.Information("Expanded {MatrixCount} experiment matrix item(s).", matrix.Items.Count);
+            }
+
+            var configuredTools = ResolveConfiguredTools(config);
+            var toolAvailabilityPlan = new AgentToolAvailabilityPlan();
+            if (config.Evaluation.Tools.Enabled)
+                toolAvailabilityPlan = await EnsureToolAvailabilityAsync(config, configuredTools, cancellationToken);
 
             var methodContextsByMemberId = await ResolveCandidateContextsAsync(
                 candidateMethods,
@@ -184,6 +221,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 experimentRun.Id,
                 matrix,
                 methodContextsByMemberId.Values,
+                cancellationToken);
+            var targetedBaselinesByCandidateId = await PrecomputeTargetedBaselinesAsync(
+                experimentRun.Id,
+                candidateMethods,
+                methodContextsByMemberId,
+                toolAvailabilityPlan,
                 cancellationToken);
 
             foreach (var candidateMethod in candidateMethods)
@@ -196,11 +239,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     continue;
                 }
 
-                var matrixApproaches = matrix.Items
-                    .Select(x => x.Approach)
-                    .Distinct()
-                    .ToList();
-                if (matrixApproaches.Count > 0 &&
+                var matrixApproaches = matrix.Items.Select(x => x.Approach).Distinct().ToList();
+                if (config.Evaluation.TestMap.Enabled &&
+                    matrixApproaches.Count > 0 &&
                     matrixApproaches.All(x => ResolveGenerationApproach(x).ShouldSkipGeneration(methodContext)))
                 {
                     _context.Project.Logger?.Information(
@@ -213,91 +254,31 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 candidateMethod.ExistingTestMethodName = methodContext.Method.ExistingTestMethodName;
                 await _candidateMethodRepo.UpdateAsync(candidateMethod, cancellationToken);
 
-                foreach (var matrixItem in matrix.Items)
-                {
-                    var workItem = await EnsureWorkItemAsync(
-                        experimentRun,
-                        candidateMethod,
-                        matrixItem,
-                        cancellationToken);
-                    var resumeDecision = _resumeService.Evaluate(workItem, config.Resume, DateTime.UtcNow);
-                    workItem = resumeDecision.WorkItem;
-                    await _ruleDecisionRecorder.RecordAsync(
-                        _context.Project.DbId,
-                        RuleDecisionScope.ExperimentMatrixWorkItem(workItem.Id),
-                        resumeDecision.RuleDecisions,
-                        experimentRunId: experimentRun.Id,
-                        candidateMethodId: candidateMethod.Id,
-                        cancellationToken: cancellationToken);
-
-                    if (!resumeDecision.ShouldExecute)
-                    {
-                        await _workItemRepo.UpsertAsync(workItem, cancellationToken);
-                        continue;
-                    }
-
-                    _context.Project.Logger?.Information(
-                        "  Variant: {VariantId}",
-                        matrixItem.VariantId);
-
-                    try
-                    {
-                        await _workItemRepo.UpdateStatusAsync(
-                            workItem.Id,
-                            ExperimentMatrixWorkItemStatus.Running,
-                            cancellationToken: cancellationToken);
-
-                        var attempts = await ExecuteGenerationAttemptAsync(
-                            candidateMethod.Id,
+                if (config.Evaluation.TestMap.Enabled)
+                    foreach (var matrixItem in matrix.Items)
+                        await ExecuteTestMapMatrixItemAsync(
+                            experimentRun,
+                            candidateMethod,
                             methodContext,
                             matrixItem,
                             cancellationToken);
 
-                        var persistedAttemptIdsByAttemptNumber = new Dictionary<int, int>();
-                        foreach (var attempt in attempts)
+                if (config.Evaluation.Tools.Enabled)
+                {
+                    targetedBaselinesByCandidateId.TryGetValue(
+                        candidateMethod.Id,
+                        out var targetedBaseline);
+                    await ExecuteToolEvaluationAsync(
+                        experimentRun,
+                        candidateMethod,
+                        methodContext,
+                        toolAvailabilityPlan,
+                        targetedBaseline ?? new TargetedBaselineResult
                         {
-                            if (attempt.ParentAttemptNumber.HasValue &&
-                                persistedAttemptIdsByAttemptNumber.TryGetValue(
-                                    attempt.ParentAttemptNumber.Value,
-                                    out var parentAttemptId))
-                                attempt.ParentAttemptId = parentAttemptId;
-                            attempt.ExperimentMatrixWorkItemId = workItem.Id;
-
-                            var persistedAttemptId = await SaveGenerationAttemptAsync(
-                                experimentRun.Id,
-                                candidateMethod.Id,
-                                attempt,
-                                cancellationToken);
-                            persistedAttemptIdsByAttemptNumber[attempt.AttemptNumber] = persistedAttemptId;
-                            await _resultsWriter.AppendAsync(
-                                experimentRun,
-                                await CreateResultFileRowAsync(
-                                    experimentRun,
-                                    candidateMethod,
-                                    attempt,
-                                    workItem.StableKey,
-                                    cancellationToken),
-                                cancellationToken);
-                        }
-
-                        await _workItemRepo.UpdateStatusAsync(
-                            workItem.Id,
-                            ExperimentMatrixWorkItemStatus.Completed,
-                            cancellationToken: cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        await _workItemRepo.UpdateStatusAsync(
-                            workItem.Id,
-                            ExperimentMatrixWorkItemStatus.Failed,
-                            ex.Message,
-                            cancellationToken);
-                        _context.Project.Logger?.Error(
-                            ex,
-                            "Failed to execute {VariantId} for {MethodName}",
-                            matrixItem.VariantId,
-                            candidateMethod.MethodName);
-                    }
+                            Ran = false,
+                            SkipReason = "No precomputed targeted baseline was available for this candidate."
+                        },
+                        cancellationToken);
                 }
             }
 
@@ -407,6 +388,51 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         string TestProjectPath,
         string TargetFramework);
 
+    internal async Task<Dictionary<int, TargetedBaselineResult>> PrecomputeTargetedBaselinesAsync(
+        int experimentRunId,
+        IReadOnlyCollection<CandidateMethod> candidateMethods,
+        IReadOnlyDictionary<int, CandidateMethodContext> methodContextsByMemberId,
+        AgentToolAvailabilityPlan toolAvailabilityPlan,
+        CancellationToken cancellationToken)
+    {
+        var results = new Dictionary<int, TargetedBaselineResult>();
+        if (toolAvailabilityPlan.ExecutableTools.Count == 0)
+            return results;
+
+        foreach (var candidateMethod in candidateMethods)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!methodContextsByMemberId.TryGetValue(candidateMethod.MemberId, out var methodContext))
+                continue;
+
+            try
+            {
+                var result = await _targetedBaselineService.RunAsync(
+                    experimentRunId,
+                    candidateMethod,
+                    methodContext,
+                    cancellationToken);
+                results[candidateMethod.Id] = result;
+
+                if (!result.Ran)
+                    _context.Project.Logger?.Warning(
+                        "Skipping precomputed targeted baseline for {MethodName}: {Reason}",
+                        candidateMethod.MethodName,
+                        result.SkipReason);
+            }
+            finally
+            {
+                // Baseline collection writes coverage, mutation, bin, and obj artifacts.
+                // Clear them before either evaluation lane starts so the first lane/tool
+                // sees the same clean workspace as later attempts.
+                await _workspace.RollbackChangesAsync(cancellationToken);
+            }
+        }
+
+        return results;
+    }
+
     private async Task<ExperimentMatrixWorkItem> EnsureWorkItemAsync(
         ExperimentRun experimentRun,
         CandidateMethod candidateMethod,
@@ -426,6 +452,401 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             GetActiveObjective(),
             candidateMethod,
             matrixItem);
+        var existing = await _workItemRepo.GetByStableKeyAsync(candidateWorkItem.StableKey, cancellationToken);
+        if (existing != null) return existing;
+
+        candidateWorkItem.Id = await _workItemRepo.UpsertAsync(candidateWorkItem, cancellationToken);
+        return candidateWorkItem;
+    }
+
+    private async Task ExecuteTestMapMatrixItemAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        CandidateMethodContext methodContext,
+        GenerationExperimentMatrixItem matrixItem,
+        CancellationToken cancellationToken)
+    {
+        var workItem = await EnsureWorkItemAsync(
+            experimentRun,
+            candidateMethod,
+            matrixItem,
+            cancellationToken);
+        var resumeDecision = _resumeService.Evaluate(workItem, _activeExperimentConfig!.Resume, DateTime.UtcNow);
+        workItem = resumeDecision.WorkItem;
+        await _ruleDecisionRecorder.RecordAsync(
+            _context.Project.DbId,
+            RuleDecisionScope.ExperimentMatrixWorkItem(workItem.Id),
+            resumeDecision.RuleDecisions,
+            experimentRunId: experimentRun.Id,
+            candidateMethodId: candidateMethod.Id,
+            cancellationToken: cancellationToken);
+
+        if (!resumeDecision.ShouldExecute)
+        {
+            await _workItemRepo.UpsertAsync(workItem, cancellationToken);
+            return;
+        }
+
+        _context.Project.Logger?.Information("  Variant: {VariantId}", matrixItem.VariantId);
+
+        try
+        {
+            await _workItemRepo.UpdateStatusAsync(
+                workItem.Id,
+                ExperimentMatrixWorkItemStatus.Running,
+                cancellationToken: cancellationToken);
+
+            var attempts = await ExecuteGenerationAttemptAsync(
+                candidateMethod.Id,
+                methodContext,
+                matrixItem,
+                cancellationToken);
+
+            var persistedAttemptIdsByAttemptNumber = new Dictionary<int, int>();
+            foreach (var attempt in attempts)
+            {
+                if (attempt.ParentAttemptNumber.HasValue &&
+                    persistedAttemptIdsByAttemptNumber.TryGetValue(
+                        attempt.ParentAttemptNumber.Value,
+                        out var parentAttemptId))
+                    attempt.ParentAttemptId = parentAttemptId;
+                attempt.ExperimentMatrixWorkItemId = workItem.Id;
+
+                var persistedAttemptId = await SaveGenerationAttemptAsync(
+                    experimentRun.Id,
+                    candidateMethod.Id,
+                    attempt,
+                    cancellationToken);
+                persistedAttemptIdsByAttemptNumber[attempt.AttemptNumber] = persistedAttemptId;
+                await _resultsWriter.AppendAsync(
+                    experimentRun,
+                    await CreateResultFileRowAsync(
+                        experimentRun,
+                        candidateMethod,
+                        attempt,
+                        workItem.StableKey,
+                        cancellationToken),
+                    cancellationToken);
+            }
+
+            await _workItemRepo.UpdateStatusAsync(
+                workItem.Id,
+                ExperimentMatrixWorkItemStatus.Completed,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await _workItemRepo.UpdateStatusAsync(
+                workItem.Id,
+                ExperimentMatrixWorkItemStatus.Failed,
+                ex.Message,
+                cancellationToken);
+            _context.Project.Logger?.Error(
+                ex,
+                "Failed to execute {VariantId} for {MethodName}",
+                matrixItem.VariantId,
+                candidateMethod.MethodName);
+        }
+    }
+
+    private IReadOnlyList<ExperimentToolConfig> ResolveConfiguredTools(ExperimentConfig config)
+    {
+        if (!config.Evaluation.Tools.Enabled)
+            return [];
+
+        var tools = config.Tools.Count > 0
+            ? config.Tools
+            : config.Evaluation.Tools.ToolIds
+                .Select(id => new ExperimentToolConfig { Id = id, ImageKey = id })
+                .ToList();
+
+        if (config.Evaluation.Tools.ToolIds.Count > 0)
+        {
+            var included = config.Evaluation.Tools.ToolIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            tools = tools.Where(x => included.Contains(x.Id)).ToList();
+        }
+
+        if (tools.Count == 0)
+            throw new InvalidOperationException("Tool evaluation is enabled but no ExperimentConfig.Tools or Evaluation.Tools.ToolIds were configured.");
+
+        return tools;
+    }
+
+    private async Task<AgentToolAvailabilityPlan> EnsureToolAvailabilityAsync(
+        ExperimentConfig config,
+        IReadOnlyList<ExperimentToolConfig> tools,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<ToolAvailabilityResult>();
+        foreach (var tool in tools)
+        {
+            var availability = await _dockerToolRunner.CheckAvailabilityAsync(tool, cancellationToken);
+            results.Add(availability);
+            if (availability.IsAvailable)
+            {
+                _context.Project.Logger?.Information(
+                    "Agent tool '{ToolId}' is available via image '{ImageName}'.",
+                    tool.Id,
+                    availability.ImageName);
+            }
+        }
+
+        var plan = AgentToolAvailabilityPlan.Create(
+            tools,
+            results,
+            config.Evaluation.Tools.RequireAvailabilityInSetup);
+        if (plan.SetupFailures.Count > 0)
+            throw new InvalidOperationException(string.Join(
+                Environment.NewLine,
+                plan.SetupFailures.Select(x => $"Agent tool '{x.Tool.Id}' is unavailable. {x.Reason}")));
+
+        foreach (var decision in plan.SkippedTools)
+            _context.Project.Logger?.Warning(
+                "Skipping unavailable agent tool '{ToolId}': {Reason}",
+                decision.Tool.Id,
+                decision.Reason);
+
+        return plan;
+    }
+
+    private async Task ExecuteToolEvaluationAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        CandidateMethodContext methodContext,
+        AgentToolAvailabilityPlan availabilityPlan,
+        TargetedBaselineResult targetedBaseline,
+        CancellationToken cancellationToken)
+    {
+        var tools = availabilityPlan.ExecutableTools;
+        if (!targetedBaseline.Ran)
+            _context.Project.Logger?.Warning(
+                "Skipping targeted baseline for {MethodName}: {Reason}",
+                candidateMethod.MethodName,
+                targetedBaseline.SkipReason);
+
+        var lane = new AgentToolEvaluationLane(
+            _dockerToolRunner,
+            _agentToolEnvironmentResolver,
+            _toolAttemptRepo,
+            tools,
+            _context,
+            _config,
+            _taskCardWriter);
+
+        foreach (var skipped in availabilityPlan.SkippedTools)
+            await RecordSkippedToolAttemptAsync(
+                experimentRun,
+                candidateMethod,
+                methodContext,
+                skipped,
+                targetedBaseline.TestRunId,
+                cancellationToken);
+
+        foreach (var tool in tools)
+        {
+            var workItem = await EnsureToolWorkItemAsync(
+                experimentRun,
+                candidateMethod,
+                methodContext,
+                tool,
+                cancellationToken);
+
+            var resumeDecision = _resumeService.Evaluate(workItem, _activeExperimentConfig!.Resume, DateTime.UtcNow);
+            workItem = resumeDecision.WorkItem;
+
+            if (!resumeDecision.ShouldExecute)
+            {
+                await _workItemRepo.UpsertAsync(workItem, cancellationToken);
+                continue;
+            }
+
+            await _workItemRepo.UpdateStatusAsync(
+                workItem.Id,
+                ExperimentMatrixWorkItemStatus.Running,
+                cancellationToken: cancellationToken);
+
+            // Execute and refresh inside try/finally so the workspace is always reset to HEAD
+            // before the next tool attempt runs, even on crash or timeout.
+            ExperimentEvaluationAttemptResult? result = null;
+            try
+            {
+                result = await lane.ExecuteAsync(
+                    new ExperimentEvaluationWorkItemContext
+                    {
+                        WorkItem = workItem,
+                        Candidate = candidateMethod,
+                        TargetedBaselineId = targetedBaseline.TestRunId,
+                        MethodContext = methodContext
+                    },
+                    cancellationToken);
+
+                if (result.ToolAttempt is { RunStatus: ToolRunStatus.Completed, ChangedFilesCount: > 0 })
+                {
+                    // Re-analyze the workspace: update the code graph, collect code metrics,
+                    // and collect test smells for the test project. This must run before
+                    // LinkAsync so that newly-generated test member IDs exist in the DB.
+                    var analysis = await _toolPostAttemptAnalysisService.AnalyzeAsync(
+                        methodContext,
+                        cancellationToken);
+                    if (!analysis.Analyzed)
+                        _context.Project.Logger?.Warning(
+                            "Skipping post-attempt analysis for tool attempt {ToolAttemptId}: {Reason}",
+                            result.ToolAttempt.Id,
+                            analysis.SkipReason);
+
+                    // Link test members in changed files to the tool attempt.
+                    var linkResult = await _toolAttemptGeneratedTestService.LinkAsync(
+                        result.ToolAttempt,
+                        result.ChangedFiles,
+                        _context.Project.DbId,
+                        cancellationToken);
+                    if (linkResult.LinkedCount > 0)
+                        _context.Project.Logger?.Information(
+                            "Linked {Count} test member(s) to tool attempt {ToolAttemptId}.",
+                            linkResult.LinkedCount,
+                            result.ToolAttempt.Id);
+
+                    // Run build/test measurement on the modified workspace and reclassify outcome.
+                    var measurement = await _toolPostAttemptMeasurementService.MeasureAsync(
+                        result.ToolAttempt,
+                        candidateMethod,
+                        methodContext,
+                        cancellationToken);
+                    if (!measurement.Measured)
+                        _context.Project.Logger?.Warning(
+                            "Skipping post-attempt measurement for tool attempt {ToolAttemptId}: {Reason}",
+                            result.ToolAttempt.Id,
+                            measurement.SkipReason);
+                }
+            }
+            finally
+            {
+                // Always restore the workspace to HEAD so the next tool attempt starts clean.
+                await _workspace.RollbackChangesAsync(cancellationToken);
+            }
+
+            if (result?.ToolAttempt != null)
+            {
+                var toolRows = await CreateToolResultFileRowsAsync(
+                    experimentRun,
+                    candidateMethod,
+                    methodContext,
+                    workItem,
+                    result.ToolAttempt,
+                    cancellationToken);
+                foreach (var toolRow in toolRows)
+                    await _resultsWriter.AppendAsync(experimentRun, toolRow, cancellationToken);
+            }
+
+            await _workItemRepo.UpdateStatusAsync(
+                workItem.Id,
+                result?.Success == true
+                    ? ExperimentMatrixWorkItemStatus.Completed
+                    : ExperimentMatrixWorkItemStatus.Failed,
+                result?.ErrorMessage,
+                cancellationToken);
+        }
+    }
+
+    private async Task RecordSkippedToolAttemptAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        CandidateMethodContext methodContext,
+        AgentToolAvailabilityDecision decision,
+        int? targetedBaselineId,
+        CancellationToken cancellationToken)
+    {
+        var workItem = await EnsureToolWorkItemAsync(
+            experimentRun,
+            candidateMethod,
+            methodContext,
+            decision.Tool,
+            cancellationToken);
+
+        await _workItemRepo.UpdateStatusAsync(
+            workItem.Id,
+            ExperimentMatrixWorkItemStatus.Skipped,
+            decision.Reason,
+            cancellationToken);
+
+        var attempt = new ToolAttempt
+        {
+            ExperimentRunId = experimentRun.Id,
+            MatrixWorkItemId = workItem.Id,
+            CandidateMethodId = candidateMethod.Id,
+            TargetedBaselineId = targetedBaselineId,
+            ToolId = decision.Tool.Id,
+            ImageName = decision.Availability.ImageName ?? string.Empty,
+            ImageKey = decision.Tool.ImageKey ?? decision.Tool.Id,
+            RunStatus = ToolRunStatus.Skipped,
+            ValidationOutcome = ToolValidationOutcome.Skipped,
+            ObservedOutcome = ToolObservedOutcome.Skipped,
+            StartedAt = DateTime.UtcNow,
+            CompletedAt = DateTime.UtcNow,
+            TimeoutSeconds = decision.Tool.TimeoutMinutes * 60,
+            Model = workItem.ModelName,
+            ProviderId = workItem.Provider.ToString(),
+            Notes = decision.Reason
+        };
+        attempt.Id = await _toolAttemptRepo.InsertAsync(attempt, cancellationToken);
+
+        var skippedRows = await CreateToolResultFileRowsAsync(
+            experimentRun,
+            candidateMethod,
+            methodContext,
+            workItem,
+            attempt,
+            cancellationToken);
+        foreach (var skippedRow in skippedRows)
+            await _resultsWriter.AppendAsync(experimentRun, skippedRow, cancellationToken);
+    }
+
+    private async Task<ExperimentMatrixWorkItem> EnsureToolWorkItemAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        CandidateMethodContext methodContext,
+        ExperimentToolConfig tool,
+        CancellationToken cancellationToken)
+    {
+        var resumeGroupId = string.IsNullOrWhiteSpace(_activeExperimentConfig?.Resume.ResumeRunId)
+            ? experimentRun.Id.ToString()
+            : _activeExperimentConfig!.Resume.ResumeRunId!;
+        var repositoryIdentity = $"{_context.Project.Owner}/{_context.Project.RepoName}";
+        var commitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty;
+        var provider = tool.Provider ?? _config.TestingConfig.GenerationConfig.Provider;
+        var modelName = tool.Model ?? _config.AiProviderConfig.GetProviderConfig(provider)?.Model ?? string.Empty;
+        var stableKey = string.Join(
+            "|",
+            "tool",
+            resumeGroupId,
+            repositoryIdentity,
+            commitHash,
+            experimentRun.Objective,
+            candidateMethod.MemberId,
+            tool.Id,
+            modelName);
+
+        var candidateWorkItem = new ExperimentMatrixWorkItem
+        {
+            ExperimentRunId = experimentRun.Id,
+            CandidateMethodId = candidateMethod.Id,
+            MemberId = candidateMethod.MemberId,
+            StableKey = stableKey,
+            Status = ExperimentMatrixWorkItemStatus.Pending,
+            Provider = provider,
+            ModelName = modelName,
+            Objective = _activeExperimentConfig?.Objective
+                        ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion,
+            Approach = TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach.MetricsDriven,
+            MetricsPath = _activeExperimentConfig?.MetricsPaths.FirstOrDefault(),
+            ContextMode = _activeExperimentConfig?.ContextModes.FirstOrDefault()
+                          ?? _config.TestingConfig.GenerationConfig.ContextMode,
+            BudgetMode = TestMap.Models.Configuration.Testing.Generation.GenerationBudgetMode.PassAt1,
+            AblationVariantId = tool.Id,
+            StepConfigJson = "{}",
+            CreatedAt = DateTime.UtcNow
+        };
+
         var existing = await _workItemRepo.GetByStableKeyAsync(candidateWorkItem.StableKey, cancellationToken);
         if (existing != null) return existing;
 
@@ -545,6 +966,316 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         };
     }
 
+    /// <summary>
+    /// Builds one CSV row per test result from the post-attempt measurement run.
+    /// Falls back to one row per linked test member, then to a single summary row.
+    /// Coverage and mutation data are loaded from the targeted-baseline and post-attempt
+    /// test runs so those columns are populated even when the attempt spans multiple tests.
+    /// </summary>
+    private async Task<IReadOnlyList<ExperimentResultFileRow>> CreateToolResultFileRowsAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        CandidateMethodContext methodContext,
+        ExperimentMatrixWorkItem workItem,
+        ToolAttempt attempt,
+        CancellationToken cancellationToken)
+    {
+        var sourceMetrics = await GetMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
+        var baselineMetrics = await GetMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
+        var baselineTestSmells = await GetTestSmellSummaryAsync(
+            candidateMethod.ExistingTestMethodName,
+            candidateMethod.ExistingTestMemberId,
+            cancellationToken);
+        var testability = methodContext.Testability;
+        var selectedAccessPath = testability?.AccessPaths.FirstOrDefault();
+
+        // Load mutation from the targeted baseline and post-measurement runs. Coverage columns
+        // are method-scoped, so use the candidate baseline and the measured member coverage
+        // instead of aggregate test-project coverage.
+        var (_, baselineMutation) =
+            await GetTestRunMetricsAsync(attempt.TargetedBaselineId, cancellationToken);
+        var (postCoverage, postMutation) =
+            await GetTestRunMetricsAsync(attempt.PostAttemptTestRunId, cancellationToken);
+        var postMethodCoverage = await GetMemberCoverageForTestRunAsync(
+            attempt.PostAttemptTestRunId,
+            candidateMethod.MemberId,
+            cancellationToken);
+
+        var coverageBefore = candidateMethod.BaselineCoverage;
+        var coverageAfter = postMethodCoverage ?? postCoverage ?? 0.0;
+        var coverageDelta = coverageAfter - coverageBefore;
+        double? mutationDelta = (postMutation.HasValue && baselineMutation.HasValue)
+            ? postMutation.Value - baselineMutation.Value
+            : null;
+
+        // Whether the tests compiled/ran is derived from the validation outcome.
+        // Tests failing still means the code compiled and the tests executed.
+        var compiled = attempt.PostAttemptTestRunId.HasValue
+                       || attempt.ValidationOutcome == ToolValidationOutcome.TestsFailed;
+        var ran = attempt.PostAttemptTestRunId.HasValue;
+        var allPassed = attempt.ValidationOutcome == ToolValidationOutcome.Passed;
+
+        // Pre-fetch linked test members with IDs so code metrics and test smells can be
+        // looked up per-test-method and written into each row.
+        var linkedMembers = await GetLinkedTestMembersAsync(attempt.Id, cancellationToken);
+        var metricsByMemberId = new Dictionary<int, MemberCodeMetricColumns?>(linkedMembers.Count);
+        var smellsByMemberId = new Dictionary<int, string>(linkedMembers.Count);
+        foreach (var (memberId, memberName) in linkedMembers)
+        {
+            metricsByMemberId[memberId] = await GetMemberCodeMetricsAsync(memberId, cancellationToken);
+            smellsByMemberId[memberId] = await GetTestSmellSummaryAsync(memberName, memberId, cancellationToken);
+        }
+
+        // Match a test result name (possibly fully-qualified, e.g. "ClassName.MethodName")
+        // back to a linked member ID by checking equality then suffix.
+        // [Theory] tests append parameter values in parens ("TestMethod(x: 1)") so strip
+        // everything from the first '(' before comparing against the bare member name.
+        int? FindMemberId(string testName)
+        {
+            return ResolveLinkedMemberId(testName, linkedMembers);
+        }
+
+        // Reusable factory for the shared fields. Looks up generated-test code metrics and
+        // test smells from the pre-fetched dictionaries using the resolved member ID.
+        ExperimentResultFileRow MakeRow(string testName, bool testCompiled, bool testExecuted, bool testPassed)
+        {
+            var memberId = FindMemberId(testName);
+            var generatedMetrics = memberId.HasValue && metricsByMemberId.TryGetValue(memberId.Value, out var gm) ? gm : null;
+            var generatedSmells = memberId.HasValue && smellsByMemberId.TryGetValue(memberId.Value, out var gs) ? gs : string.Empty;
+            return new()
+            {
+                ExperimentRunId = experimentRun.Id,
+                ProducerLane = "agent-tool",
+                ToolId = attempt.ToolId,
+                ToolRunStatus = attempt.RunStatus.ToString(),
+                ToolValidationOutcome = attempt.ValidationOutcome.ToString(),
+                ToolArtifactPath = attempt.ArtifactPath,
+                ToolChangedFilesCount = attempt.ChangedFilesCount,
+                ToolAttemptTargetedBaselineId = attempt.TargetedBaselineId,
+                ToolPostAttemptTestRunId = attempt.PostAttemptTestRunId,
+                RepoUrl = _context.Project.GitHubUrl,
+                RepoOwner = _context.Project.Owner,
+                RepoName = _context.Project.RepoName,
+                CommitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty,
+                RunDate = DateTime.UtcNow,
+                Objective = experimentRun.Objective,
+                TargetSelectionStrategy = experimentRun.CandidateSelectionStrategy,
+                GenerationApproach = workItem.Approach,
+                MetricsPath = workItem.MetricsPath,
+                SourceMethodMaintainabilityIndex = sourceMetrics?.MaintainabilityIndex,
+                SourceMethodCyclomaticComplexity = sourceMetrics?.CyclomaticComplexity,
+                SourceMethodClassCoupling = sourceMetrics?.ClassCoupling,
+                SourceMethodDepthOfInheritance = sourceMetrics?.DepthOfInheritance,
+                SourceMethodSourceLinesOfCode = sourceMetrics?.SourceLinesOfCode,
+                SourceMethodExecutableLinesOfCode = sourceMetrics?.ExecutableLinesOfCode,
+                BaselineTestMaintainabilityIndex = baselineMetrics?.MaintainabilityIndex,
+                BaselineTestCyclomaticComplexity = baselineMetrics?.CyclomaticComplexity,
+                BaselineTestClassCoupling = baselineMetrics?.ClassCoupling,
+                BaselineTestDepthOfInheritance = baselineMetrics?.DepthOfInheritance,
+                BaselineTestSourceLinesOfCode = baselineMetrics?.SourceLinesOfCode,
+                BaselineTestExecutableLinesOfCode = baselineMetrics?.ExecutableLinesOfCode,
+                BaselineTestSmells = baselineTestSmells,
+                GeneratedTestMaintainabilityIndex = generatedMetrics?.MaintainabilityIndex,
+                GeneratedTestCyclomaticComplexity = generatedMetrics?.CyclomaticComplexity,
+                GeneratedTestClassCoupling = generatedMetrics?.ClassCoupling,
+                GeneratedTestDepthOfInheritance = generatedMetrics?.DepthOfInheritance,
+                GeneratedTestSourceLinesOfCode = generatedMetrics?.SourceLinesOfCode,
+                GeneratedTestExecutableLinesOfCode = generatedMetrics?.ExecutableLinesOfCode,
+                GeneratedTestSmells = generatedSmells,
+                Provider = workItem.Provider,
+                Model = workItem.ModelName,
+                ContextMode = workItem.ContextMode,
+                BudgetMode = workItem.BudgetMode,
+                AblationVariantId = workItem.AblationVariantId,
+                StepsIncluded = workItem.StepConfigJson,
+                SourceMemberVisibility = testability?.Visibility.ToString() ?? string.Empty,
+                AccessStrategy = selectedAccessPath?.Strategy.ToString() ?? string.Empty,
+                AccessPathMemberIds = selectedAccessPath == null
+                    ? string.Empty
+                    : string.Join(">", selectedAccessPath.PathMemberIds),
+                TestMappingCount = testability?.TestMappings.Count ?? 0,
+                SetupBindingCount = testability?.SetupBindings.Count ?? 0,
+                AttemptNumber = 1,
+                SourceMemberId = candidateMethod.MemberId,
+                SourceMethodName = candidateMethod.MethodName,
+                SourceMethodSignature = candidateMethod.Signature,
+                CandidateTestIntentionsSummary = candidateMethod.TestIntentionsSummary,
+                CandidateTypeConstructionSummary = candidateMethod.TypeConstructionSummary,
+                CandidateMetadataJson = candidateMethod.CandidateMetadataJson,
+                SourceMethodBaselineCoverage = candidateMethod.BaselineCoverage,
+                SourceMethodComplexity = candidateMethod.ComplexityScore,
+                BaselineTestState = candidateMethod.TestState.ToString(),
+                BaselineTestMethod = candidateMethod.ExistingTestMethodName ?? string.Empty,
+                GeneratedTestMethodName = testName,
+                GeneratedTestCompiled = testCompiled,
+                GeneratedTestExecuted = testExecuted,
+                GeneratedTestPassed = testPassed,
+                CoverageBefore = coverageBefore,
+                CoverageAfter = coverageAfter,
+                CoverageDelta = coverageDelta,
+                MutationScoreBefore = baselineMutation,
+                MutationScoreAfter = postMutation,
+                MutationScoreDelta = mutationDelta,
+                MutantKilled = mutationDelta is > 0,
+                ToolObservedOutcome = attempt.ObservedOutcome.ToString(),
+                AcceptedByNormalPolicy = null,
+                FailureKind = attempt.RunStatus is ToolRunStatus.Completed or ToolRunStatus.CompletedNoChange or ToolRunStatus.Skipped
+                    ? string.Empty
+                    : "ToolExecution",
+                FailureStage = attempt.RunStatus is ToolRunStatus.Completed or ToolRunStatus.CompletedNoChange or ToolRunStatus.Skipped
+                    ? string.Empty
+                    : "tool",
+                FailureCategory = attempt.RunStatus.ToString(),
+                FailureSummary = attempt.Notes,
+                RoslynValidationSucceeded = false,
+                RoslynValidationSkipped = true,
+                TotalTokens = (attempt.InputTokens ?? 0) + (attempt.OutputTokens ?? 0),
+                TotalDurationSeconds = attempt.ElapsedSeconds,
+                PromptVersion = "agent-tool-task-card",
+                GenerationAttemptId = 0,
+                TestExecutionId = null,
+                ResumeStableKey = workItem.StableKey
+            };
+        }
+
+        // Primary: one row per individual test result for per-test pass/fail granularity.
+        if (attempt.PostAttemptTestRunId.HasValue)
+        {
+            var testResults = await GetPostAttemptTestResultsAsync(
+                attempt.PostAttemptTestRunId.Value, cancellationToken);
+            var generatedTestResults = SelectGeneratedPostAttemptTestResults(testResults, linkedMembers);
+            if (generatedTestResults.Count > 0)
+                return generatedTestResults
+                    .Select(tr => MakeRow(
+                        tr.TestName,
+                        compiled,
+                        true,
+                        string.Equals(tr.Outcome, "Passed", StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+        }
+
+        // Fallback: one row per linked test member (analysis-time names).
+        if (linkedMembers.Count > 0)
+            return linkedMembers.Select(m => MakeRow(m.Name, compiled, ran, allPassed)).ToList();
+
+        // Final fallback: single summary row with no per-test name.
+        return [MakeRow(string.Empty, compiled, ran, allPassed)];
+    }
+
+    internal static List<(string TestName, string Outcome)> SelectGeneratedPostAttemptTestResults(
+        IReadOnlyList<(string TestName, string Outcome)> testResults,
+        IReadOnlyList<(int MemberId, string Name)> linkedMembers)
+    {
+        if (testResults.Count == 0 || linkedMembers.Count == 0)
+            return [];
+
+        return testResults
+            .Where(x => ResolveLinkedMemberId(x.TestName, linkedMembers).HasValue)
+            .ToList();
+    }
+
+    internal static int? ResolveLinkedMemberId(
+        string testName,
+        IReadOnlyList<(int MemberId, string Name)> linkedMembers)
+    {
+        if (string.IsNullOrEmpty(testName)) return null;
+        var bare = StripTestArguments(testName);
+        foreach (var (memberId, memberName) in linkedMembers)
+        {
+            if (string.Equals(bare, memberName, StringComparison.OrdinalIgnoreCase) ||
+                bare.EndsWith("." + memberName, StringComparison.OrdinalIgnoreCase))
+                return memberId;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the aggregate coverage line rate and mutation score for a given test run.
+    /// Returns (null, null) when <paramref name="testRunId"/> is null or no reports are found.
+    /// </summary>
+    internal async Task<(double? Coverage, double? MutationScore)> GetTestRunMetricsAsync(
+        int? testRunId,
+        CancellationToken cancellationToken)
+    {
+        if (!testRunId.HasValue) return (null, null);
+
+        var coverage = await _dbContext.CoverageReports
+            .Where(x => x.TestRunId == testRunId.Value)
+            .OrderByDescending(x => x.Id)
+            .Select(x => (double?)x.LineRate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var mutation = await _dbContext.MutationTestingReports
+            .Where(x => x.TestRunId == testRunId.Value)
+            .OrderByDescending(x => x.Id)
+            .Select(x => (double?)x.MutationScore)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return (coverage, mutation);
+    }
+
+    internal async Task<double?> GetMemberCoverageForTestRunAsync(
+        int? testRunId,
+        int memberId,
+        CancellationToken cancellationToken)
+    {
+        if (!testRunId.HasValue || memberId <= 0) return null;
+
+        return await (
+            from report in _dbContext.CoverageReports
+            join memberCoverage in _dbContext.MemberCoverages on report.Id equals memberCoverage.CoverageReportId
+            where report.TestRunId == testRunId.Value && memberCoverage.MemberId == memberId
+            orderby report.Id descending, memberCoverage.Id descending
+            select (double?)memberCoverage.LineRate
+        ).FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns all test results for a post-attempt test run as (TestName, Outcome) pairs.
+    /// </summary>
+    internal async Task<List<(string TestName, string Outcome)>> GetPostAttemptTestResultsAsync(
+        int testRunId,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _dbContext.TestResults
+            .Where(x => x.TestRunId == testRunId)
+            .OrderBy(x => x.TestName)
+            .Select(x => new { x.TestName, x.Outcome })
+            .ToListAsync(cancellationToken);
+        return rows.Select(x => (x.TestName, x.Outcome)).ToList();
+    }
+
+    /// <summary>
+    /// Returns the member IDs and names of test members linked to a tool attempt via
+    /// <c>tool_attempt_generated_tests</c>, ordered by name.
+    /// </summary>
+    internal async Task<List<(int MemberId, string Name)>> GetLinkedTestMembersAsync(
+        int toolAttemptId,
+        CancellationToken cancellationToken)
+    {
+        var rows = await (
+            from tag in _dbContext.ToolAttemptGeneratedTests
+            join member in _dbContext.Members on tag.MemberId equals member.Id
+            where tag.ToolAttemptId == toolAttemptId
+            orderby member.Name
+            select new { tag.MemberId, member.Name }
+        ).ToListAsync(cancellationToken);
+        return rows.Select(x => (x.MemberId, x.Name)).ToList();
+    }
+
+    /// <summary>
+    /// Returns the member names of test members linked to a tool attempt via
+    /// <c>tool_attempt_generated_tests</c>.
+    /// </summary>
+    internal async Task<List<string>> GetLinkedTestMemberNamesAsync(
+        int toolAttemptId,
+        CancellationToken cancellationToken)
+    {
+        var members = await GetLinkedTestMembersAsync(toolAttemptId, cancellationToken);
+        return members.Select(x => x.Name).ToList();
+    }
+
     private static AccessPathReport ResolveAccessPathReport(string? decisionJson)
     {
         var decision = ParseRuleDecisions(decisionJson)
@@ -557,6 +1288,17 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             EvidenceValue(decision, "path_member_ids"),
             ParseIntEvidence(decision, "mapping_count"),
             ParseIntEvidence(decision, "setup_binding_count"));
+    }
+
+    /// <summary>
+    /// Strips display arguments appended by test frameworks to parameterized test names.
+    /// xUnit [Theory] tests write names like "Ns.Class.Method(x: 1, y: 2)" into TRX files;
+    /// stripping to "Ns.Class.Method" lets the name match the bare Roslyn member name.
+    /// </summary>
+    internal static string StripTestArguments(string testName)
+    {
+        var idx = testName.IndexOf('(');
+        return idx >= 0 ? testName[..idx].TrimEnd() : testName;
     }
 
     private static string EvidenceValue(
@@ -666,12 +1408,15 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     {
         try
         {
+            var activeApproach = _activeExperimentConfig?.Approaches is { Count: > 0 } a
+                ? a[0]
+                : TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach.MetricsDriven;
             var item = new GenerationExperimentMatrixItem
             {
-                VariantId = $"{provider}__{GetActiveGenerationApproach().Strategy}__{budgetMode}__baseline",
+                VariantId = $"{provider}__{activeApproach}__{budgetMode}__baseline",
                 Provider = provider,
                 ModelName = ResolveModelName(provider),
-                Approach = GetActiveGenerationApproach().Strategy,
+                Approach = activeApproach,
                 MetricsPath = _activeExperimentConfig?.MetricsPaths.FirstOrDefault(),
                 ContextMode = _config.TestingConfig.GenerationConfig.ContextMode,
                 BudgetMode = budgetMode,
@@ -1257,7 +2002,6 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             Objective = _activeExperimentConfig?.Objective
                         ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion,
             GenerationApproach = matrixItem?.Approach
-                                 ?? _activeGenerationApproach?.Strategy
                                  ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach.MetricsDriven,
             MetricsPath = matrixItem?.MetricsPath,
             ContextMode = matrixItem?.ContextMode
@@ -1363,8 +2107,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             Provider = provider,
             Objective = _activeExperimentConfig?.Objective
                         ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion,
-            GenerationApproach = _activeGenerationApproach?.Strategy
-                                 ?? TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach.MetricsDriven,
+            GenerationApproach = TestMap.Models.Configuration.Testing.Generation.TestGenerationApproach.MetricsDriven,
             BudgetMode = budgetMode,
             AblationVariantId = "baseline",
             AttemptNumber = attemptNumber,
@@ -1435,13 +2178,6 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         if (_generationApproaches.TryGetValue(strategy, out var approach)) return approach;
 
         throw new InvalidOperationException($"No generation approach is registered for '{strategy}'.");
-    }
-
-    private ITestGenerationApproach GetActiveGenerationApproach()
-    {
-        return _activeGenerationApproach
-               ?? throw new InvalidOperationException(
-                   "No active generation approach has been configured for the experiment run.");
     }
 
     private TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective GetActiveObjective()

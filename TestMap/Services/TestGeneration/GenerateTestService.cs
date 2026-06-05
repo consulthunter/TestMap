@@ -312,7 +312,7 @@ public class GenerateTestService : IGenerateTestService
             MinCoverageThreshold = experimentConfig.MinCoverageThreshold,
             MaxCoverageThreshold = experimentConfig.MaxCoverageThreshold,
             CandidateSelectionStrategy = generationConfig.TargetSelection.Strategy,
-            GenerationApproach = generationConfig.Strategy
+            Approaches = [generationConfig.Strategy]
         };
     }
 

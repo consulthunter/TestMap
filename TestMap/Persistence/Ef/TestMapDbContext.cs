@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Persistence.Ef.Entities;
+using TestMap.Persistence.Ef.Entities.AgentTools;
 using TestMap.Persistence.Ef.Entities.Code;
 using TestMap.Persistence.Ef.Entities.Coverage;
 using TestMap.Persistence.Ef.Entities.Experiment;
@@ -52,6 +53,8 @@ public class TestMapDbContext : DbContext
     public DbSet<GeneratedTestExecutionEntity> TestExecutions => Set<GeneratedTestExecutionEntity>();
     public DbSet<RuleDefinitionEntity> RuleDefinitions => Set<RuleDefinitionEntity>();
     public DbSet<RuleDecisionEntity> RuleDecisions => Set<RuleDecisionEntity>();
+    public DbSet<ToolAttemptEntity> ToolAttempts => Set<ToolAttemptEntity>();
+    public DbSet<ToolAttemptGeneratedTestEntity> ToolAttemptGeneratedTests => Set<ToolAttemptGeneratedTestEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

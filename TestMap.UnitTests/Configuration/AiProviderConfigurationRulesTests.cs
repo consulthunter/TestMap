@@ -1,5 +1,6 @@
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.AiProviders.Amazon;
+using TestMap.Models.Configuration.AiProviders.Anthropic;
 using TestMap.Models.Configuration.AiProviders.Custom;
 using TestMap.Models.Configuration.AiProviders.Google;
 using TestMap.Models.Configuration.AiProviders.Ollama;
@@ -23,6 +24,7 @@ public sealed class AiProviderConfigurationRulesTests : IDisposable
     [InlineData(AiProvider.CustomOpenAi)]
     [InlineData(AiProvider.Ollama)]
     [InlineData(AiProvider.Amazon)]
+    [InlineData(AiProvider.Anthropic)]
     public void GetValidationError_MissingModel_ReturnsModelRequirement(AiProvider provider)
     {
         // Arrange
@@ -44,6 +46,7 @@ public sealed class AiProviderConfigurationRulesTests : IDisposable
     [InlineData(AiProvider.OpenAi)]
     [InlineData(AiProvider.GoogleGemini)]
     [InlineData(AiProvider.Amazon)]
+    [InlineData(AiProvider.Anthropic)]
     public void IsUsable_RequiredFieldsProvided_ReturnsTrue(AiProvider provider)
     {
         // Arrange
@@ -168,6 +171,7 @@ public sealed class AiProviderConfigurationRulesTests : IDisposable
             AiProvider.CustomOpenAi => new CustomOpenAiConfig(),
             AiProvider.Ollama => new OllamaConfig(),
             AiProvider.Amazon => new AmazonConfig(),
+            AiProvider.Anthropic => new AnthropicConfig(),
             _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, null)
         };
     }

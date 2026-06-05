@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using TestMap.Models.Configuration.AiProviders.Amazon;
+using TestMap.Models.Configuration.AiProviders.Anthropic;
 using TestMap.Models.Configuration.AiProviders.Custom;
 using TestMap.Models.Configuration.AiProviders.Google;
 using TestMap.Models.Configuration.AiProviders.Ollama;
@@ -15,6 +16,7 @@ public class AiProviderConfig
     public GoogleCloudConfig GoogleCloud { get; set; } = new() { Provider = AiProvider.GoogleCloud };
     public CustomOpenAiConfig CustomOpenAi { get; set; } = new() { Provider = AiProvider.CustomOpenAi };
     public OllamaConfig Ollama { get; set; } = new() { Provider = AiProvider.Ollama };
+    public AnthropicConfig Anthropic { get; set; } = new() { Provider = AiProvider.Anthropic };
 
     [JsonIgnore]
     public IReadOnlyList<IAiProviderConfig> ProviderConfigs =>
@@ -24,7 +26,8 @@ public class AiProviderConfig
         GoogleGemini,
         GoogleCloud,
         CustomOpenAi,
-        Ollama
+        Ollama,
+        Anthropic
     ];
 
     public IAiProviderConfig? GetProviderConfig(AiProvider provider)
@@ -37,6 +40,7 @@ public class AiProviderConfig
             AiProvider.GoogleCloud => GoogleCloud,
             AiProvider.CustomOpenAi => CustomOpenAi,
             AiProvider.Ollama => Ollama,
+            AiProvider.Anthropic => Anthropic,
             _ => null
         };
     }

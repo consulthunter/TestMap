@@ -78,8 +78,6 @@ public sealed class GenerateConfigurationServiceTests : IDisposable
         Assert.Equal("us-central1", config.AiProviderConfig.GoogleCloud.Location);
         Assert.Equal(TestGenerationObjective.TestSuiteExpansion, config.ExperimentConfig.Objective);
         Assert.Equal(TargetSelectionStrategy.MetricDrivenImprovement, config.ExperimentConfig.CandidateSelectionStrategy);
-        Assert.Equal(TestGenerationApproach.MetricsDriven, config.ExperimentConfig.GenerationApproach);
-        Assert.Equal(TestActionExecutorMode.BasicExtension, config.ExperimentConfig.Executor);
         Assert.Equal([TestGenerationApproach.Naive, TestGenerationApproach.MetricsDriven], config.ExperimentConfig.Approaches);
         Assert.Equal(
             [MetricsDrivenPath.Coverage, MetricsDrivenPath.Mutation, MetricsDrivenPath.CoverageAndMutation],

@@ -10,7 +10,30 @@ public static class Utilities
 {
     public static void Load()
     {
-        var path = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+        LoadFromPath(Directory.GetCurrentDirectory());
+    }
+
+    public static void Load(string? anchorPath)
+    {
+        Load();
+
+        if (string.IsNullOrWhiteSpace(anchorPath)) return;
+
+        var fullPath = Path.GetFullPath(anchorPath);
+        var directory = Directory.Exists(fullPath)
+            ? fullPath
+            : Path.GetDirectoryName(fullPath);
+
+        while (!string.IsNullOrWhiteSpace(directory))
+        {
+            LoadFromPath(directory);
+            directory = Directory.GetParent(directory)?.FullName;
+        }
+    }
+
+    private static void LoadFromPath(string directoryPath)
+    {
+        var path = Path.Combine(directoryPath, ".env");
 
         if (!File.Exists(path)) return;
 

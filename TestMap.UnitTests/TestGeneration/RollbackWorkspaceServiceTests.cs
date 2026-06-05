@@ -32,6 +32,26 @@ public sealed class RollbackWorkspaceServiceTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(repoPath, "generated")));
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RollbackChangesAsync_DeletesIgnoredBinAndObjDirectories()
+    {
+        var repoPath = CreateRepository();
+        var projectDirectory = Path.Combine(repoPath, "src", "Sample");
+        var binDirectory = Directory.CreateDirectory(Path.Combine(projectDirectory, "bin", "Debug")).FullName;
+        var objDirectory = Directory.CreateDirectory(Path.Combine(projectDirectory, "obj", "Debug")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(binDirectory, "artifact.dll"), "binary");
+        await File.WriteAllTextAsync(Path.Combine(objDirectory, "generated.g.cs"), "generated");
+
+        var service = new RollbackWorkspaceService(
+            new ProjectContext(new ProjectModel(directoryPath: repoPath)));
+
+        await service.RollbackChangesAsync();
+
+        Assert.False(Directory.Exists(Path.Combine(projectDirectory, "bin")));
+        Assert.False(Directory.Exists(Path.Combine(projectDirectory, "obj")));
+    }
+
     private string CreateRepository()
     {
         var repoPath = Path.Combine(Path.GetTempPath(), $"testmap-rollback-{Guid.NewGuid():N}");

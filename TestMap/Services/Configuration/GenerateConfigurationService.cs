@@ -124,8 +124,6 @@ public class GenerateConfigurationService(string configurationFilePath, string b
         // Experiment Configuration
         config.ExperimentConfig.Objective = TestGenerationObjective.TestSuiteExpansion;
         config.ExperimentConfig.CandidateSelectionStrategy = TargetSelectionStrategy.MetricDrivenImprovement;
-        config.ExperimentConfig.GenerationApproach = TestGenerationApproach.MetricsDriven;
-        config.ExperimentConfig.Executor = TestActionExecutorMode.BasicExtension;
         config.ExperimentConfig.Approaches =
         [
             TestGenerationApproach.Naive,

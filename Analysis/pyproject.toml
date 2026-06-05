@@ -8,5 +8,17 @@ dependencies = [
     "numpy>=2.4.3",
     "seaborn>=0.13.2",
     "matplotlib>=3.10.8",
-    "jupyter>=1.1.1"
+    "jupyter>=1.1.1",
+    "scipy>=1.15.0",
+    "click>=8.1.0",
 ]
+
+[project.scripts]
+analysis = "analysis.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[tool.setuptools.packages.find]
+where = ["src"]

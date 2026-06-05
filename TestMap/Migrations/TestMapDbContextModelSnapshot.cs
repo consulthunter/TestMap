@@ -17,6 +17,226 @@ namespace TestMap.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.5");
 
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ArtifactPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("artifact_path");
+
+                    b.Property<string>("BaseCommit")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("base_commit");
+
+                    b.Property<int>("CandidateMethodId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("candidate_method_id");
+
+                    b.Property<int>("ChangedFilesCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("changed_files_count");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("ConstraintViolationSummary")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("constraint_violation_summary");
+
+                    b.Property<int>("DeletedFilesCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("deleted_files_count");
+
+                    b.Property<string>("EffectiveProfileHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("effective_profile_hash");
+
+                    b.Property<double>("ElapsedSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("elapsed_seconds");
+
+                    b.Property<int?>("EstimatedPromptTokens")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("estimated_prompt_tokens");
+
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("exit_code");
+
+                    b.Property<int>("ExperimentRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("experiment_run_id");
+
+                    b.Property<string>("ImageKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("image_key");
+
+                    b.Property<string>("ImageName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("image_name");
+
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("input_tokens");
+
+                    b.Property<bool>("JsonlLogAvailable")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("jsonl_log_available");
+
+                    b.Property<int?>("MatrixWorkItemId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("matrix_work_item_id");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Notes")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("ObservedOutcome")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("observed_outcome");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("output_tokens");
+
+                    b.Property<int?>("PostAttemptTestRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("post_attempt_test_run_id");
+
+                    b.Property<int>("ProductionFilesChanged")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("production_files_changed");
+
+                    b.Property<int>("ProjectFilesChanged")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("project_files_changed");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider_id");
+
+                    b.Property<string>("RunStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("run_status");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("started_at");
+
+                    b.Property<int?>("TargetedBaselineId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("targeted_baseline_id");
+
+                    b.Property<int>("TestFilesChanged")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("test_files_changed");
+
+                    b.Property<int>("TimeoutSeconds")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("timeout_seconds");
+
+                    b.Property<string>("ToolId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tool_id");
+
+                    b.Property<string>("ToolVersion")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tool_version");
+
+                    b.Property<bool>("UsageAvailable")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("usage_available");
+
+                    b.Property<string>("UsageSource")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("usage_source");
+
+                    b.Property<string>("ValidationOutcome")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("validation_outcome");
+
+                    b.Property<string>("WorkspacePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workspace_path");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CandidateMethodId");
+
+                    b.HasIndex("ExperimentRunId");
+
+                    b.HasIndex("MatrixWorkItemId");
+
+                    b.HasIndex("ExperimentRunId", "ToolId");
+
+                    b.ToTable("tool_attempts", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptGeneratedTestEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("MappingId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("mapping_id");
+
+                    b.Property<int>("MemberId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("member_id");
+
+                    b.Property<int>("ToolAttemptId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("tool_attempt_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("ToolAttemptId");
+
+                    b.ToTable("tool_attempt_generated_tests", (string)null);
+                });
+
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Code.CSharpProjectEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -2414,6 +2634,43 @@ namespace TestMap.Migrations
                     b.HasIndex("ProjectId", "MemberId", "SmellId", "FilePath", "Line", "Column");
 
                     b.ToTable("test_smells", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptEntity", b =>
+                {
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.CandidateMethodEntity", "CandidateMethod")
+                        .WithMany()
+                        .HasForeignKey("CandidateMethodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.ExperimentRunEntity", "ExperimentRun")
+                        .WithMany()
+                        .HasForeignKey("ExperimentRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.ExperimentMatrixWorkItemEntity", "MatrixWorkItem")
+                        .WithMany()
+                        .HasForeignKey("MatrixWorkItemId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CandidateMethod");
+
+                    b.Navigation("ExperimentRun");
+
+                    b.Navigation("MatrixWorkItem");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptGeneratedTestEntity", b =>
+                {
+                    b.HasOne("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptEntity", "ToolAttempt")
+                        .WithMany()
+                        .HasForeignKey("ToolAttemptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ToolAttempt");
                 });
 
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Code.MemberEntity", b =>

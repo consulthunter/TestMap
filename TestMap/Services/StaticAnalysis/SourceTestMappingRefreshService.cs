@@ -5,7 +5,12 @@ using TestMap.Persistence.Ef.Entities.Experiment;
 
 namespace TestMap.Services.StaticAnalysis;
 
-public class SourceTestMappingRefreshService
+public interface ISourceTestMappingRefreshService
+{
+    Task RefreshForProjectAsync(int projectId, int solutionId, CancellationToken cancellationToken = default);
+}
+
+public class SourceTestMappingRefreshService : ISourceTestMappingRefreshService
 {
     private readonly ProjectContext _context;
     private readonly TestMapDbContext _dbContext;

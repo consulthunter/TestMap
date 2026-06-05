@@ -172,6 +172,8 @@ public class BuildTestService : IBuildTestService
             }
 
             var testRunId = await _testRunRepository.InsertOrUpdateAsync(result, _context.Project.DbId);
+            result.DbId = testRunId;
+            result.DbProjectId = _context.Project.DbId;
             await _resultCollector.LinkCoverageReportAsync(testRunId, LatestCoverageReport);
             if (LatestTestResults.Count > 0) await _testResultRepository.InsertAsync(LatestTestResults, testRunId);
             if (_latestMutationReports.Count > 0)

@@ -52,6 +52,7 @@ public sealed class MigrationSchemaTests
             Assert.Contains("candidate_methods", tables);
             Assert.Contains("generation_attempts", tables);
             Assert.Contains("generated_test_executions", tables);
+            Assert.Contains("tool_attempts", tables);
             Assert.Contains("source_test_mappings", tables);
             Assert.Contains("source_test_mapping_trace_steps", tables);
 
@@ -77,11 +78,10 @@ public sealed class MigrationSchemaTests
     }
 
     /// <summary>
-    /// After migration exactly one migration ID is recorded in __EFMigrationsHistory,
-    /// matching the single InitialCreate migration.
+    /// After migration the expected migration IDs are recorded in __EFMigrationsHistory.
     /// </summary>
     [Fact]
-    public async Task MigrationHistory_ContainsExactlyOneMigration_Named_InitialCreate()
+    public async Task MigrationHistory_ContainsExpectedMigrations()
     {
         await WithTempDatabaseAsync(async (db, _) =>
         {
@@ -89,8 +89,10 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Single(applied);
-            Assert.Contains("InitialCreate", applied[0]);
+            Assert.Equal(3, applied.Count);
+            Assert.Contains(applied, x => x.Contains("InitialCreate"));
+            Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
+            Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
         });
     }
 

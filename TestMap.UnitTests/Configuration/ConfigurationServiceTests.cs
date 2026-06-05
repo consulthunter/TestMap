@@ -41,6 +41,7 @@ public sealed class ConfigurationServiceTests : IDisposable
         AddScope("GOOGLE_CLOUD_ACCESS_TOKEN", "gcloud-token");
         AddScope("GOOGLE_APPLICATION_CREDENTIALS", "credentials.json");
         AddScope("CUSTOM_API_KEY", "custom-key");
+        AddScope("ANTHROPIC_API_KEY", "anthropic-key");
 
         var config = new TestMapConfig();
         var service = new ConfigurationService(config);
@@ -58,6 +59,7 @@ public sealed class ConfigurationServiceTests : IDisposable
         Assert.Equal("gcloud-token", config.AiProviderConfig.GoogleCloud.AccessToken);
         Assert.Equal("credentials.json", config.AiProviderConfig.GoogleCloud.TokenPath);
         Assert.Equal("custom-key", config.AiProviderConfig.CustomOpenAi.ApiKey);
+        Assert.Equal("anthropic-key", config.AiProviderConfig.Anthropic.ApiKey);
     }
 
     /// <summary>
@@ -92,6 +94,7 @@ public sealed class ConfigurationServiceTests : IDisposable
     public void SetSecrets_UsesFallbackEnvironmentVariable_WhenPrimaryValueIsMissing()
     {
         // Arrange
+        AddScope("GEMINI_API_KEY", null);
         AddScope("GOOGLE_GEMINI_API_KEY", null);
         AddScope("GOOGLE_API_KEY", "fallback-google-key");
 
@@ -103,6 +106,43 @@ public sealed class ConfigurationServiceTests : IDisposable
 
         // Assert
         Assert.Equal("fallback-google-key", config.AiProviderConfig.GoogleGemini.ApiKey);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void SetSecrets_UsesGeminiApiKeyBeforeGoogleFallbacks()
+    {
+        // Arrange
+        AddScope("GEMINI_API_KEY", "gemini-key");
+        AddScope("GOOGLE_GEMINI_API_KEY", "google-gemini-key");
+        AddScope("GOOGLE_API_KEY", "google-key");
+
+        var config = new TestMapConfig();
+        var service = new ConfigurationService(config);
+
+        // Act
+        service.SetSecrets();
+
+        // Assert
+        Assert.Equal("gemini-key", config.AiProviderConfig.GoogleGemini.ApiKey);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void SetSecrets_UsesAnthropicKeyAliasWhenCanonicalNameIsMissing()
+    {
+        // Arrange
+        AddScope("ANTHROPIC_API_KEY", null);
+        AddScope("ANTHROPIC_KEY", "anthropic-alias-key");
+
+        var config = new TestMapConfig();
+        var service = new ConfigurationService(config);
+
+        // Act
+        service.SetSecrets();
+
+        // Assert
+        Assert.Equal("anthropic-alias-key", config.AiProviderConfig.Anthropic.ApiKey);
     }
 
     /// <summary>

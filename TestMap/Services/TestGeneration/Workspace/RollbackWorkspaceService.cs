@@ -24,6 +24,7 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
                          throw new InvalidOperationException("Repository has no HEAD commit to reset to.");
         repo.Reset(ResetMode.Hard, headCommit);
         DeleteUntrackedFiles(repo);
+        DeleteIgnoredBuildArtifacts(repo.Info.WorkingDirectory);
         _context.Project.Logger?.Debug("Repository rolled back to HEAD");
         return Task.CompletedTask;
     }
@@ -84,5 +85,29 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
         return relativePath != "." &&
                !relativePath.StartsWith("..", StringComparison.Ordinal) &&
                !Path.IsPathRooted(relativePath);
+    }
+
+    private static void DeleteIgnoredBuildArtifacts(string workingDirectory)
+    {
+        var root = Path.GetFullPath(workingDirectory);
+        var directories = Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+            .Where(path =>
+            {
+                var name = Path.GetFileName(path);
+                return name.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                       name.Equals("obj", StringComparison.OrdinalIgnoreCase);
+            })
+            .Where(path => IsUnderWorkingDirectory(Path.GetFullPath(path), root))
+            .Where(path => !Path.GetRelativePath(root, path)
+                .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Any(part => part.Equals(".git", StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(path => path.Length)
+            .ToList();
+
+        foreach (var directory in directories)
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
     }
 }

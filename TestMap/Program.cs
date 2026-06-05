@@ -168,7 +168,7 @@ public class Program
     private static async Task RunPipeline(IPipelineOptions options)
     {
         // Load utilities and secrets
-        Utilities.Utilities.Load();
+        Utilities.Utilities.Load(options.ConfigFilePath);
 
         // Load and bind configuration
         var configObj = LoadMainConfiguration(options.ConfigFilePath);
@@ -187,7 +187,7 @@ public class Program
 
     private static async Task RunExperimentPipeline(ExperimentOptions options)
     {
-        Utilities.Utilities.Load();
+        Utilities.Utilities.Load(options.ConfigFilePath);
 
         var configObj = LoadMainConfiguration(options.ConfigFilePath);
 

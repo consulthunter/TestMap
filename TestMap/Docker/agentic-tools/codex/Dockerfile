@@ -15,4 +15,6 @@ RUN chmod +x /runner/common/agent-runner-lib.sh /runner/run-codex.sh
 
 WORKDIR /workspace
 
+USER testmap-agent
+
 ENTRYPOINT ["/runner/run-codex.sh"]

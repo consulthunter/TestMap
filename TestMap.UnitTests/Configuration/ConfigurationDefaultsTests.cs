@@ -103,7 +103,6 @@ public sealed class ConfigurationDefaultsTests
         var config = new ExperimentConfig();
 
         // Act
-        var generationApproach = config.GenerationApproach;
         var objective = config.Objective;
         var approaches = config.Approaches;
         var metricsPaths = config.MetricsPaths;
@@ -112,7 +111,6 @@ public sealed class ConfigurationDefaultsTests
         var contextModes = config.ContextModes;
         var stepAblation = config.StepAblation;
         var temperature = config.Temperature;
-        var executor = config.Executor;
         var candidateLimit = config.CandidateLimit;
         var minCoverageThreshold = config.MinCoverageThreshold;
         var maxCoverageThreshold = config.MaxCoverageThreshold;
@@ -123,7 +121,6 @@ public sealed class ConfigurationDefaultsTests
 
         // Assert
         Assert.Equal(TestGenerationObjective.TestSuiteExpansion, objective);
-        Assert.Equal(TestGenerationApproach.MetricsDriven, generationApproach);
         Assert.Equal([TestGenerationApproach.MetricsDriven], approaches);
         Assert.Equal([MetricsDrivenPath.CoverageAndMutation], metricsPaths);
         Assert.Equal([GenerationBudgetMode.PassAt1], budgetModes);
@@ -136,7 +133,6 @@ public sealed class ConfigurationDefaultsTests
         Assert.Equal(32, stepAblation.MaxVariants);
         Assert.Empty(stepAblation.Steps);
         Assert.Equal(0.0, temperature);
-        Assert.Equal(TestActionExecutorMode.BasicExtension, executor);
         Assert.Equal(3, candidateLimit);
         Assert.Equal(0.0, minCoverageThreshold);
         Assert.Equal(0.99, maxCoverageThreshold);
@@ -185,7 +181,8 @@ public sealed class ConfigurationDefaultsTests
                 AiProvider.GoogleGemini,
                 AiProvider.GoogleCloud,
                 AiProvider.CustomOpenAi,
-                AiProvider.Ollama
+                AiProvider.Ollama,
+                AiProvider.Anthropic
             ],
             providers);
     }

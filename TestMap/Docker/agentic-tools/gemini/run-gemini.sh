@@ -11,7 +11,7 @@ mkdir -p /attempt
 
 # Optional:
 #   GEMINI_MODEL="gemini-2.5-pro" | "gemini-2.5-flash" | etc.
-#   GEMINI_OUTPUT_FORMAT=text | json
+#   GEMINI_OUTPUT_FORMAT=stream-json | json | text
 #   GEMINI_APPROVAL_MODE=yolo | auto_edit | default
 #   GEMINI_SANDBOX=true | false
 #   GEMINI_EXTRA_ARGS="..."
@@ -36,7 +36,8 @@ if [ -n "${GEMINI_MODEL:-}" ]; then
   GEMINI_ARGS+=(--model "${GEMINI_MODEL}")
 fi
 
-GEMINI_ARGS+=(--output-format "${GEMINI_OUTPUT_FORMAT:-text}")
+GEMINI_OUTPUT_FORMAT="${GEMINI_OUTPUT_FORMAT:-stream-json}"
+GEMINI_ARGS+=(--output-format "${GEMINI_OUTPUT_FORMAT}")
 
 if [ "${GEMINI_SANDBOX:-false}" = "true" ]; then
   GEMINI_ARGS+=(--sandbox)
@@ -63,7 +64,7 @@ fi
 cat > /attempt/runner-env.txt <<EOF
 TOOL_ID=gemini
 GEMINI_MODEL=${GEMINI_MODEL:-}
-GEMINI_OUTPUT_FORMAT=${GEMINI_OUTPUT_FORMAT:-text}
+GEMINI_OUTPUT_FORMAT=${GEMINI_OUTPUT_FORMAT}
 GEMINI_APPROVAL_MODE=${GEMINI_APPROVAL_MODE:-yolo}
 GEMINI_SANDBOX=${GEMINI_SANDBOX:-false}
 GEMINI_API_KEY_SET=$([ -n "${GEMINI_API_KEY:-}" ] && echo yes || echo no)
@@ -79,11 +80,18 @@ EOF
 
 set +e
 
+GEMINI_STDOUT_PATH=/attempt/gemini.stdout.log
+if [ "${GEMINI_OUTPUT_FORMAT}" = "stream-json" ]; then
+  GEMINI_STDOUT_PATH=/attempt/gemini.events.jsonl
+elif [ "${GEMINI_OUTPUT_FORMAT}" = "json" ]; then
+  GEMINI_STDOUT_PATH=/attempt/gemini.json
+fi
+
 gemini \
   "${GEMINI_ARGS[@]}" \
   "${EXTRA_ARGS[@]}" \
   --prompt "$(cat /attempt/prompt.md)" \
-  > /attempt/gemini.stdout.log \
+  > "${GEMINI_STDOUT_PATH}" \
   2> /attempt/gemini.stderr.log
 
 EXIT_CODE=$?

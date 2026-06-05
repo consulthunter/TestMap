@@ -21,20 +21,6 @@ public sealed class ExperimentConfigurationValidatorTests
 
     [Fact]
     [Trait("Category", "Unit")]
-    public void ValidateMatrixSettings_RejectsShadowedGenerationApproach()
-    {
-        var config = ValidExperimentConfig();
-        config.GenerationApproach = TestGenerationApproach.Naive;
-        config.Approaches = [TestGenerationApproach.MetricsDriven];
-
-        var ex = Assert.Throws<InvalidOperationException>(
-            () => ExperimentConfigurationValidator.ValidateMatrixSettings(config));
-
-        Assert.Contains("shadowed", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    [Trait("Category", "Unit")]
     public void ValidateMatrixSettings_RejectsResumeRewrite()
     {
         var config = ValidExperimentConfig();
@@ -86,7 +72,6 @@ public sealed class ExperimentConfigurationValidatorTests
     {
         return new ExperimentConfig
         {
-            GenerationApproach = TestGenerationApproach.MetricsDriven,
             Approaches = [TestGenerationApproach.MetricsDriven],
             MetricsPaths = [MetricsDrivenPath.CoverageAndMutation],
             BudgetModes = [GenerationBudgetMode.PassAt1],

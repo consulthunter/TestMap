@@ -7,5 +7,6 @@ public enum AiProvider
     GoogleCloud,
     CustomOpenAi,
     Ollama,
-    OpenAi
+    OpenAi,
+    Anthropic
 }

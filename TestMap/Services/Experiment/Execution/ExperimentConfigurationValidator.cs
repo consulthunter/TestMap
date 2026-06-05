@@ -11,17 +11,13 @@ public static class ExperimentConfigurationValidator
         GenerationObjectivePolicy.Validate(
             config.Objective,
             config.Approaches ?? [],
-            config.Executor);
+            GenerationObjectivePolicy.ResolveExecutor(config.Objective));
 
         if (config.Approaches == null || config.Approaches.Count == 0)
             throw new InvalidOperationException("ExperimentConfig.Approaches must contain at least one approach.");
 
         if (config.BudgetModes == null || config.BudgetModes.Count == 0)
             throw new InvalidOperationException("ExperimentConfig.BudgetModes must contain at least one budget mode.");
-
-        if (!config.Approaches.Contains(config.GenerationApproach))
-            throw new InvalidOperationException(
-                "ExperimentConfig.GenerationApproach is shadowed by ExperimentConfig.Approaches. Include it in Approaches or remove the shadowed setting.");
 
         if (config.ContextModes == null || config.ContextModes.Count == 0)
             throw new InvalidOperationException("ExperimentConfig.ContextModes must contain at least one context mode.");

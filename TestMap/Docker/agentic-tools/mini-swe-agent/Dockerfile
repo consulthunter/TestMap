@@ -19,4 +19,6 @@ RUN chmod +x /runner/common/agent-runner-lib.sh /runner/run-mini-swe-agent.sh
 
 WORKDIR /workspace
 
+USER testmap-agent
+
 ENTRYPOINT ["/runner/run-mini-swe-agent.sh"]
