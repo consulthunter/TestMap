@@ -162,6 +162,7 @@ public class GenerateTestService : IGenerateTestService
     {
         string? candidateTest = null;
         string? resultHistory = null;
+        string? modifiedTestFileContents = null;
         var generationConfig = _config.TestingConfig.GenerationConfig;
         var attempts = GenerationBudgetPlanner.Plan(budgetMode);
 
@@ -200,6 +201,7 @@ public class GenerateTestService : IGenerateTestService
                     ErrorLogs = await ReadLatestErrorLogsAsync(cancellationToken),
                     StructuredErrors = await ReadLatestStructuredErrorsAsync(cancellationToken),
                     PriorConversationTranscript = resultHistory,
+                    ModifiedTestFileContents = modifiedTestFileContents,
                     Provider = provider,
                     Temperature = temperature,
                     AttemptNumber = attempt.AttemptNumber,
@@ -251,6 +253,9 @@ public class GenerateTestService : IGenerateTestService
                     method.MethodName,
                     method.TestFilePath,
                     executionResult.FailureSummary ?? executionResult.ErrorLogs ?? "Application failed.");
+                // Capture the post-patch file before rollback if compilation failed after successful
+                // patch application, so the repair prompt can show the integrated state that failed.
+                modifiedTestFileContents = await TryCapturePostPatchFileAsync(executionResult, cancellationToken);
                 await _workspace.RollbackChangesAsync(cancellationToken);
                 continue;
             }
@@ -284,6 +289,8 @@ public class GenerateTestService : IGenerateTestService
                 method.BaselineCoverage,
                 executionResult.CoverageAfter);
 
+            // Capture post-patch file before rollback if compilation failed (for repair prompt).
+            modifiedTestFileContents = await TryCapturePostPatchFileAsync(executionResult, cancellationToken);
             await _workspace.RollbackChangesAsync(cancellationToken);
         }
 
@@ -365,6 +372,23 @@ public class GenerateTestService : IGenerateTestService
             _context.Project.Logger?.Information(
                 "Bootstrapped test infrastructure for project with no existing tests: {TestProjectPath}",
                 plan.ProjectBootstrap?.TestProjectPath);
+    }
+
+    /// <summary>
+    /// Reads the current test file contents when a patch was applied but the build failed.
+    /// This captures the post-patch state before the workspace rollback restores the original file,
+    /// so the repair prompt can show the model the integrated state that failed to compile.
+    /// Returns null if the failure was not a build failure or if the file cannot be read.
+    /// </summary>
+    private static async Task<string?> TryCapturePostPatchFileAsync(
+        GeneratedTestExecutionResult executionResult,
+        CancellationToken cancellationToken)
+    {
+        if (executionResult.FailureStage != "build") return null;
+        if (string.IsNullOrWhiteSpace(executionResult.AppliedFilePath)) return null;
+        if (!File.Exists(executionResult.AppliedFilePath)) return null;
+
+        return await File.ReadAllTextAsync(executionResult.AppliedFilePath, cancellationToken);
     }
 
     private async Task<string> ReadLatestErrorLogsAsync(CancellationToken cancellationToken)
@@ -462,6 +486,9 @@ public class GenerateTestService : IGenerateTestService
             MutationSummary = request.MutationSummary,
             CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
             CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
+            AccessPathSummary = request.AccessPathSummary,
+            UseStructuredPatchOutput = request.UseStructuredPatchOutput,
+            TestProjectPath = request.TestProjectPath,
             Provider = request.Provider,
             Temperature = request.Temperature,
             StepErrorRetries = request.StepErrorRetries,
@@ -496,9 +523,13 @@ public class GenerateTestService : IGenerateTestService
             MutationSummary = request.MutationSummary,
             CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
             CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
+            AccessPathSummary = request.AccessPathSummary,
+            UseStructuredPatchOutput = request.UseStructuredPatchOutput,
             ErrorLogs = request.ErrorLogs,
             StructuredErrors = request.StructuredErrors,
             PriorConversationTranscript = request.PriorConversationTranscript,
+            PriorAttemptsSummary = request.PriorAttemptsSummary,
+            ModifiedTestFileContents = request.ModifiedTestFileContents,
             Provider = request.Provider,
             Temperature = request.Temperature,
             AttemptNumber = request.AttemptNumber,

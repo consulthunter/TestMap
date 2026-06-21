@@ -148,6 +148,7 @@ public sealed class GenerationEvidenceService : IGenerationEvidenceService
                 ? mutant.Id.ToString()
                 : mutant.StrykerMutantId,
             MutatorName = mutant.MutatorName,
+            OriginalCode = mutant.OriginalCode,
             ReplacementCode = mutant.Replacement,
             StartLine = mutant.Location.StartLineNumber,
             EndLine = mutant.Location.EndLineNumber,

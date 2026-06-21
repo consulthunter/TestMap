@@ -1,4 +1,6 @@
 using LibGit2Sharp;
+using System.Security.Cryptography;
+using System.Text;
 using TestMap.App;
 using TestMap.Models;
 using TestMap.Models.Configuration;
@@ -18,12 +20,99 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
 
     [Fact]
     [Trait("Category", "Unit")]
+    public async Task CaptureModifiedFileAsync_AppliedPatch_StoresExactSnapshotAndHash()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"testmap-snapshot-{Guid.NewGuid():N}");
+        _directoriesToDelete.Add(directory);
+        Directory.CreateDirectory(directory);
+        var filePath = Path.Combine(directory, "WidgetTests.cs");
+        var contents = "public class WidgetTests\r\n{\r\n    // exact snapshot\r\n}\r\n";
+        await File.WriteAllTextAsync(filePath, contents);
+        var attempt = new GenerationAttempt
+        {
+            TestExecution = new TestMap.Models.Experiment.TestExecution
+            {
+                PatchApplicationOutcome = "Success"
+            }
+        };
+
+        await ExperimentOrchestrationService.CaptureModifiedFileAsync(attempt, filePath);
+
+        Assert.Equal(Path.GetFullPath(filePath), attempt.ModifiedFilePath);
+        Assert.Equal(contents, attempt.ModifiedFileContents);
+        Assert.Equal(
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(contents))).ToLowerInvariant(),
+            attempt.ModifiedFileSha256);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task CaptureModifiedFileAsync_FailedPatch_DoesNotStoreOriginalFile()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"testmap-snapshot-{Guid.NewGuid():N}");
+        _directoriesToDelete.Add(directory);
+        Directory.CreateDirectory(directory);
+        var filePath = Path.Combine(directory, "WidgetTests.cs");
+        await File.WriteAllTextAsync(filePath, "original");
+        var attempt = new GenerationAttempt
+        {
+            TestExecution = new TestMap.Models.Experiment.TestExecution
+            {
+                PatchApplicationOutcome = "MalformedTestMethod"
+            }
+        };
+
+        await ExperimentOrchestrationService.CaptureModifiedFileAsync(attempt, filePath);
+
+        Assert.Null(attempt.ModifiedFilePath);
+        Assert.Null(attempt.ModifiedFileContents);
+        Assert.Null(attempt.ModifiedFileSha256);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ShouldRequirePassingExistingTest_ForTestSuiteExpansion_ReturnsFalse()
     {
         var result = ExperimentOrchestrationService.ShouldRequirePassingExistingTest(
             TestGenerationObjective.TestSuiteExpansion);
 
         Assert.False(result);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ResolveAgentToolBudgetModes_UsesOnlyPassAt1AndPassAt5()
+    {
+        var config = new ExperimentConfig
+        {
+            BudgetModes =
+            [
+                GenerationBudgetMode.PassAt1,
+                GenerationBudgetMode.PassAt5,
+                GenerationBudgetMode.PassAt1RepairAt5,
+                GenerationBudgetMode.PassAt5
+            ]
+        };
+
+        var result = ExperimentOrchestrationService.ResolveAgentToolBudgetModes(config);
+
+        Assert.Equal(
+            [GenerationBudgetMode.PassAt1, GenerationBudgetMode.PassAt5],
+            result);
+    }
+
+    [Theory]
+    [Trait("Category", "Unit")]
+    [InlineData(GenerationBudgetMode.PassAt1, 1)]
+    [InlineData(GenerationBudgetMode.PassAt5, 5)]
+    [InlineData(GenerationBudgetMode.PassAt1RepairAt5, 1)]
+    public void GetAgentToolAttemptCount_MapsSupportedBudgetsToIndependentAttemptCounts(
+        GenerationBudgetMode budgetMode,
+        int expected)
+    {
+        var result = ExperimentOrchestrationService.GetAgentToolAttemptCount(budgetMode);
+
+        Assert.Equal(expected, result);
     }
 
     [Fact]

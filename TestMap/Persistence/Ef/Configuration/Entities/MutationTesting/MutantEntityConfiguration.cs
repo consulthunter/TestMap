@@ -20,6 +20,7 @@ public class MutantEntityConfiguration : IEntityTypeConfiguration<MutantEntity>
         builder.Property(x => x.StrykerMutantId).HasColumnName("stryker_mutant_id").IsRequired();
         builder.Property(x => x.FilePath).HasColumnName("file_path").IsRequired();
         builder.Property(x => x.MutatorName).HasColumnName("mutator_name").IsRequired();
+        builder.Property(x => x.OriginalCode).HasColumnName("original_code").IsRequired();
         builder.Property(x => x.Replacement).HasColumnName("replacement").IsRequired();
         builder.Property(x => x.Status).HasColumnName("status").IsRequired();
         builder.Property(x => x.StatusReason).HasColumnName("status_reason").IsRequired();

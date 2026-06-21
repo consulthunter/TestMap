@@ -23,9 +23,15 @@ public sealed class ToolAttempt
     public string BaseCommit { get; set; } = string.Empty;
     public string WorkspacePath { get; set; } = string.Empty;
     public string ArtifactPath { get; set; } = string.Empty;
+    public string StdOutLogPath { get; set; } = string.Empty;
+    public string StdErrLogPath { get; set; } = string.Empty;
+    public string JsonlLogPath { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public double ElapsedSeconds { get; set; }
+    public double GenerationDurationSeconds { get; set; }
+    public double ValidationDurationSeconds { get; set; }
+    public double TotalAttemptDurationSeconds { get; set; }
     public int TimeoutSeconds { get; set; }
     public int? ExitCode { get; set; }
     public string ToolVersion { get; set; } = string.Empty;

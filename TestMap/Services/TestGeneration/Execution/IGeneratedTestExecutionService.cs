@@ -54,6 +54,16 @@ public sealed class GeneratedTestExecutionResult
     public IReadOnlyList<RoslynDiagnosticSnapshot> NewRoslynDiagnostics { get; init; } = [];
     public IReadOnlyList<RuleDecisionRecord> ApplicationRuleDecisions { get; init; } = [];
     public IReadOnlyList<RuleDecisionRecord> RoslynPreBuildRuleDecisions { get; init; } = [];
+    /// <summary>
+    /// Machine-readable patch outcome token from <c>BasicExtensionPatchApplicationService</c>.
+    /// Null for non-Basic-Extension executor paths.
+    /// </summary>
+    public string? PatchApplicationOutcome { get; init; }
+    /// <summary>Number of new <c>using</c> directives added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedUsingCount { get; init; }
+    /// <summary>Number of helper methods added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedHelperCount { get; init; }
+    public double? GeneratedTestExecutionTimeMs { get; init; }
     public TestRunModel? TestRun { get; init; }
     public DateTime ExecutedAt { get; init; } = DateTime.UtcNow;
 }

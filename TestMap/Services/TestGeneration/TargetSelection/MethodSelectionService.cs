@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
@@ -721,21 +722,30 @@ public class MethodSelectionService : IMethodSelectionService
                 var id = string.IsNullOrWhiteSpace(mutant.StrykerMutantId)
                     ? mutant.Id.ToString()
                     : mutant.StrykerMutantId;
-                var location = mutant.Location.StartLineNumber > 0
-                    ? $"lines {mutant.Location.StartLineNumber}-{mutant.Location.EndLineNumber}"
-                    : "unknown location";
-                var replacement = string.IsNullOrWhiteSpace(mutant.Replacement)
-                    ? string.Empty
-                    : $", replacement=`{mutant.Replacement}`";
-                var reason = string.IsNullOrWhiteSpace(mutant.StatusReason)
-                    ? string.Empty
-                    : $", reason={mutant.StatusReason}";
-                var coveredBy = mutant.CoveredBy.Count == 0
-                    ? string.Empty
-                    : $", coveredBy={string.Join(", ", mutant.CoveredBy.Take(3))}";
 
-                return
-                    $"- Mutant {id}: {mutant.Status}, {mutant.MutatorName}, {location}{replacement}{reason}{coveredBy}";
+                // Location: show single line or range (1-based for readability).
+                var startLine = mutant.Location.StartLineNumber + 1;
+                var endLine   = mutant.Location.EndLineNumber + 1;
+                var location  = startLine == endLine
+                    ? $"line {startLine}"
+                    : $"lines {startLine}-{endLine}";
+
+                var sb = new StringBuilder();
+                sb.Append($"- Mutant {id}: {mutant.Status}, {mutant.MutatorName}, {location}");
+
+                if (!string.IsNullOrWhiteSpace(mutant.OriginalCode))
+                    sb.Append($"\n  before: `{mutant.OriginalCode}`");
+
+                if (!string.IsNullOrWhiteSpace(mutant.Replacement))
+                    sb.Append($"\n  after:  `{mutant.Replacement}`");
+
+                if (!string.IsNullOrWhiteSpace(mutant.StatusReason))
+                    sb.Append($"\n  reason: {mutant.StatusReason}");
+
+                if (mutant.CoveredBy.Count > 0)
+                    sb.Append($"\n  coveredBy: {string.Join(", ", mutant.CoveredBy.Take(3))}");
+
+                return sb.ToString();
             })
             .Distinct()
             .Take(12);

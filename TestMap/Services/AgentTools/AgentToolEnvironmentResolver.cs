@@ -57,6 +57,8 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
             metadata["base_url"] = baseUrl;
         }
 
+        ApplyToolSpecificSecrets(tool, normalized);
+
         // 4. Check required env vars against host environment.
         var missing = new List<string>();
         foreach (var varName in tool.RequiredEnvironmentVariables)
@@ -137,6 +139,18 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
     private static bool AnyConfiguredEnvironmentVariable(IEnumerable<string> names)
     {
         return names.Any(name => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(name)));
+    }
+
+    private static void ApplyToolSpecificSecrets(
+        ExperimentToolConfig tool,
+        IDictionary<string, string> normalized)
+    {
+        if (tool.Id.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+        {
+            var token = Environment.GetEnvironmentVariable("GITHUB_COPILOT_TOKEN");
+            if (!string.IsNullOrWhiteSpace(token))
+                normalized["GITHUB_COPILOT_TOKEN"] = token;
+        }
     }
 
     private static bool RequiresNormalizedApiKey(string toolId)

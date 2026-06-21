@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.AgentTools;
+using TestMap.Models.Code;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Entities.Code;
 using TestMap.Persistence.Ef.Entities.Experiment;
@@ -79,6 +80,28 @@ public sealed class ToolAttemptGeneratedTestServiceTests
         Assert.Empty(result);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ParseAddedLines_TracksOnlyNewFileLines()
+    {
+        var workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "testmap-unit", "PatchRepo"));
+        var result = ToolAttemptGeneratedTestService.ParseAddedLines(
+            [
+                "diff --git a/Tests/FooTests.cs b/Tests/FooTests.cs",
+                "--- a/Tests/FooTests.cs",
+                "+++ b/Tests/FooTests.cs",
+                "@@ -1,2 +1,4 @@",
+                " existing",
+                "+[Fact]",
+                "+public void AddedTest()",
+                " trailing"
+            ],
+            workspace);
+
+        var path = Path.GetFullPath(Path.Combine(workspace, "Tests", "FooTests.cs"));
+        Assert.Equal([1, 2], result[path].OrderBy(x => x));
+    }
+
     // ─── LinkAsync integration (in-memory DB) ─────────────────────────────────
 
     /// <summary>
@@ -97,7 +120,16 @@ public sealed class ToolAttemptGeneratedTestServiceTests
 
         var workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "testmap-unit", "LinkRepo"));
         var testFilePath = Path.GetFullPath(Path.Combine(workspace, "Tests", "FooTests.cs"));
-        await SeedCodeGraphAsync(db, testFilePath, isTestMember: true);
+        await SeedCodeGraphAsync(db, testFilePath, isTestMember: true, startLine: 1);
+        var artifactPath = CreatePatchArtifact(
+            workspace,
+            "Tests/FooTests.cs",
+            """
+             existing
+            +[Fact]
+            +public void TestFoo()
+             trailing
+            """);
 
         var service = new ToolAttemptGeneratedTestService(
             db, new ToolAttemptGeneratedTestRepository(db));
@@ -105,7 +137,7 @@ public sealed class ToolAttemptGeneratedTestServiceTests
         {
             Id = attemptId,
             WorkspacePath = workspace,
-            ArtifactPath = string.Empty
+            ArtifactPath = artifactPath
         };
 
         // Act
@@ -117,6 +149,57 @@ public sealed class ToolAttemptGeneratedTestServiceTests
         // Assert
         Assert.Equal(1, result.LinkedCount);
         Assert.Equal(1, await db.ToolAttemptGeneratedTests.CountAsync());
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task LinkAsync_PreExistingTestInChangedFile_DoesNotLinkIt()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var (experimentRunId, candidateId) = await SeedExperimentGraphAsync(db);
+        var attemptId = await SeedAttemptAsync(db, experimentRunId, candidateId);
+
+        var workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "testmap-unit", "FilteredRepo"));
+        var testFilePath = Path.GetFullPath(Path.Combine(workspace, "Tests", "FooTests.cs"));
+        await SeedCodeGraphAsync(db, testFilePath, isTestMember: true, startLine: 1);
+        var testObjectId = await db.Objects.Select(x => x.Id).SingleAsync();
+        db.Members.Add(new MemberEntity
+        {
+            ObjectEntityId = testObjectId,
+            Name = "ExistingTest",
+            Kind = "method",
+            IsTestMember = true,
+            Location = new Location(10, 0, 12, 0)
+        });
+        await db.SaveChangesAsync();
+
+        var artifactPath = CreatePatchArtifact(
+            workspace,
+            "Tests/FooTests.cs",
+            """
+             existing
+            +[Fact]
+            +public void TestFoo()
+             trailing
+            """);
+        var service = new ToolAttemptGeneratedTestService(
+            db, new ToolAttemptGeneratedTestRepository(db));
+
+        var result = await service.LinkAsync(
+            new ToolAttempt
+            {
+                Id = attemptId,
+                WorkspacePath = workspace,
+                ArtifactPath = artifactPath
+            },
+            ["Tests/FooTests.cs"],
+            projectId: 1);
+
+        Assert.Single(result.LinkedMemberIds);
+        var linkedMember = await db.Members.SingleAsync(x => result.LinkedMemberIds.Contains(x.Id));
+        Assert.Equal("TestFoo", linkedMember.Name);
     }
 
     /// <summary>
@@ -237,7 +320,8 @@ public sealed class ToolAttemptGeneratedTestServiceTests
     private static async Task SeedCodeGraphAsync(
         TestMapDbContext db,
         string filePath,
-        bool isTestMember)
+        bool isTestMember,
+        int startLine = 0)
     {
         var csproj = new CSharpProjectEntity
         {
@@ -270,9 +354,32 @@ public sealed class ToolAttemptGeneratedTestServiceTests
             ObjectEntityId = obj.Id,
             Name = isTestMember ? "TestFoo" : "Calculate",
             Kind = "method",
-            IsTestMember = isTestMember
+            IsTestMember = isTestMember,
+            Location = new Location(startLine, 0, startLine + 2, 0)
         };
         db.Members.Add(member);
         await db.SaveChangesAsync();
+    }
+
+    private static string CreatePatchArtifact(
+        string workspace,
+        string relativePath,
+        string hunkLines)
+    {
+        var artifactPath = Path.Combine(
+            Path.GetTempPath(),
+            $"testmap-patch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(artifactPath);
+        var normalizedPath = relativePath.Replace('\\', '/');
+        File.WriteAllText(
+            Path.Combine(artifactPath, "patch.diff"),
+            string.Join(
+                Environment.NewLine,
+                $"diff --git a/{normalizedPath} b/{normalizedPath}",
+                $"--- a/{normalizedPath}",
+                $"+++ b/{normalizedPath}",
+                "@@ -1,2 +1,4 @@",
+                hunkLines));
+        return artifactPath;
     }
 }

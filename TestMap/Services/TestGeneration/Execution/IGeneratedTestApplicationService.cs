@@ -22,5 +22,14 @@ public sealed class GeneratedTestApplicationResult
     public string? AppliedTestMethodName { get; init; }
     public CandidateActionKind ActionKind { get; init; }
     public string? ErrorMessage { get; init; }
+    /// <summary>
+    /// Machine-readable patch outcome token from <c>BasicExtensionPatchApplicationService</c>.
+    /// Null for legacy method-only append paths.
+    /// </summary>
+    public string? PatchApplicationOutcome { get; init; }
+    /// <summary>Number of new <c>using</c> directives added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedUsingCount { get; init; }
+    /// <summary>Number of helper methods added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedHelperCount { get; init; }
     public IReadOnlyList<RuleDecisionRecord> RuleDecisions { get; init; } = [];
 }

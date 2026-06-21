@@ -67,6 +67,9 @@ public sealed class GenerationBudgetExecutor : IGenerationBudgetExecutor
 
             for (var attemptNumber = 2; attemptNumber <= request.RepairAttemptCount; attemptNumber++)
             {
+                if (request.RollbackAsync != null)
+                    await request.RollbackAsync(cancellationToken);
+
                 var repaired = await request.RepairAsync(current, attemptNumber, cancellationToken);
                 evaluations.Add(new GeneratedCandidateEvaluation
                 {

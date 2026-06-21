@@ -89,10 +89,67 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Equal(3, applied.Count);
+            Assert.Equal(7, applied.Count);
             Assert.Contains(applied, x => x.Contains("InitialCreate"));
             Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
+            Assert.Contains(applied, x => x.Contains("AddBasicExtensionPatchMetadata"));
+            Assert.Contains(applied, x => x.Contains("AddEvaluationTimingMetrics"));
+            Assert.Contains(applied, x => x.Contains("AddToolAttemptLogPaths"));
+            Assert.Contains(applied, x => x.Contains("AddGenerationAttemptModifiedFileSnapshot"));
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsEvaluationTimingColumnsToBothAttemptTables()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var generationColumns = await GetColumnNamesAsync(db, "generation_attempts");
+            var toolColumns = await GetColumnNamesAsync(db, "tool_attempts");
+
+            foreach (var column in new[]
+                     {
+                         "generation_duration_seconds",
+                         "validation_duration_seconds",
+                         "total_attempt_duration_seconds"
+                     })
+            {
+                Assert.Contains(column, generationColumns);
+                Assert.Contains(column, toolColumns);
+            }
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsToolAttemptLogPathColumns()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var columns = await GetColumnNamesAsync(db, "tool_attempts");
+
+            Assert.Contains("stdout_log_path", columns);
+            Assert.Contains("stderr_log_path", columns);
+            Assert.Contains("jsonl_log_path", columns);
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsGenerationAttemptModifiedFileColumns()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var columns = await GetColumnNamesAsync(db, "generation_attempts");
+
+            Assert.Contains("modified_file_path", columns);
+            Assert.Contains("modified_file_contents", columns);
+            Assert.Contains("modified_file_sha256", columns);
         });
     }
 
@@ -181,5 +238,24 @@ public sealed class MigrationSchemaTests
             tables.Add(reader.GetString(0));
 
         return tables;
+    }
+
+    private static async Task<IReadOnlyList<string>> GetColumnNamesAsync(
+        TestMapDbContext db,
+        string tableName)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info(\"{tableName.Replace("\"", "\"\"")}\");";
+
+        var columns = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            columns.Add(reader.GetString(1));
+
+        return columns;
     }
 }

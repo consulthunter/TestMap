@@ -66,10 +66,7 @@ public sealed class DockerToolRunner : IAgentToolRunner
         var afterPath = Path.Combine(request.ArtifactPath, "git-after.txt");
 
         var changedFiles = File.Exists(changedFilesPath)
-            ? File.ReadAllLines(changedFilesPath)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x.Trim())
-                .ToList()
+            ? AgentToolChangedPathFilter.Filter(File.ReadAllLines(changedFilesPath))
             : [];
 
         return Task.FromResult(new ToolRunCollectionResult
@@ -261,6 +258,12 @@ public sealed class DockerToolRunner : IAgentToolRunner
                 AddIfMissing(env, "LLM_API_KEY", apiKey);
             if (env.TryGetValue("TESTMAP_LLM_BASE_URL", out var baseUrl))
                 AddIfMissing(env, "LLM_BASE_URL", baseUrl);
+            return;
+        }
+
+        if (toolId.Equals("claude", StringComparison.OrdinalIgnoreCase))
+        {
+            AddIfMissing(env, "CLAUDE_MODEL", rawModel);
             return;
         }
 

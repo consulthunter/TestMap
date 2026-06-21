@@ -41,6 +41,7 @@ public sealed class GenerationBudgetExecutorTests
     public async Task ExecuteAsync_RepairBudget_RepairsUntilSuccess()
     {
         var executor = new GenerationBudgetExecutor();
+        var rollbacks = 0;
 
         var result = await executor.ExecuteAsync(new GenerationBudgetExecutionRequest
         {
@@ -63,10 +64,16 @@ public sealed class GenerationBudgetExecutorTests
                     CoverageImprovement = attemptNumber == 3 ? 0.1 : 0
                 }
             }),
-            ShouldStopRepair = attempt => attempt.TestExecution is { TestPassed: true, CoverageImprovement: > 0 }
+            ShouldStopRepair = attempt => attempt.TestExecution is { TestPassed: true, CoverageImprovement: > 0 },
+            RollbackAsync = _ =>
+            {
+                rollbacks++;
+                return Task.CompletedTask;
+            }
         });
 
         Assert.Equal(3, result.Count);
+        Assert.Equal(3, rollbacks);
         Assert.False(result[0].IsRepairAttempt);
         Assert.True(result[1].IsRepairAttempt);
         Assert.True(result[2].IsRepairAttempt);
@@ -124,6 +131,55 @@ public sealed class GenerationBudgetExecutorTests
                 }
             }));
 
-        Assert.Equal(1, rollbacks);
+        Assert.Equal(2, rollbacks);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ExecuteAsync_RepairBudget_RollsBackBeforeEachRepairAttempt()
+    {
+        var executor = new GenerationBudgetExecutor();
+        var events = new List<string>();
+
+        await executor.ExecuteAsync(new GenerationBudgetExecutionRequest
+        {
+            BudgetMode = GenerationBudgetMode.PassAt1RepairAt5,
+            GenerateAsync = (attemptNumber, _) =>
+            {
+                events.Add($"generate:{attemptNumber}");
+                return Task.FromResult(new GenerationAttempt
+                {
+                    AttemptNumber = attemptNumber,
+                    TestExecution = new ExperimentTestExecution
+                    {
+                        TestPassed = false,
+                        CoverageImprovement = 0
+                    }
+                });
+            },
+            RepairAsync = (_, attemptNumber, _) =>
+            {
+                events.Add($"repair:{attemptNumber}");
+                return Task.FromResult(new GenerationAttempt
+                {
+                    AttemptNumber = attemptNumber,
+                    TestExecution = new ExperimentTestExecution
+                    {
+                        TestPassed = attemptNumber == 3,
+                        CoverageImprovement = attemptNumber == 3 ? 0.1 : 0
+                    }
+                });
+            },
+            ShouldStopRepair = attempt => attempt.TestExecution is { TestPassed: true, CoverageImprovement: > 0 },
+            RollbackAsync = _ =>
+            {
+                events.Add("rollback");
+                return Task.CompletedTask;
+            }
+        });
+
+        Assert.Equal(
+            ["generate:1", "rollback", "repair:2", "rollback", "repair:3", "rollback"],
+            events);
     }
 }

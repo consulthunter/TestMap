@@ -290,10 +290,12 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
             {
                 var execution = await _executionRepo.GetByAttemptAsync(attempt.Id, cancellationToken);
                 var generatedTestName = execution?.GeneratedTestMethodName;
-                var generatedDurationMs = await GetLatestTestDurationMsAsync(
-                    generatedTestName,
-                    null,
-                    cancellationToken);
+                var generatedDurationMs = execution?.ExecutionTimeMs is > 0
+                    ? execution.ExecutionTimeMs
+                    : await GetLatestTestDurationMsAsync(
+                        generatedTestName,
+                        null,
+                        cancellationToken);
                 var generatedMemberId = await ResolveLatestTestMemberIdAsync(
                     generatedTestName,
                     cancellationToken);

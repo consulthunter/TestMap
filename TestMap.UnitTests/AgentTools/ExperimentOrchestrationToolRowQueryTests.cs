@@ -243,6 +243,51 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
         Assert.Empty(results);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task GetPostAttemptTestDurations_SumsParameterizedCasesByName()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+
+        var testRun = new TestRunEntity
+        {
+            ProjectId = 1,
+            RunId = "run-duration",
+            RunDate = "2026-06-06",
+            Success = true
+        };
+        db.TestRuns.Add(testRun);
+        await db.SaveChangesAsync();
+
+        db.TestResults.AddRange(
+            new TestResultEntity
+            {
+                TestRunId = testRun.Id,
+                RunId = testRun.RunId,
+                RunDate = testRun.RunDate,
+                TestName = "GeneratedTest(x: 1)",
+                Outcome = "Passed",
+                Duration = TimeSpan.FromMilliseconds(4.5)
+            },
+            new TestResultEntity
+            {
+                TestRunId = testRun.Id,
+                RunId = testRun.RunId,
+                RunDate = testRun.RunDate,
+                TestName = "GeneratedTest(x: 1)",
+                Outcome = "Passed",
+                Duration = TimeSpan.FromMilliseconds(2.5)
+            });
+        await db.SaveChangesAsync();
+
+        var durations = await MakeService(db)
+            .GetPostAttemptTestDurationsAsync(testRun.Id, default);
+
+        Assert.Equal(7.0, durations["GeneratedTest(x: 1)"]);
+    }
+
     // ─── GetLinkedTestMembersAsync ────────────────────────────────────────────
 
     [Fact]

@@ -40,9 +40,15 @@ public sealed class ToolAttemptMappingExtensionsTests
         Assert.Equal(attempt.BaseCommit, roundTripped.BaseCommit);
         Assert.Equal(attempt.WorkspacePath, roundTripped.WorkspacePath);
         Assert.Equal(attempt.ArtifactPath, roundTripped.ArtifactPath);
+        Assert.Equal(attempt.StdOutLogPath, roundTripped.StdOutLogPath);
+        Assert.Equal(attempt.StdErrLogPath, roundTripped.StdErrLogPath);
+        Assert.Equal(attempt.JsonlLogPath, roundTripped.JsonlLogPath);
         Assert.Equal(attempt.StartedAt, roundTripped.StartedAt);
         Assert.Equal(attempt.CompletedAt, roundTripped.CompletedAt);
         Assert.Equal(attempt.ElapsedSeconds, roundTripped.ElapsedSeconds);
+        Assert.Equal(attempt.GenerationDurationSeconds, roundTripped.GenerationDurationSeconds);
+        Assert.Equal(attempt.ValidationDurationSeconds, roundTripped.ValidationDurationSeconds);
+        Assert.Equal(attempt.TotalAttemptDurationSeconds, roundTripped.TotalAttemptDurationSeconds);
         Assert.Equal(attempt.TimeoutSeconds, roundTripped.TimeoutSeconds);
         Assert.Equal(attempt.ExitCode, roundTripped.ExitCode);
         Assert.Equal(attempt.ToolVersion, roundTripped.ToolVersion);
@@ -181,9 +187,15 @@ public sealed class ToolAttemptMappingExtensionsTests
         BaseCommit = "deadbeef",
         WorkspacePath = "/workspaces/repo",
         ArtifactPath = "/output/attempts/42",
+        StdOutLogPath = "/output/attempts/42/codex.events.jsonl",
+        StdErrLogPath = "/output/attempts/42/codex.stderr.log",
+        JsonlLogPath = "/output/attempts/42/codex.events.jsonl",
         StartedAt = new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc),
         CompletedAt = new DateTime(2026, 6, 1, 12, 30, 0, DateTimeKind.Utc),
         ElapsedSeconds = 1800.5,
+        GenerationDurationSeconds = 1800.5,
+        ValidationDurationSeconds = 45.25,
+        TotalAttemptDurationSeconds = 1845.75,
         TimeoutSeconds = 2700,
         ExitCode = 0,
         ToolVersion = "0.1.2",
@@ -219,6 +231,9 @@ public sealed class ToolAttemptMappingExtensionsTests
         BaseCommit = string.Empty,
         WorkspacePath = string.Empty,
         ArtifactPath = string.Empty,
+        StdOutLogPath = string.Empty,
+        StdErrLogPath = string.Empty,
+        JsonlLogPath = string.Empty,
         StartedAt = DateTime.UtcNow,
         ToolVersion = string.Empty,
         Model = string.Empty,

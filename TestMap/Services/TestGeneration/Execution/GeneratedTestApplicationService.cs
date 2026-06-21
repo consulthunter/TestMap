@@ -35,6 +35,9 @@ public sealed class GeneratedTestApplicationService : IGeneratedTestApplicationS
             AppliedTestMethodName = result.AppliedTestMethodName,
             ActionKind = result.ActionKind,
             ErrorMessage = result.ErrorMessage,
+            PatchApplicationOutcome = result.PatchApplicationOutcome,
+            AppliedUsingCount = result.AppliedUsingCount,
+            AppliedHelperCount = result.AppliedHelperCount,
             RuleDecisions = result.RuleDecisions
         };
     }

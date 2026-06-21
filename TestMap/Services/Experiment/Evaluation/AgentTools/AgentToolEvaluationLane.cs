@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TestMap.App;
 using TestMap.Models.AgentTools;
 using TestMap.Models.Configuration;
@@ -98,6 +100,18 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         attempt.Id = await _attemptRepo.InsertAsync(attempt, cancellationToken);
         attempt.WorkspacePath = ResolveWorkspacePath();
         attempt.ArtifactPath = ResolveArtifactPath(attempt);
+        var logEnvironment = new Dictionary<string, string>(
+            environment.NormalizedVars,
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var item in tool.Environment)
+            logEnvironment[item.Key] = item.Value;
+        var logPaths = AgentToolLogPathResolver.Resolve(
+            attempt.ArtifactPath,
+            tool.Id,
+            logEnvironment);
+        attempt.StdOutLogPath = logPaths.StdOutLogPath;
+        attempt.StdErrLogPath = logPaths.StdErrLogPath;
+        attempt.JsonlLogPath = logPaths.JsonlLogPath;
         var taskCardContent = CreateTaskCardContent(context);
 
         if (_taskCardWriter != null && !string.IsNullOrWhiteSpace(attempt.WorkspacePath))
@@ -129,7 +143,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             attempt.ElapsedSeconds = result.Elapsed.TotalSeconds;
             attempt.ToolVersion = result.ToolVersion ?? string.Empty;
             attempt.CompletedAt = DateTime.UtcNow;
-            attempt.JsonlLogAvailable = HasJsonlEventLog(attempt.ArtifactPath);
+            attempt.JsonlLogAvailable = HasJsonlEventLog(attempt.JsonlLogPath);
             attempt.EstimatedPromptTokens = EstimatePromptTokens(taskCardContent.Prompt);
             var usage = ExtractUsage(attempt.ArtifactPath, tool.Id);
             if (usage != null)
@@ -147,7 +161,14 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             }
             else
             {
-                var collection = await _runner.CollectAsync(request, cancellationToken);
+                var collected = await _runner.CollectAsync(request, cancellationToken);
+                var collection = new ToolRunCollectionResult
+                {
+                    PatchDiff = collected.PatchDiff,
+                    ChangedFiles = AgentToolChangedPathFilter.Filter(collected.ChangedFiles),
+                    GitStatusBefore = collected.GitStatusBefore,
+                    GitStatusAfter = collected.GitStatusAfter
+                };
                 ApplyCollection(attempt, collection);
                 attempt.RunStatus = result.ExitCode == 0
                     ? collection.ChangedFiles.Count == 0
@@ -273,9 +294,8 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         attempt.ProductionFilesChanged = collection.ChangedFiles.Count(IsProductionFile);
         attempt.TestFilesChanged = collection.ChangedFiles.Count(IsTestFile);
         attempt.ProjectFilesChanged = collection.ChangedFiles.Count(IsProjectFile);
-        attempt.DeletedFilesCount = collection.GitStatusAfter
-            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
-            .Count(x => x.TrimStart().StartsWith("D ", StringComparison.Ordinal));
+        attempt.DeletedFilesCount =
+            AgentToolChangedPathFilter.CountIncludedDeletedFiles(collection.GitStatusAfter);
     }
 
     private static void ApplyOutcomeClassification(ToolAttempt attempt)
@@ -357,7 +377,10 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
                 latest = parsed;
         }
 
-        return latest ?? ExtractOpenHandsPersistedUsage(artifactPath);
+        return latest
+               ?? ExtractOpenHandsPersistedUsage(artifactPath)
+               ?? ExtractMiniSweTrajectoryUsage(artifactPath, toolId)
+               ?? ExtractAiderStdoutUsage(artifactPath, toolId);
     }
 
     private static ToolUsageSummary? ExtractOpenHandsPersistedUsage(string artifactPath)
@@ -446,6 +469,19 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
 
     private static ToolUsageSummary? TryParseGeminiUsage(JsonElement stats, string sourceFile)
     {
+        var directInput = ReadInt(stats, "input_tokens");
+        var directTotal = ReadInt(stats, "total_tokens");
+        var directOutput = directTotal.HasValue && directInput.HasValue
+            ? Math.Max(0, directTotal.Value - directInput.Value)
+            : ReadInt(stats, "output_tokens");
+        if (directInput.HasValue || directOutput.HasValue)
+        {
+            return new ToolUsageSummary(
+                directInput,
+                directOutput,
+                $"{sourceFile}:result.stats");
+        }
+
         if (!TryGetObject(stats, "models", out var models))
             return null;
 
@@ -555,6 +591,131 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             $"{sourceFile}:accumulated_token_usage");
     }
 
+    private static ToolUsageSummary? ExtractMiniSweTrajectoryUsage(string artifactPath, string toolId)
+    {
+        if (!toolId.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var trajectoryPath = Path.Combine(artifactPath, "mini-swe-agent-trajectory.json");
+        if (!File.Exists(trajectoryPath))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(trajectoryPath));
+            return TryParseMiniSweTrajectoryUsage(
+                doc.RootElement,
+                Path.GetFileName(trajectoryPath));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    private static ToolUsageSummary? TryParseMiniSweTrajectoryUsage(JsonElement root, string sourceFile)
+    {
+        long inputTokens = 0;
+        long outputTokens = 0;
+        var any = false;
+
+        foreach (var usage in EnumerateNamedObjects(root, "usage"))
+        {
+            var promptTokens = ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens");
+            var completionTokens = ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens");
+
+            if (promptTokens.HasValue)
+            {
+                inputTokens += promptTokens.Value;
+                any = true;
+            }
+
+            if (completionTokens.HasValue)
+            {
+                outputTokens += completionTokens.Value;
+                any = true;
+            }
+        }
+
+        if (!any) return null;
+
+        return new ToolUsageSummary(
+            ClampToInt(inputTokens),
+            ClampToInt(outputTokens),
+            $"{sourceFile}:usage");
+    }
+
+    private static ToolUsageSummary? ExtractAiderStdoutUsage(string artifactPath, string toolId)
+    {
+        if (!toolId.Equals("aider", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var stdoutPath = Path.Combine(artifactPath, "aider.stdout.log");
+        if (!File.Exists(stdoutPath))
+            return null;
+
+        ToolUsageSummary? latest = null;
+        foreach (var line in File.ReadLines(stdoutPath))
+        {
+            var parsed = TryParseAiderTokenLine(line, Path.GetFileName(stdoutPath));
+            if (parsed != null)
+                latest = parsed;
+        }
+
+        return latest;
+    }
+
+    private static ToolUsageSummary? TryParseAiderTokenLine(string line, string sourceFile)
+    {
+        var match = Regex.Match(
+            line,
+            @"Tokens:\s*(?<sent>[\d.,]+)\s*(?<sentSuffix>[kKmM]?)\s+sent,\s*(?<received>[\d.,]+)\s*(?<receivedSuffix>[kKmM]?)\s+received",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        if (!match.Success)
+            return null;
+
+        var inputTokens = ParseScaledTokenCount(
+            match.Groups["sent"].Value,
+            match.Groups["sentSuffix"].Value);
+        var outputTokens = ParseScaledTokenCount(
+            match.Groups["received"].Value,
+            match.Groups["receivedSuffix"].Value);
+        if (!inputTokens.HasValue && !outputTokens.HasValue)
+            return null;
+
+        return new ToolUsageSummary(
+            inputTokens,
+            outputTokens,
+            $"{sourceFile}:tokens-line");
+    }
+
+    private static int? ParseScaledTokenCount(string value, string suffix)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var normalized = value.Replace(",", string.Empty);
+        if (!decimal.TryParse(
+                normalized,
+                NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var parsed))
+            return null;
+
+        var scale = suffix.ToLowerInvariant() switch
+        {
+            "k" => 1_000m,
+            "m" => 1_000_000m,
+            _ => 1m
+        };
+
+        return ClampToInt((long)Math.Round(parsed * scale, MidpointRounding.AwayFromZero));
+    }
+
     private static int? Sum(params int?[] values)
     {
         long total = 0;
@@ -592,6 +753,28 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         return false;
     }
 
+    private static IEnumerable<JsonElement> EnumerateNamedObjects(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.NameEquals(propertyName) &&
+                    property.Value.ValueKind == JsonValueKind.Object)
+                    yield return property.Value;
+
+                foreach (var match in EnumerateNamedObjects(property.Value, propertyName))
+                    yield return match;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            foreach (var match in EnumerateNamedObjects(item, propertyName))
+                yield return match;
+        }
+    }
+
     private static bool TryFindObjectProperty(JsonElement element, string propertyName, out JsonElement value)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -625,13 +808,12 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         return (int)value;
     }
 
-    private static bool HasJsonlEventLog(string artifactPath)
+    private static bool HasJsonlEventLog(string jsonlLogPath)
     {
-        if (string.IsNullOrWhiteSpace(artifactPath) || !Directory.Exists(artifactPath))
+        if (string.IsNullOrWhiteSpace(jsonlLogPath) || !File.Exists(jsonlLogPath))
             return false;
 
-        foreach (var file in Directory.EnumerateFiles(artifactPath, "*.events.jsonl"))
-        foreach (var line in File.ReadLines(file))
+        foreach (var line in File.ReadLines(jsonlLogPath))
         {
             if (string.IsNullOrWhiteSpace(line))
                 continue;

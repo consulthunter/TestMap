@@ -41,6 +41,10 @@ internal static class BasicGenerationRequestFactory
             CandidateTestIntentionsSummary = methodContext.CandidateTestIntentionsSummary,
             CandidateTypeConstructionSummary = methodContext.CandidateTypeConstructionSummary,
             AccessPathSummary = methodContext.AccessPathSummary,
+            // Use structured JSON patch output when extending an existing test file.
+            // An empty TestFileContents indicates bootstrap mode; a populated one indicates extension.
+            UseStructuredPatchOutput = !string.IsNullOrWhiteSpace(methodContext.TestFileContents),
+            TestProjectPath = methodContext.TestProjectPath,
             Provider = context.Provider,
             Temperature = context.Temperature,
             StepErrorRetries = context.StepErrorRetries,
@@ -73,9 +77,12 @@ internal static class BasicGenerationRequestFactory
             CandidateTestIntentionsSummary = methodContext.CandidateTestIntentionsSummary,
             CandidateTypeConstructionSummary = methodContext.CandidateTypeConstructionSummary,
             AccessPathSummary = methodContext.AccessPathSummary,
+            UseStructuredPatchOutput = !string.IsNullOrWhiteSpace(methodContext.TestFileContents),
             ErrorLogs = context.ErrorLogs,
             StructuredErrors = context.StructuredErrors,
             PriorConversationTranscript = context.PriorConversationTranscript,
+            PriorAttemptsSummary = context.PriorAttemptsSummary,
+            ModifiedTestFileContents = context.ModifiedTestFileContents,
             Provider = context.Provider,
             Temperature = context.Temperature,
             AttemptNumber = context.AttemptNumber,

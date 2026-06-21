@@ -27,9 +27,15 @@ public class ToolAttemptEntityConfiguration : IEntityTypeConfiguration<ToolAttem
         builder.Property(x => x.BaseCommit).HasColumnName("base_commit").IsRequired();
         builder.Property(x => x.WorkspacePath).HasColumnName("workspace_path").IsRequired();
         builder.Property(x => x.ArtifactPath).HasColumnName("artifact_path").IsRequired();
+        builder.Property(x => x.StdOutLogPath).HasColumnName("stdout_log_path").IsRequired();
+        builder.Property(x => x.StdErrLogPath).HasColumnName("stderr_log_path").IsRequired();
+        builder.Property(x => x.JsonlLogPath).HasColumnName("jsonl_log_path").IsRequired();
         builder.Property(x => x.StartedAt).HasColumnName("started_at").IsRequired();
         builder.Property(x => x.CompletedAt).HasColumnName("completed_at");
         builder.Property(x => x.ElapsedSeconds).HasColumnName("elapsed_seconds").IsRequired();
+        builder.Property(x => x.GenerationDurationSeconds).HasColumnName("generation_duration_seconds").IsRequired();
+        builder.Property(x => x.ValidationDurationSeconds).HasColumnName("validation_duration_seconds").IsRequired();
+        builder.Property(x => x.TotalAttemptDurationSeconds).HasColumnName("total_attempt_duration_seconds").IsRequired();
         builder.Property(x => x.TimeoutSeconds).HasColumnName("timeout_seconds").IsRequired();
         builder.Property(x => x.ExitCode).HasColumnName("exit_code");
         builder.Property(x => x.ToolVersion).HasColumnName("tool_version").IsRequired();

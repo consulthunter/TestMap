@@ -83,6 +83,38 @@ public sealed class GenerationAttemptMappingExtensionsTests
         Assert.Equal(mode, restored.BudgetMode);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void RoundTrip_TimingFields_ArePreserved()
+    {
+        var attempt = MakeAttempt();
+        attempt.GenerationDurationSeconds = 12.5;
+        attempt.ValidationDurationSeconds = 3.25;
+        attempt.TotalDurationSeconds = 15.75;
+
+        var restored = attempt.ToEntity().ToDomain();
+
+        Assert.Equal(12.5, restored.GenerationDurationSeconds);
+        Assert.Equal(3.25, restored.ValidationDurationSeconds);
+        Assert.Equal(15.75, restored.TotalDurationSeconds);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void RoundTrip_ModifiedFileSnapshot_IsPreserved()
+    {
+        var attempt = MakeAttempt();
+        attempt.ModifiedFilePath = @"D:\repo\Tests\WidgetTests.cs";
+        attempt.ModifiedFileContents = "public class WidgetTests { }";
+        attempt.ModifiedFileSha256 = new string('a', 64);
+
+        var restored = attempt.ToEntity().ToDomain();
+
+        Assert.Equal(attempt.ModifiedFilePath, restored.ModifiedFilePath);
+        Assert.Equal(attempt.ModifiedFileContents, restored.ModifiedFileContents);
+        Assert.Equal(attempt.ModifiedFileSha256, restored.ModifiedFileSha256);
+    }
+
     // ─── Infrastructure ───────────────────────────────────────────────────────
 
     private static GenerationAttemptEntity MakeEntity(

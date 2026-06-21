@@ -169,6 +169,9 @@ public sealed class ToolAttemptRepositoryTests
         attempt.RunStatus = ToolRunStatus.Completed;
         attempt.ChangedFilesCount = 5;
         attempt.ElapsedSeconds = 120.5;
+        attempt.StdOutLogPath = "/attempt/codex.events.jsonl";
+        attempt.StdErrLogPath = "/attempt/codex.stderr.log";
+        attempt.JsonlLogPath = "/attempt/codex.events.jsonl";
         attempt.CompletedAt = DateTime.UtcNow;
         await repo.UpdateAsync(attempt);
 
@@ -178,6 +181,9 @@ public sealed class ToolAttemptRepositoryTests
         Assert.Equal(ToolRunStatus.Completed, updated!.RunStatus);
         Assert.Equal(5, updated.ChangedFilesCount);
         Assert.Equal(120.5, updated.ElapsedSeconds);
+        Assert.Equal("/attempt/codex.events.jsonl", updated.StdOutLogPath);
+        Assert.Equal("/attempt/codex.stderr.log", updated.StdErrLogPath);
+        Assert.Equal("/attempt/codex.events.jsonl", updated.JsonlLogPath);
         Assert.NotNull(updated.CompletedAt);
     }
 

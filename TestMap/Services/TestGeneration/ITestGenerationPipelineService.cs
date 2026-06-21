@@ -69,6 +69,15 @@ public class TestGenerationRequest
     public string CandidateTestIntentionsSummary { get; init; } = "No branch-derived test intentions were identified.";
     public string CandidateTypeConstructionSummary { get; init; } = "No type construction guidance was identified.";
     public string AccessPathSummary { get; init; } = "No context graph access path was resolved.";
+    /// <summary>
+    /// When true, the final-test step requests a <c>BasicExtensionPatch</c> JSON object
+    /// instead of a raw C# method. Set by the generation approach when an existing test
+    /// file is present (i.e., this is an extension, not a bootstrap).
+    /// </summary>
+    public bool UseStructuredPatchOutput { get; init; }
+    /// <summary>Path to the test project <c>.csproj</c> file, used to extract available package
+    /// references for the structured patch prompt.</summary>
+    public string TestProjectPath { get; init; } = string.Empty;
     public required AiProvider Provider { get; init; }
     public double Temperature { get; init; } = 0.0;
     public int StepErrorRetries { get; init; }
@@ -101,9 +110,28 @@ public class TestRepairRequest
     public string CandidateTestIntentionsSummary { get; init; } = "No branch-derived test intentions were identified.";
     public string CandidateTypeConstructionSummary { get; init; } = "No type construction guidance was identified.";
     public string AccessPathSummary { get; init; } = "No context graph access path was resolved.";
+    /// <summary>
+    /// When true, the repair prompt requests a corrected <c>BasicExtensionPatch</c> JSON object
+    /// instead of raw C# method code. Mirrors <see cref="TestGenerationRequest.UseStructuredPatchOutput"/>.
+    /// Set by the generation approach when an existing test file is present (extension mode).
+    /// </summary>
+    public bool UseStructuredPatchOutput { get; init; }
     public required string ErrorLogs { get; init; }
     public string? StructuredErrors { get; init; }
     public string? PriorConversationTranscript { get; init; }
+    /// <summary>
+    /// Compact one-line-per-attempt summary of every prior failure in this repair chain.
+    /// Shown in the repair prompt so the model avoids repeating already-failed approaches.
+    /// Null for the first repair attempt (no prior history) or non-experiment repair paths.
+    /// </summary>
+    public string? PriorAttemptsSummary { get; init; }
+    /// <summary>
+    /// The test file content after patch application, if a Basic Extension patch was applied
+    /// before the build failed. When non-null, the repair prompt uses this as the file context
+    /// instead of <see cref="TestFileContents"/>, so the model sees the integrated state that
+    /// failed to compile and is asked to return a corrected <c>BasicExtensionPatch</c> JSON.
+    /// </summary>
+    public string? ModifiedTestFileContents { get; init; }
     public required AiProvider Provider { get; init; }
     public double Temperature { get; init; } = 0.0;
     public int AttemptNumber { get; init; }

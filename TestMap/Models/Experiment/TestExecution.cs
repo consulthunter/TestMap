@@ -7,6 +7,7 @@ public class TestExecution
 {
     public int Id { get; set; }
     public int GenerationAttemptId { get; set; }
+    public int? TestRunId { get; set; }
     public string? GeneratedTestCode { get; set; }
     public string? GeneratedTestMethodName { get; set; }
     public bool CompilationSuccess { get; set; }
@@ -42,4 +43,22 @@ public class TestExecution
     public DateTime ExecutedAt { get; set; }
 
     public virtual GenerationAttempt? GenerationAttempt { get; set; }
+
+    // -----------------------------------------------------------------------
+    // Transient fields — NOT persisted to generated_test_executions.
+    // Carry patch metadata back to ExperimentOrchestrationService so it can
+    // write the values to the generation_attempts columns.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Machine-readable patch outcome from <c>BasicExtensionPatchApplicationService</c>.
+    /// Null when the BasicExtension patch path was not taken.
+    /// </summary>
+    public string? PatchApplicationOutcome { get; set; }
+
+    /// <summary>Number of new <c>using</c> directives added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedUsingCount { get; set; }
+
+    /// <summary>Number of helper methods added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedHelperCount { get; set; }
 }

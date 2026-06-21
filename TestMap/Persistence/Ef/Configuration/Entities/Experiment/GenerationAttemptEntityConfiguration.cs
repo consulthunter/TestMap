@@ -34,12 +34,25 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
         builder.Property(x => x.StartTime).HasColumnName("start_time").IsRequired();
         builder.Property(x => x.EndTime).HasColumnName("end_time");
         builder.Property(x => x.TotalTokensUsed).HasColumnName("total_tokens_used").IsRequired();
+        builder.Property(x => x.GenerationDurationSeconds).HasColumnName("generation_duration_seconds").IsRequired();
+        builder.Property(x => x.ValidationDurationSeconds).HasColumnName("validation_duration_seconds").IsRequired();
+        builder.Property(x => x.TotalAttemptDurationSeconds).HasColumnName("total_attempt_duration_seconds").IsRequired();
         builder.Property(x => x.Status).HasColumnName("status").IsRequired();
         builder.Property(x => x.FailureKind).HasColumnName("failure_kind").IsRequired();
         builder.Property(x => x.FailureStage).HasColumnName("failure_stage").IsRequired();
         builder.Property(x => x.FailureCategory).HasColumnName("failure_category").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message").IsRequired();
         builder.Property(x => x.RuleDecisionSnapshotJson).HasColumnName("rule_decision_snapshot_json").IsRequired();
+
+        // Basic Extension patch metadata — nullable so existing rows are unaffected
+        builder.Property(x => x.PatchJson).HasColumnName("patch_json");
+        builder.Property(x => x.RepairPatchJson).HasColumnName("repair_patch_json");
+        builder.Property(x => x.PatchApplicationOutcome).HasColumnName("patch_application_outcome").HasMaxLength(100);
+        builder.Property(x => x.AppliedUsingCount).HasColumnName("applied_using_count");
+        builder.Property(x => x.AppliedHelperCount).HasColumnName("applied_helper_count");
+        builder.Property(x => x.ModifiedFilePath).HasColumnName("modified_file_path");
+        builder.Property(x => x.ModifiedFileContents).HasColumnName("modified_file_contents");
+        builder.Property(x => x.ModifiedFileSha256).HasColumnName("modified_file_sha256").HasMaxLength(64);
 
         builder.HasOne(x => x.ParentAttempt)
             .WithMany()

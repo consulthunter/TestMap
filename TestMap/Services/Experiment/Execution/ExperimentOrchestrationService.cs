@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TestMap.App;
@@ -503,6 +505,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 cancellationToken);
 
             var persistedAttemptIdsByAttemptNumber = new Dictionary<int, int>();
+            // Track running cumulative for repair chains.  Resets at each independent
+            // generation attempt (PassAt5) so that PassAt1RepairAt5 accumulates across
+            // the whole chain while PassAt5 reports per-attempt costs.
+            var chainCumulativeTokens = 0;
             foreach (var attempt in attempts)
             {
                 if (attempt.ParentAttemptNumber.HasValue &&
@@ -511,6 +517,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                         out var parentAttemptId))
                     attempt.ParentAttemptId = parentAttemptId;
                 attempt.ExperimentMatrixWorkItemId = workItem.Id;
+
+                // Cumulative resets at each fresh (non-repair) generation attempt.
+                if (!attempt.IsRepairAttempt)
+                    chainCumulativeTokens = 0;
+                chainCumulativeTokens += attempt.TotalTokensUsed;
+                attempt.ChainCumulativeTokensUsed = chainCumulativeTokens;
 
                 var persistedAttemptId = await SaveGenerationAttemptAsync(
                     experimentRun.Id,
@@ -572,6 +584,25 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return tools;
     }
 
+    internal static IReadOnlyList<GenerationBudgetMode> ResolveAgentToolBudgetModes(ExperimentConfig config)
+    {
+        var modes = config.BudgetModes.Count == 0
+            ? [GenerationBudgetMode.PassAt1]
+            : config.BudgetModes;
+
+        var resolved = modes
+            .Where(x => x is GenerationBudgetMode.PassAt1 or GenerationBudgetMode.PassAt5)
+            .Distinct()
+            .ToList();
+
+        return resolved.Count == 0
+            ? [GenerationBudgetMode.PassAt1]
+            : resolved;
+    }
+
+    internal static int GetAgentToolAttemptCount(GenerationBudgetMode budgetMode) =>
+        budgetMode == GenerationBudgetMode.PassAt5 ? 5 : 1;
+
     private async Task<AgentToolAvailabilityPlan> EnsureToolAvailabilityAsync(
         ExperimentConfig config,
         IReadOnlyList<ExperimentToolConfig> tools,
@@ -618,6 +649,16 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CancellationToken cancellationToken)
     {
         var tools = availabilityPlan.ExecutableTools;
+        var budgetModes = ResolveAgentToolBudgetModes(_activeExperimentConfig!);
+        var ignoredBudgetModes = _activeExperimentConfig!.BudgetModes
+            .Where(x => x is not GenerationBudgetMode.PassAt1 and not GenerationBudgetMode.PassAt5)
+            .Distinct()
+            .ToList();
+        foreach (var ignored in ignoredBudgetModes)
+            _context.Project.Logger?.Warning(
+                "Skipping unsupported agent-tool budget mode '{BudgetMode}'. Agent tools run only pass@1 and pass@5.",
+                ignored);
+
         if (!targetedBaseline.Ran)
             _context.Project.Logger?.Warning(
                 "Skipping targeted baseline for {MethodName}: {Reason}",
@@ -634,117 +675,150 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             _taskCardWriter);
 
         foreach (var skipped in availabilityPlan.SkippedTools)
-            await RecordSkippedToolAttemptAsync(
-                experimentRun,
-                candidateMethod,
-                methodContext,
-                skipped,
-                targetedBaseline.TestRunId,
-                cancellationToken);
-
-        foreach (var tool in tools)
         {
-            var workItem = await EnsureToolWorkItemAsync(
-                experimentRun,
-                candidateMethod,
-                methodContext,
-                tool,
-                cancellationToken);
-
-            var resumeDecision = _resumeService.Evaluate(workItem, _activeExperimentConfig!.Resume, DateTime.UtcNow);
-            workItem = resumeDecision.WorkItem;
-
-            if (!resumeDecision.ShouldExecute)
-            {
-                await _workItemRepo.UpsertAsync(workItem, cancellationToken);
-                continue;
-            }
-
-            await _workItemRepo.UpdateStatusAsync(
-                workItem.Id,
-                ExperimentMatrixWorkItemStatus.Running,
-                cancellationToken: cancellationToken);
-
-            // Execute and refresh inside try/finally so the workspace is always reset to HEAD
-            // before the next tool attempt runs, even on crash or timeout.
-            ExperimentEvaluationAttemptResult? result = null;
-            try
-            {
-                result = await lane.ExecuteAsync(
-                    new ExperimentEvaluationWorkItemContext
-                    {
-                        WorkItem = workItem,
-                        Candidate = candidateMethod,
-                        TargetedBaselineId = targetedBaseline.TestRunId,
-                        MethodContext = methodContext
-                    },
-                    cancellationToken);
-
-                if (result.ToolAttempt is { RunStatus: ToolRunStatus.Completed, ChangedFilesCount: > 0 })
-                {
-                    // Re-analyze the workspace: update the code graph, collect code metrics,
-                    // and collect test smells for the test project. This must run before
-                    // LinkAsync so that newly-generated test member IDs exist in the DB.
-                    var analysis = await _toolPostAttemptAnalysisService.AnalyzeAsync(
-                        methodContext,
-                        cancellationToken);
-                    if (!analysis.Analyzed)
-                        _context.Project.Logger?.Warning(
-                            "Skipping post-attempt analysis for tool attempt {ToolAttemptId}: {Reason}",
-                            result.ToolAttempt.Id,
-                            analysis.SkipReason);
-
-                    // Link test members in changed files to the tool attempt.
-                    var linkResult = await _toolAttemptGeneratedTestService.LinkAsync(
-                        result.ToolAttempt,
-                        result.ChangedFiles,
-                        _context.Project.DbId,
-                        cancellationToken);
-                    if (linkResult.LinkedCount > 0)
-                        _context.Project.Logger?.Information(
-                            "Linked {Count} test member(s) to tool attempt {ToolAttemptId}.",
-                            linkResult.LinkedCount,
-                            result.ToolAttempt.Id);
-
-                    // Run build/test measurement on the modified workspace and reclassify outcome.
-                    var measurement = await _toolPostAttemptMeasurementService.MeasureAsync(
-                        result.ToolAttempt,
-                        candidateMethod,
-                        methodContext,
-                        cancellationToken);
-                    if (!measurement.Measured)
-                        _context.Project.Logger?.Warning(
-                            "Skipping post-attempt measurement for tool attempt {ToolAttemptId}: {Reason}",
-                            result.ToolAttempt.Id,
-                            measurement.SkipReason);
-                }
-            }
-            finally
-            {
-                // Always restore the workspace to HEAD so the next tool attempt starts clean.
-                await _workspace.RollbackChangesAsync(cancellationToken);
-            }
-
-            if (result?.ToolAttempt != null)
-            {
-                var toolRows = await CreateToolResultFileRowsAsync(
+            foreach (var budgetMode in budgetModes)
+                await RecordSkippedToolAttemptAsync(
                     experimentRun,
                     candidateMethod,
                     methodContext,
-                    workItem,
-                    result.ToolAttempt,
+                    skipped,
+                    budgetMode,
+                    targetedBaseline.TestRunId,
                     cancellationToken);
-                foreach (var toolRow in toolRows)
-                    await _resultsWriter.AppendAsync(experimentRun, toolRow, cancellationToken);
-            }
+        }
 
-            await _workItemRepo.UpdateStatusAsync(
-                workItem.Id,
-                result?.Success == true
-                    ? ExperimentMatrixWorkItemStatus.Completed
-                    : ExperimentMatrixWorkItemStatus.Failed,
-                result?.ErrorMessage,
-                cancellationToken);
+        foreach (var tool in tools)
+        {
+            foreach (var budgetMode in budgetModes)
+            {
+                var workItem = await EnsureToolWorkItemAsync(
+                    experimentRun,
+                    candidateMethod,
+                    methodContext,
+                    tool,
+                    budgetMode,
+                    cancellationToken);
+
+                var resumeDecision = _resumeService.Evaluate(workItem, _activeExperimentConfig!.Resume, DateTime.UtcNow);
+                workItem = resumeDecision.WorkItem;
+
+                if (!resumeDecision.ShouldExecute)
+                {
+                    await _workItemRepo.UpsertAsync(workItem, cancellationToken);
+                    continue;
+                }
+
+                await _workItemRepo.UpdateStatusAsync(
+                    workItem.Id,
+                    ExperimentMatrixWorkItemStatus.Running,
+                    cancellationToken: cancellationToken);
+
+                var anySucceeded = false;
+                string? lastError = null;
+                for (var attemptNumber = 1; attemptNumber <= GetAgentToolAttemptCount(budgetMode); attemptNumber++)
+                {
+                    // Execute and refresh inside try/finally so the workspace is always reset to HEAD
+                    // before the next tool attempt runs, even on crash or timeout.
+                    ExperimentEvaluationAttemptResult? result = null;
+                    Stopwatch? validationStopwatch = null;
+                    try
+                    {
+                        result = await lane.ExecuteAsync(
+                            new ExperimentEvaluationWorkItemContext
+                            {
+                                WorkItem = workItem,
+                                Candidate = candidateMethod,
+                                TargetedBaselineId = targetedBaseline.TestRunId,
+                                MethodContext = methodContext
+                            },
+                            cancellationToken);
+
+                        anySucceeded |= result.Success;
+                        lastError = result.ErrorMessage ?? lastError;
+
+                        if (result.ToolAttempt is { RunStatus: ToolRunStatus.Completed, ChangedFilesCount: > 0 })
+                        {
+                            validationStopwatch = Stopwatch.StartNew();
+
+                            // Re-analyze the workspace: update the code graph, collect code metrics,
+                            // and collect test smells for the test project. This must run before
+                            // LinkAsync so that newly-generated test member IDs exist in the DB.
+                            var analysis = await _toolPostAttemptAnalysisService.AnalyzeAsync(
+                                methodContext,
+                                cancellationToken);
+                            if (!analysis.Analyzed)
+                                _context.Project.Logger?.Warning(
+                                    "Skipping post-attempt analysis for tool attempt {ToolAttemptId}: {Reason}",
+                                    result.ToolAttempt.Id,
+                                    analysis.SkipReason);
+
+                            // Link test members in changed files to the tool attempt.
+                            var linkResult = await _toolAttemptGeneratedTestService.LinkAsync(
+                                result.ToolAttempt,
+                                result.ChangedFiles,
+                                _context.Project.DbId,
+                                cancellationToken);
+                            if (linkResult.LinkedCount > 0)
+                                _context.Project.Logger?.Information(
+                                    "Linked {Count} test member(s) to tool attempt {ToolAttemptId}.",
+                                    linkResult.LinkedCount,
+                                    result.ToolAttempt.Id);
+
+                            // Run build/test measurement on the modified workspace and reclassify outcome.
+                            var measurement = await _toolPostAttemptMeasurementService.MeasureAsync(
+                                result.ToolAttempt,
+                                candidateMethod,
+                                methodContext,
+                                cancellationToken);
+                            if (!measurement.Measured)
+                                _context.Project.Logger?.Warning(
+                                    "Skipping post-attempt measurement for tool attempt {ToolAttemptId}: {Reason}",
+                                    result.ToolAttempt.Id,
+                                    measurement.SkipReason);
+                        }
+                    }
+                    finally
+                    {
+                        if (result?.ToolAttempt != null)
+                        {
+                            validationStopwatch?.Stop();
+                            result.ToolAttempt.GenerationDurationSeconds = result.ToolAttempt.ElapsedSeconds;
+                            result.ToolAttempt.ValidationDurationSeconds =
+                                validationStopwatch?.Elapsed.TotalSeconds ?? 0;
+                            result.ToolAttempt.TotalAttemptDurationSeconds =
+                                result.ToolAttempt.GenerationDurationSeconds
+                                + result.ToolAttempt.ValidationDurationSeconds;
+                            result.ToolAttempt.CompletedAt = DateTime.UtcNow;
+                            await _toolAttemptRepo.UpdateAsync(result.ToolAttempt, cancellationToken);
+                        }
+
+                        // Always restore the workspace to HEAD so the next tool attempt starts clean.
+                        await _workspace.RollbackChangesAsync(cancellationToken);
+                    }
+
+                    if (result?.ToolAttempt != null)
+                    {
+                        var toolRows = await CreateToolResultFileRowsAsync(
+                            experimentRun,
+                            candidateMethod,
+                            methodContext,
+                            workItem,
+                            result.ToolAttempt,
+                            attemptNumber,
+                            cancellationToken);
+                        foreach (var toolRow in toolRows)
+                            await _resultsWriter.AppendAsync(experimentRun, toolRow, cancellationToken);
+                    }
+                }
+
+                await _workItemRepo.UpdateStatusAsync(
+                    workItem.Id,
+                    anySucceeded
+                        ? ExperimentMatrixWorkItemStatus.Completed
+                        : ExperimentMatrixWorkItemStatus.Failed,
+                    lastError,
+                    cancellationToken);
+            }
         }
     }
 
@@ -753,6 +827,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CandidateMethod candidateMethod,
         CandidateMethodContext methodContext,
         AgentToolAvailabilityDecision decision,
+        GenerationBudgetMode budgetMode,
         int? targetedBaselineId,
         CancellationToken cancellationToken)
     {
@@ -761,6 +836,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             candidateMethod,
             methodContext,
             decision.Tool,
+            budgetMode,
             cancellationToken);
 
         await _workItemRepo.UpdateStatusAsync(
@@ -796,6 +872,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             methodContext,
             workItem,
             attempt,
+            1,
             cancellationToken);
         foreach (var skippedRow in skippedRows)
             await _resultsWriter.AppendAsync(experimentRun, skippedRow, cancellationToken);
@@ -806,6 +883,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CandidateMethod candidateMethod,
         CandidateMethodContext methodContext,
         ExperimentToolConfig tool,
+        GenerationBudgetMode budgetMode,
         CancellationToken cancellationToken)
     {
         var resumeGroupId = string.IsNullOrWhiteSpace(_activeExperimentConfig?.Resume.ResumeRunId)
@@ -823,6 +901,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             commitHash,
             experimentRun.Objective,
             candidateMethod.MemberId,
+            budgetMode,
             tool.Id,
             modelName);
 
@@ -841,7 +920,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             MetricsPath = _activeExperimentConfig?.MetricsPaths.FirstOrDefault(),
             ContextMode = _activeExperimentConfig?.ContextModes.FirstOrDefault()
                           ?? _config.TestingConfig.GenerationConfig.ContextMode,
-            BudgetMode = TestMap.Models.Configuration.Testing.Generation.GenerationBudgetMode.PassAt1,
+            BudgetMode = budgetMode,
             AblationVariantId = tool.Id,
             StepConfigJson = "{}",
             CreatedAt = DateTime.UtcNow
@@ -871,6 +950,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         var sourceMetrics = await GetMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
         var baselineMetrics = await GetMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
         var generatedMetrics = await GetMemberCodeMetricsAsync(generatedTestMemberId, cancellationToken);
+        var baselineTestExecutionTimeMs = await GetBaselineTestExecutionTimeMsAsync(
+            candidateMethod.ExistingTestMethodName,
+            candidateMethod.ExistingTestMemberId,
+            cancellationToken);
         var accessReport = ResolveAccessPathReport(attempt.RuleDecisionSnapshotJson);
 
         return new ExperimentResultFileRow
@@ -958,7 +1041,14 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             NewRoslynDiagnosticsCount = execution?.NewRoslynDiagnosticsCount ?? 0,
             NewRoslynDiagnostics = execution?.NewRoslynDiagnostics ?? string.Empty,
             TotalTokens = attempt.TotalTokensUsed,
-            TotalDurationSeconds = attempt.TotalDurationSeconds,
+            CumulativeTokens = attempt.ChainCumulativeTokensUsed > 0
+                ? attempt.ChainCumulativeTokensUsed
+                : attempt.TotalTokensUsed,
+            GenerationDurationSeconds = attempt.GenerationDurationSeconds,
+            ValidationDurationSeconds = attempt.ValidationDurationSeconds,
+            TotalAttemptDurationSeconds = attempt.TotalDurationSeconds,
+            BaselineTestExecutionTimeMs = baselineTestExecutionTimeMs,
+            GeneratedTestExecutionTimeMs = execution?.ExecutionTimeMs,
             PromptVersion = attempt.GenerationSteps.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.PromptVersion))?.PromptVersion ?? string.Empty,
             GenerationAttemptId = attempt.Id,
             TestExecutionId = execution?.Id,
@@ -978,6 +1068,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CandidateMethodContext methodContext,
         ExperimentMatrixWorkItem workItem,
         ToolAttempt attempt,
+        int attemptNumber,
         CancellationToken cancellationToken)
     {
         var sourceMetrics = await GetMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
@@ -1037,7 +1128,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
         // Reusable factory for the shared fields. Looks up generated-test code metrics and
         // test smells from the pre-fetched dictionaries using the resolved member ID.
-        ExperimentResultFileRow MakeRow(string testName, bool testCompiled, bool testExecuted, bool testPassed)
+        ExperimentResultFileRow MakeRow(
+            string testName,
+            bool testCompiled,
+            bool testExecuted,
+            bool testPassed,
+            double? executionTimeMs = null)
         {
             var memberId = FindMemberId(testName);
             var generatedMetrics = memberId.HasValue && metricsByMemberId.TryGetValue(memberId.Value, out var gm) ? gm : null;
@@ -1051,6 +1147,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 ToolValidationOutcome = attempt.ValidationOutcome.ToString(),
                 ToolArtifactPath = attempt.ArtifactPath,
                 ToolChangedFilesCount = attempt.ChangedFilesCount,
+                ToolAttemptId = attempt.Id,
                 ToolAttemptTargetedBaselineId = attempt.TargetedBaselineId,
                 ToolPostAttemptTestRunId = attempt.PostAttemptTestRunId,
                 RepoUrl = _context.Project.GitHubUrl,
@@ -1095,7 +1192,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     : string.Join(">", selectedAccessPath.PathMemberIds),
                 TestMappingCount = testability?.TestMappings.Count ?? 0,
                 SetupBindingCount = testability?.SetupBindings.Count ?? 0,
-                AttemptNumber = 1,
+                AttemptNumber = attemptNumber,
                 SourceMemberId = candidateMethod.MemberId,
                 SourceMethodName = candidateMethod.MethodName,
                 SourceMethodSignature = candidateMethod.Signature,
@@ -1130,7 +1227,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 RoslynValidationSucceeded = false,
                 RoslynValidationSkipped = true,
                 TotalTokens = (attempt.InputTokens ?? 0) + (attempt.OutputTokens ?? 0),
-                TotalDurationSeconds = attempt.ElapsedSeconds,
+                GenerationDurationSeconds = attempt.GenerationDurationSeconds,
+                ValidationDurationSeconds = attempt.ValidationDurationSeconds,
+                TotalAttemptDurationSeconds = attempt.TotalAttemptDurationSeconds,
+                GeneratedTestExecutionTimeMs = executionTimeMs,
                 PromptVersion = "agent-tool-task-card",
                 GenerationAttemptId = 0,
                 TestExecutionId = null,
@@ -1143,6 +1243,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         {
             var testResults = await GetPostAttemptTestResultsAsync(
                 attempt.PostAttemptTestRunId.Value, cancellationToken);
+            var testDurations = await GetPostAttemptTestDurationsAsync(
+                attempt.PostAttemptTestRunId.Value, cancellationToken);
             var generatedTestResults = SelectGeneratedPostAttemptTestResults(testResults, linkedMembers);
             if (generatedTestResults.Count > 0)
                 return generatedTestResults
@@ -1150,7 +1252,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                         tr.TestName,
                         compiled,
                         true,
-                        string.Equals(tr.Outcome, "Passed", StringComparison.OrdinalIgnoreCase)))
+                        string.Equals(tr.Outcome, "Passed", StringComparison.OrdinalIgnoreCase),
+                        testDurations.GetValueOrDefault(tr.TestName)))
                     .ToList();
         }
 
@@ -1246,6 +1349,23 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return rows.Select(x => (x.TestName, x.Outcome)).ToList();
     }
 
+    internal async Task<Dictionary<string, double>> GetPostAttemptTestDurationsAsync(
+        int testRunId,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _dbContext.TestResults
+            .Where(x => x.TestRunId == testRunId)
+            .Select(x => new { x.TestName, x.Duration })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(x => x.TestName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Sum(row => row.Duration.TotalMilliseconds),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Returns the member IDs and names of test members linked to a tool attempt via
     /// <c>tool_attempt_generated_tests</c>, ordered by name.
@@ -1339,6 +1459,48 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                           EF.Functions.Like(member.Name, "%" + testName))
                 orderby member.Id descending
                 select (int?)member.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns the most recent recorded execution duration for the baseline test, in milliseconds.
+    /// Looks up by member ID first (exact), then falls back to a name prefix match.
+    /// Returns null when no data is available.
+    /// </summary>
+    private async Task<double?> GetBaselineTestExecutionTimeMsAsync(
+        string? testMethodName,
+        int? memberId,
+        CancellationToken cancellationToken)
+    {
+        if (_context.Project.DbId == 0 || (string.IsNullOrWhiteSpace(testMethodName) && !memberId.HasValue))
+            return null;
+
+        if (memberId.HasValue)
+        {
+            var byMemberId =
+                from testResult in _dbContext.TestResults
+                join testRun in _dbContext.TestRuns on testResult.TestRunId equals testRun.Id
+                where testRun.ProjectId == _context.Project.DbId
+                      && testResult.MethodId == memberId.Value
+                orderby testRun.Id descending, testResult.Id descending
+                select (double?)testResult.Duration.TotalMilliseconds;
+
+            var resultByMemberId = await byMemberId.FirstOrDefaultAsync(cancellationToken);
+            if (resultByMemberId.HasValue) return resultByMemberId;
+        }
+
+        if (string.IsNullOrWhiteSpace(testMethodName)) return null;
+
+        return await (
+                from testResult in _dbContext.TestResults
+                join testRun in _dbContext.TestRuns on testResult.TestRunId equals testRun.Id
+                where testRun.ProjectId == _context.Project.DbId
+                      && (
+                          testResult.TestName == testMethodName ||
+                          EF.Functions.Like(testResult.TestName, "%." + testMethodName) ||
+                          EF.Functions.Like(testResult.TestName, "%+" + testMethodName))
+                orderby testRun.Id descending, testResult.Id descending
+                select (double?)testResult.Duration.TotalMilliseconds)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1464,14 +1626,27 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         GenerationExperimentMatrixItem matrixItem,
         CancellationToken cancellationToken)
     {
+        // Accumulates every completed attempt in chain order so that each repair can
+        // receive a compact history of all prior failures (not just the previous one).
+        var repairHistory = new List<GenerationAttempt>();
+
         var evaluations = await _budgetExecutor.ExecuteAsync(
             new GenerationBudgetExecutionRequest
             {
                 BudgetMode = matrixItem.BudgetMode,
-                GenerateAsync = (attemptNumber, token) =>
-                    ExecuteSingleGenerationAttemptAsync(candidateMethodId, context, matrixItem, attemptNumber, token),
-                RepairAsync = (previousAttempt, attemptNumber, token) =>
-                    ExecuteSingleRepairAttemptAsync(candidateMethodId, context, matrixItem, previousAttempt, attemptNumber, token),
+                GenerateAsync = async (attemptNumber, token) =>
+                {
+                    var attempt = await ExecuteSingleGenerationAttemptAsync(candidateMethodId, context, matrixItem, attemptNumber, token);
+                    repairHistory.Add(attempt);
+                    return attempt;
+                },
+                RepairAsync = async (previousAttempt, attemptNumber, token) =>
+                {
+                    var priorSnapshot = repairHistory.ToList();
+                    var attempt = await ExecuteSingleRepairAttemptAsync(candidateMethodId, context, matrixItem, previousAttempt, priorSnapshot, attemptNumber, token);
+                    repairHistory.Add(attempt);
+                    return attempt;
+                },
                 ShouldStopRepair = attempt =>
                     attempt.TestExecution is { TestPassed: true, CoverageImprovement: > 0 },
                 RollbackAsync = token => _workspace.RollbackChangesAsync(token)
@@ -1504,11 +1679,23 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
         try
         {
-            var result = await _pipeline.GenerateTestAsync(
-                CreateGenerationRequest(context, matrixItem),
-                cancellationToken);
+            TestGenerationResult result;
+            var generationStopwatch = Stopwatch.StartNew();
+            try
+            {
+                result = await _pipeline.GenerateTestAsync(
+                    CreateGenerationRequest(context, matrixItem),
+                    cancellationToken);
+            }
+            finally
+            {
+                generationStopwatch.Stop();
+                attempt.GenerationDurationSeconds = generationStopwatch.Elapsed.TotalSeconds;
+            }
+
             attempt.GenerationSteps = MapSteps(result);
             attempt.TotalTokensUsed = result.TotalTokens;
+            attempt.ConversationTranscript = result.ConversationTranscript;
 
             if (!result.Success || string.IsNullOrEmpty(result.GeneratedTest))
             {
@@ -1517,12 +1704,30 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 return attempt;
             }
 
-            attempt.TestExecution = await ExecuteAndTestAsync(
-                result.GeneratedTest!,
-                result.TestMethodName!,
-                context,
-                matrixItem,
-                cancellationToken);
+            var validationStopwatch = Stopwatch.StartNew();
+            try
+            {
+                attempt.TestExecution = await ExecuteAndTestAsync(
+                    result.GeneratedTest!,
+                    result.TestMethodName!,
+                    context,
+                    matrixItem,
+                    cancellationToken);
+            }
+            finally
+            {
+                validationStopwatch.Stop();
+                attempt.ValidationDurationSeconds = validationStopwatch.Elapsed.TotalSeconds;
+            }
+
+            // Persist patch metadata on the attempt (Phase 4).
+            // PatchJson is the raw generated test string (JSON for BasicExtension, C# for legacy).
+            attempt.PatchJson = result.GeneratedTest;
+            attempt.PatchApplicationOutcome = attempt.TestExecution?.PatchApplicationOutcome;
+            attempt.AppliedUsingCount = attempt.TestExecution?.AppliedUsingCount ?? 0;
+            attempt.AppliedHelperCount = attempt.TestExecution?.AppliedHelperCount ?? 0;
+
+            await CaptureModifiedFileAsync(attempt, context.TestFilePath, cancellationToken);
 
             return attempt;
         }
@@ -1539,6 +1744,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CandidateMethodContext context,
         GenerationExperimentMatrixItem matrixItem,
         GenerationAttempt previousAttempt,
+        IReadOnlyList<GenerationAttempt> allPriorAttempts,
         int attemptNumber,
         CancellationToken cancellationToken)
     {
@@ -1562,18 +1768,35 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 return attempt;
             }
 
+            // Build a compact failure history from all prior attempts so the model
+            // knows which approaches have already been tried and should not be repeated.
+            var priorAttemptsSummary = BuildPriorAttemptsSummary(allPriorAttempts);
+
             var repairRequest = CreateRepairRequest(
                 context,
                 previousAttempt.TestExecution.GeneratedTestCode,
                 previousAttempt.TestExecution.ErrorLogs ?? "Test failed",
                 previousAttempt.TestExecution.StructuredErrors,
-                null,
+                priorAttemptsSummary,
                 matrixItem,
-                attemptNumber);
+                attemptNumber,
+                modifiedTestFileContents: previousAttempt.ModifiedFileContents);
 
-            var result = await _pipeline.RepairTestAsync(repairRequest, cancellationToken);
+            TestGenerationResult result;
+            var generationStopwatch = Stopwatch.StartNew();
+            try
+            {
+                result = await _pipeline.RepairTestAsync(repairRequest, cancellationToken);
+            }
+            finally
+            {
+                generationStopwatch.Stop();
+                attempt.GenerationDurationSeconds = generationStopwatch.Elapsed.TotalSeconds;
+            }
+
             attempt.GenerationSteps = MapSteps(result);
             attempt.TotalTokensUsed = result.TotalTokens;
+            attempt.ConversationTranscript = result.ConversationTranscript;
 
             if (!result.Success || string.IsNullOrEmpty(result.GeneratedTest))
             {
@@ -1582,12 +1805,29 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 return attempt;
             }
 
-            attempt.TestExecution = await ExecuteAndTestAsync(
-                result.GeneratedTest!,
-                result.TestMethodName ?? context.Method.MethodName,
-                context,
-                matrixItem,
-                cancellationToken);
+            var validationStopwatch = Stopwatch.StartNew();
+            try
+            {
+                attempt.TestExecution = await ExecuteAndTestAsync(
+                    result.GeneratedTest!,
+                    result.TestMethodName ?? context.Method.MethodName,
+                    context,
+                    matrixItem,
+                    cancellationToken);
+            }
+            finally
+            {
+                validationStopwatch.Stop();
+                attempt.ValidationDurationSeconds = validationStopwatch.Elapsed.TotalSeconds;
+            }
+
+            // Persist repair patch metadata on the attempt (Phase 4).
+            attempt.RepairPatchJson = result.GeneratedTest;
+            attempt.PatchApplicationOutcome = attempt.TestExecution?.PatchApplicationOutcome;
+            attempt.AppliedUsingCount = attempt.TestExecution?.AppliedUsingCount ?? 0;
+            attempt.AppliedHelperCount = attempt.TestExecution?.AppliedHelperCount ?? 0;
+
+            await CaptureModifiedFileAsync(attempt, context.TestFilePath, cancellationToken);
 
             return attempt;
         }
@@ -1617,15 +1857,101 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return ApplyMatrixItem(request, matrixItem);
     }
 
+    internal static async Task CaptureModifiedFileAsync(
+        GenerationAttempt attempt,
+        string? filePath,
+        CancellationToken cancellationToken = default)
+    {
+        if (attempt.TestExecution == null ||
+            !PatchWasApplied(attempt.TestExecution.PatchApplicationOutcome) ||
+            string.IsNullOrWhiteSpace(filePath) ||
+            !File.Exists(filePath))
+            return;
+
+        var contents = await File.ReadAllTextAsync(filePath, cancellationToken);
+        attempt.ModifiedFilePath = Path.GetFullPath(filePath);
+        attempt.ModifiedFileContents = contents;
+        attempt.ModifiedFileSha256 = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(contents)))
+            .ToLowerInvariant();
+    }
+
+    private static bool PatchWasApplied(string? patchApplicationOutcome)
+    {
+        // Legacy method-only insertion does not report a patch outcome.
+        return string.IsNullOrWhiteSpace(patchApplicationOutcome) ||
+               patchApplicationOutcome.Equals("Success", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Builds a concise one-line-per-attempt summary of every failure in the repair chain
+    /// that occurred <em>before</em> the immediately previous attempt (whose full context is
+    /// already in the repair prompt via <c>GeneratedTest</c> and <c>ErrorLogs</c>).
+    /// Returns an empty string when there is nothing genuinely new to show (i.e. the first
+    /// repair, where the only prior attempt is already fully covered by the prompt).
+    /// </summary>
+    private static string BuildPriorAttemptsSummary(IReadOnlyList<GenerationAttempt> priorAttempts)
+    {
+        // Exclude the most recent attempt: its patch is already in GeneratedTest and its
+        // failure is already in ErrorLogs / StructuredErrors / ModifiedTestFileContents.
+        // Only attempts before it are genuinely new context for the model.
+        var earlierAttempts = priorAttempts.Count > 1
+            ? priorAttempts.Take(priorAttempts.Count - 1).ToList()
+            : [];
+
+        if (earlierAttempts.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder("Earlier attempt context (each failed before the current attempt above):");
+        foreach (var attempt in earlierAttempts)
+        {
+            var label = attempt.IsRepairAttempt
+                ? $"repair {attempt.AttemptNumber - 1}"
+                : "initial generation";
+
+            // Application failures surface via PatchApplicationOutcome (e.g. DuplicateTestMethod);
+            // build/runtime/assertion failures surface via FailureKind on the test execution.
+            var outcomeDetail = !string.IsNullOrWhiteSpace(attempt.PatchApplicationOutcome) &&
+                                !attempt.PatchApplicationOutcome.Equals("Success", StringComparison.OrdinalIgnoreCase)
+                ? $"application failure ({attempt.PatchApplicationOutcome})"
+                : attempt.TestExecution?.FailureKind switch
+                {
+                    TestFailureKind.Compilation => "build failure",
+                    TestFailureKind.Runtime     => "runtime failure",
+                    TestFailureKind.Assertion   => "assertion failure",
+                    TestFailureKind.Generation  => "generation failure",
+                    _                           => "failure"
+                };
+
+            var errorHint = FirstRepairErrorLine(attempt.TestExecution?.ErrorLogs);
+            var errorSuffix = string.IsNullOrWhiteSpace(errorHint) ? string.Empty : $" — {errorHint}";
+            sb.AppendLine();
+            sb.Append($"  Attempt {attempt.AttemptNumber} ({label}): {outcomeDetail}{errorSuffix}");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Returns the first non-blank error line truncated to 120 characters.</summary>
+    private static string FirstRepairErrorLine(string? errorLogs)
+    {
+        if (string.IsNullOrWhiteSpace(errorLogs)) return string.Empty;
+        var line = errorLogs.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                            .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))
+                   ?? string.Empty;
+        return line.Length > 120 ? line[..120] + "…" : line;
+    }
+
     private TestRepairRequest CreateRepairRequest(
         CandidateMethodContext context,
         string generatedTest,
         string errorLogs,
         string? structuredErrors,
-        string? priorConversationTranscript,
+        string? priorAttemptsSummary,
         GenerationExperimentMatrixItem matrixItem,
         int attemptNumber,
-        double temperature = 0.0)
+        double temperature = 0.0,
+        string? modifiedTestFileContents = null)
     {
         var experimentConfig = _activeExperimentConfig;
 
@@ -1635,7 +1961,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             GeneratedTest = generatedTest,
             ErrorLogs = errorLogs,
             StructuredErrors = structuredErrors,
-            PriorConversationTranscript = priorConversationTranscript,
+            PriorConversationTranscript = null,
+            PriorAttemptsSummary = priorAttemptsSummary,
+            ModifiedTestFileContents = modifiedTestFileContents,
             Provider = matrixItem.Provider,
             Temperature = matrixItem.Temperature,
             AttemptNumber = attemptNumber,
@@ -1697,7 +2025,15 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             RoslynDiagnosticsBeforeCount = execution.RoslynDiagnosticsBefore.Count,
             RoslynDiagnosticsAfterCount = execution.RoslynDiagnosticsAfter.Count,
             NewRoslynDiagnosticsCount = execution.NewRoslynDiagnostics.Count,
-            NewRoslynDiagnostics = FormatRoslynDiagnostics(execution.NewRoslynDiagnostics)
+            NewRoslynDiagnostics = FormatRoslynDiagnostics(execution.NewRoslynDiagnostics),
+            ExecutionTimeMs = execution.GeneratedTestExecutionTimeMs.HasValue
+                ? (long)Math.Round(execution.GeneratedTestExecutionTimeMs.Value)
+                : null,
+            TestRunId = execution.TestRun?.DbId > 0 ? execution.TestRun.DbId : null,
+            // Transient: carry patch metadata back to the orchestrator for attempt-level persistence.
+            PatchApplicationOutcome = execution.PatchApplicationOutcome,
+            AppliedUsingCount = execution.AppliedUsingCount,
+            AppliedHelperCount = execution.AppliedHelperCount
         };
     }
 
@@ -1775,6 +2111,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             MutationSummary = request.MutationSummary,
             CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
             CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
+            AccessPathSummary = request.AccessPathSummary,
+            UseStructuredPatchOutput = request.UseStructuredPatchOutput,
+            TestProjectPath = request.TestProjectPath,
             Provider = request.Provider,
             Temperature = request.Temperature,
             StepErrorRetries = request.StepErrorRetries,
@@ -1808,9 +2147,13 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             MutationSummary = request.MutationSummary,
             CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
             CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
+            AccessPathSummary = request.AccessPathSummary,
+            UseStructuredPatchOutput = request.UseStructuredPatchOutput,
             ErrorLogs = request.ErrorLogs,
             StructuredErrors = request.StructuredErrors,
             PriorConversationTranscript = request.PriorConversationTranscript,
+            PriorAttemptsSummary = request.PriorAttemptsSummary,
+            ModifiedTestFileContents = request.ModifiedTestFileContents,
             Provider = request.Provider,
             Temperature = request.Temperature,
             AttemptNumber = request.AttemptNumber,

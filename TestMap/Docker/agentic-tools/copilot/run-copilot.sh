@@ -24,6 +24,7 @@ cat > /attempt/runner-env.txt <<EOF
 TOOL_ID=github-copilot-cli
 COPILOT_HOME=${COPILOT_HOME}
 COPILOT_ALLOW_MODE=${COPILOT_ALLOW_MODE:-allow-all}
+GITHUB_COPILOT_TOKEN_SET=$([ -n "${GITHUB_COPILOT_TOKEN:-}" ] && echo yes || echo no)
 WORKSPACE=/workspace
 ATTEMPT=/attempt
 EOF

@@ -51,22 +51,39 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
         if (changedFiles.Count == 0 || string.IsNullOrWhiteSpace(attempt.WorkspacePath))
             return new ToolAttemptGeneratedTestLinkResult();
 
+        var addedLinesByPath = ReadAddedLinesByPath(attempt);
+        if (addedLinesByPath.Count == 0)
+            return new ToolAttemptGeneratedTestLinkResult();
+
         // Build the set of absolute host paths for files changed by the tool.
         var absolutePaths = BuildAbsolutePaths(attempt.WorkspacePath, changedFiles);
         if (absolutePaths.Count == 0)
             return new ToolAttemptGeneratedTestLinkResult();
 
-        // Find test members whose containing file is one of the changed files.
+        // Find test members whose declaration starts on a line added by the tool.
+        // Merely belonging to a changed file is insufficient because that file can
+        // contain pre-existing tests that must not be attributed to the attempt.
         // Join path: MemberEntity → ObjectEntity → FileEntity
-        var memberIds = await (
-            from member in _dbContext.Members
+        var candidateMembers = await (
+            from member in _dbContext.Members.AsNoTracking()
             join obj in _dbContext.Objects on member.ObjectEntityId equals obj.Id
             join file in _dbContext.Files on obj.FileId equals file.Id
             where member.IsTestMember
                   && member.Kind == "method"
                   && absolutePaths.Contains(file.FilePath)
-            select member.Id
+            select new
+            {
+                member.Id,
+                member.Location,
+                file.FilePath
+            }
         ).ToListAsync(cancellationToken);
+        var memberIds = candidateMembers
+            .Where(x =>
+                addedLinesByPath.TryGetValue(Path.GetFullPath(x.FilePath), out var addedLines)
+                && addedLines.Contains(x.Location.StartLineNumber))
+            .Select(x => x.Id)
+            .ToList();
 
         if (memberIds.Count == 0)
             return new ToolAttemptGeneratedTestLinkResult();
@@ -135,5 +152,97 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
         }
 
         return result;
+    }
+
+    internal static Dictionary<string, HashSet<int>> ReadAddedLinesByPath(ToolAttempt attempt)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.ArtifactPath)
+            || string.IsNullOrWhiteSpace(attempt.WorkspacePath))
+            return new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+
+        var patchPath = Path.Combine(attempt.ArtifactPath, "patch.diff");
+        if (!File.Exists(patchPath))
+            return new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+
+        return ParseAddedLines(
+            File.ReadLines(patchPath),
+            attempt.WorkspacePath);
+    }
+
+    internal static Dictionary<string, HashSet<int>> ParseAddedLines(
+        IEnumerable<string> patchLines,
+        string workspacePath)
+    {
+        var result = new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+        string? currentPath = null;
+        var newLine = 0;
+        var inHunk = false;
+
+        foreach (var line in patchLines)
+        {
+            if (line.StartsWith("+++ ", StringComparison.Ordinal))
+            {
+                currentPath = ResolvePatchPath(workspacePath, line[4..]);
+                inHunk = false;
+                continue;
+            }
+
+            if (line.StartsWith("@@ ", StringComparison.Ordinal))
+            {
+                inHunk = currentPath != null && TryReadNewHunkStart(line, out newLine);
+                continue;
+            }
+
+            if (!inHunk || currentPath == null || line.Length == 0)
+                continue;
+
+            switch (line[0])
+            {
+                case '+':
+                    if (!result.TryGetValue(currentPath, out var addedLines))
+                    {
+                        addedLines = [];
+                        result[currentPath] = addedLines;
+                    }
+
+                    addedLines.Add(newLine - 1);
+                    newLine++;
+                    break;
+                case '-':
+                case '\\':
+                    break;
+                default:
+                    newLine++;
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    private static string? ResolvePatchPath(string workspacePath, string rawPath)
+    {
+        var path = rawPath.Trim();
+        if (path == "/dev/null")
+            return null;
+        if (path.StartsWith("b/", StringComparison.Ordinal))
+            path = path[2..];
+
+        path = path.Replace('/', Path.DirectorySeparatorChar);
+        return Path.GetFullPath(Path.Combine(workspacePath, path));
+    }
+
+    private static bool TryReadNewHunkStart(string header, out int startLine)
+    {
+        startLine = 0;
+        var plus = header.IndexOf('+');
+        if (plus < 0)
+            return false;
+
+        var end = header.IndexOfAny([',', ' '], plus + 1);
+        if (end < 0)
+            return false;
+
+        return int.TryParse(header[(plus + 1)..end], out startLine);
     }
 }

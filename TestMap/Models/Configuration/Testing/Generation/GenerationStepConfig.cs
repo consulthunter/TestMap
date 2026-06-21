@@ -7,6 +7,7 @@ public class GenerationStepConfig
     public bool EnableContextGraph { get; set; } = false;
     public bool EnableContextResolution { get; set; } = false;
     public bool EnableRoslynValidation { get; set; } = true;
+    public bool EnableSpeculativePlanning { get; set; } = true;
     public bool EnableScenario { get; set; } = true;
     public bool EnableMethodName { get; set; } = true;
     public bool EnableArrangePlan { get; set; } = true;

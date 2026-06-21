@@ -134,6 +134,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     TestRun = baselineRun,
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
+                    PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
+                    AppliedUsingCount = actionResult.AppliedUsingCount,
+                    AppliedHelperCount = actionResult.AppliedHelperCount,
                     FailureKind = TestFailureKind.Generation,
                     FailureStage = "application",
                     FailureCategory = "generated_test_application_failed",
@@ -158,6 +161,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     AppliedFilePath = actionResult.AppliedFilePath,
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
+                    PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
+                    AppliedUsingCount = actionResult.AppliedUsingCount,
+                    AppliedHelperCount = actionResult.AppliedHelperCount,
                     BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
                     BaselineMutationScore = baselineRun.MutationScore,
                     TestRun = baselineRun,
@@ -204,6 +210,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
                     RoslynPreBuildRuleDecisions = preBuildDecision.RuleDecisions,
+                    PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
+                    AppliedUsingCount = actionResult.AppliedUsingCount,
+                    AppliedHelperCount = actionResult.AppliedHelperCount,
                     BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
                     BaselineMutationScore = baselineRun.MutationScore,
                     TestRun = baselineRun,
@@ -239,6 +248,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
                     RoslynPreBuildRuleDecisions = preBuildDecision.RuleDecisions,
+                    PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
+                    AppliedUsingCount = actionResult.AppliedUsingCount,
+                    AppliedHelperCount = actionResult.AppliedHelperCount,
                     BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
                     BaselineMutationScore = baselineRun.MutationScore,
                     TestRun = baselineRun,
@@ -329,6 +341,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             ActionKind = actionResult.ActionKind,
             ApplicationRuleDecisions = actionResult.RuleDecisions,
             RoslynPreBuildRuleDecisions = preBuildDecision.RuleDecisions,
+            PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
+            AppliedUsingCount = actionResult.AppliedUsingCount,
+            AppliedHelperCount = actionResult.AppliedHelperCount,
             CompilationSucceeded = compilationSucceeded,
             TestsExecuted = testsExecuted,
             AllTestsPassed = allTestsPassed,
@@ -339,6 +354,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             BaselineMutationScore = baselineMutationScore,
             MutationScoreAfter = buildResult.MutationScore,
             MutationScoreImprovement = mutationScoreImprovement,
+            GeneratedTestExecutionTimeMs = ResolveGeneratedTestExecutionTimeMs(
+                buildResult.Results,
+                testMethodName),
             RoslynValidationSucceeded = roslynValidation.Succeeded,
             RoslynValidationSkipped = roslynValidation.Skipped,
             RoslynDiagnosticsBefore = roslynValidation.Before.Diagnostics,
@@ -385,6 +403,30 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         }
 
         return result;
+    }
+
+    internal static double? ResolveGeneratedTestExecutionTimeMs(
+        IReadOnlyList<TestResultModel> results,
+        string testMethodName)
+    {
+        if (results.Count == 0 || string.IsNullOrWhiteSpace(testMethodName))
+            return null;
+
+        var matching = results.Where(x =>
+        {
+            var name = x.TestName;
+            var argumentsStart = name.IndexOf('(');
+            if (argumentsStart >= 0)
+                name = name[..argumentsStart];
+
+            return string.Equals(name, testMethodName, StringComparison.OrdinalIgnoreCase)
+                   || name.EndsWith("." + testMethodName, StringComparison.OrdinalIgnoreCase)
+                   || name.EndsWith("+" + testMethodName, StringComparison.OrdinalIgnoreCase);
+        }).ToList();
+
+        return matching.Count == 0
+            ? null
+            : matching.Sum(x => x.Duration.TotalMilliseconds);
     }
 
     private static double? CalculateMutationScoreImprovement(double? baselineMutationScore, double? mutationScoreAfter)
@@ -571,6 +613,7 @@ internal static class GeneratedTestExecutionResultExtensions
             NewRoslynDiagnostics = result.NewRoslynDiagnostics,
             ApplicationRuleDecisions = result.ApplicationRuleDecisions,
             RoslynPreBuildRuleDecisions = result.RoslynPreBuildRuleDecisions,
+            GeneratedTestExecutionTimeMs = result.GeneratedTestExecutionTimeMs,
             TestRun = result.TestRun,
             ExecutedAt = result.ExecutedAt
         };

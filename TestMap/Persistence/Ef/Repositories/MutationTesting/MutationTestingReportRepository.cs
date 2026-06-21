@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.Code;
 using TestMap.Models.MutationTesting;
@@ -166,6 +167,7 @@ public class MutationTestingReportRepository
                 reportId,
                 model.projectRoot,
                 filePath,
+                fileResult.source ?? string.Empty,
                 mutant,
                 memberCandidatesByTestFlag,
                 resolvedMemberIds,
@@ -209,6 +211,7 @@ public class MutationTestingReportRepository
         int reportId,
         string projectRoot,
         string filePath,
+        string fileSource,
         StrykerMutant mutant,
         IReadOnlyDictionary<bool, List<MemberCandidate>> memberCandidatesByTestFlag,
         IDictionary<string, int?> resolvedMemberIds,
@@ -227,6 +230,8 @@ public class MutationTestingReportRepository
             memberCandidatesByTestFlag,
             resolvedMemberIds);
 
+        var originalCode = ExtractOriginalCode(fileSource, location);
+
         if (mutantsByHash.TryGetValue(contentHash, out var existing))
         {
             existing.MemberId = memberId;
@@ -234,6 +239,9 @@ public class MutationTestingReportRepository
             existing.StatusReason = mutant.statusReason ?? string.Empty;
             existing.CoveredBy = mutant.coveredBy ?? new List<string>();
             existing.KilledBy = mutant.killedBy ?? new List<string>();
+            // Backfill original_code on rows that predate this column.
+            if (string.IsNullOrEmpty(existing.OriginalCode) && !string.IsNullOrEmpty(originalCode))
+                existing.OriginalCode = originalCode;
             return existing;
         }
 
@@ -244,6 +252,7 @@ public class MutationTestingReportRepository
             StrykerMutantId = mutant.id ?? string.Empty,
             FilePath = filePath,
             MutatorName = mutant.mutatorName ?? string.Empty,
+            OriginalCode = originalCode,
             Replacement = mutant.replacement ?? string.Empty,
             Status = mutant.status ?? string.Empty,
             StatusReason = mutant.statusReason ?? string.Empty,
@@ -258,6 +267,49 @@ public class MutationTestingReportRepository
         _context.Mutants.Add(entity);
         mutantsByHash[contentHash] = entity;
         return entity;
+    }
+
+    /// <summary>
+    /// Slices the original (pre-mutation) code out of the file source using the mutant's
+    /// stored location. Location coordinates are 0-based (Stryker's 1-based values are
+    /// decremented by 1 on import). End column is exclusive.
+    /// </summary>
+    internal static string ExtractOriginalCode(string source, Location location)
+    {
+        if (string.IsNullOrEmpty(source)) return string.Empty;
+
+        var lines = source.Split('\n');
+        var startLine = location.StartLineNumber;
+        var endLine   = location.EndLineNumber;
+        var startCol  = location.BodyStartPosition;
+        var endCol    = location.BodyEndPosition;
+
+        if (startLine < 0 || startLine >= lines.Length) return string.Empty;
+        endLine = Math.Min(endLine, lines.Length - 1);
+
+        if (startLine == endLine)
+        {
+            var line     = lines[startLine].TrimEnd('\r');
+            var safeStart = Math.Min(startCol, line.Length);
+            var safeEnd   = Math.Min(endCol,   line.Length);
+            return safeEnd > safeStart ? line[safeStart..safeEnd] : string.Empty;
+        }
+
+        // Multi-line mutant — join all spanned lines.
+        var sb = new StringBuilder();
+        for (var i = startLine; i <= endLine; i++)
+        {
+            var line = lines[i].TrimEnd('\r');
+            if (i == startLine)
+                sb.Append(line[Math.Min(startCol, line.Length)..]);
+            else if (i == endLine)
+                sb.Append(line[..Math.Min(endCol, line.Length)]);
+            else
+                sb.Append(line);
+
+            if (i < endLine) sb.Append('\n');
+        }
+        return sb.ToString().Trim();
     }
 
     private void UpsertSurvivedTest(

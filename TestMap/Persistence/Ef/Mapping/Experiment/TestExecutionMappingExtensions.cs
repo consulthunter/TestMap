@@ -19,6 +19,7 @@ public static class TestExecutionMappingExtensions
         {
             Id = entity.Id,
             GenerationAttemptId = entity.GenerationAttemptId,
+            TestRunId = entity.TestRunId,
             GeneratedTestCode = entity.GeneratedTestCode,
             GeneratedTestMethodName = entity.GeneratedTestMethodName,
             CompilationSuccess = entity.CompilationSucceeded,
@@ -83,6 +84,7 @@ public static class TestExecutionMappingExtensions
         {
             Id = execution.Id,
             GenerationAttemptId = execution.GenerationAttemptId,
+            TestRunId = execution.TestRunId,
             GeneratedTestCode = execution.GeneratedTestCode ?? string.Empty,
             GeneratedTestMethodName = execution.GeneratedTestMethodName ?? string.Empty,
             CompilationSucceeded = execution.CompilationSuccess,

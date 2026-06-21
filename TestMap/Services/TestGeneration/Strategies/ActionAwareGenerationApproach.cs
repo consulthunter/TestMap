@@ -85,6 +85,7 @@ public sealed class ActionAwareGenerationApproach : ITestGenerationApproach
             ErrorLogs = context.ErrorLogs,
             StructuredErrors = context.StructuredErrors,
             PriorConversationTranscript = context.PriorConversationTranscript,
+            PriorAttemptsSummary = context.PriorAttemptsSummary,
             Provider = context.Provider,
             Temperature = context.Temperature,
             AttemptNumber = context.AttemptNumber,

@@ -18,6 +18,7 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         "tool_validation_outcome",
         "tool_artifact_path",
         "tool_changed_files_count",
+        "tool_attempt_id",
         "tool_attempt_targeted_baseline_id",
         "tool_post_attempt_test_run_id",
         "repo_url",
@@ -95,7 +96,12 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         "new_actionable_roslyn_diagnostics_count",
         "new_roslyn_diagnostics",
         "total_tokens",
-        "total_duration_seconds",
+        "cumulative_tokens",
+        "generation_duration_seconds",
+        "validation_duration_seconds",
+        "total_attempt_duration_seconds",
+        "baseline_test_execution_time_ms",
+        "generated_test_execution_time_ms",
         "prompt_version",
         "generation_attempt_id",
         "test_execution_id",
@@ -165,6 +171,7 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
             Escape(row.ToolValidationOutcome),
             Escape(row.ToolArtifactPath),
             Escape(row.ToolChangedFilesCount.ToString()),
+            Escape(row.ToolAttemptId?.ToString() ?? string.Empty),
             Escape(row.ToolAttemptTargetedBaselineId?.ToString() ?? string.Empty),
             Escape(row.ToolPostAttemptTestRunId?.ToString() ?? string.Empty),
             Escape(row.RepoUrl),
@@ -242,7 +249,12 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
             Escape(row.NewRoslynDiagnosticsCount.ToString()),
             Escape(row.NewRoslynDiagnostics),
             Escape(row.TotalTokens.ToString()),
-            Escape(row.TotalDurationSeconds.ToString("R")),
+            Escape(row.CumulativeTokens.ToString()),
+            Escape(row.GenerationDurationSeconds.ToString("R")),
+            Escape(row.ValidationDurationSeconds.ToString("R")),
+            Escape(row.TotalAttemptDurationSeconds.ToString("R")),
+            Escape(FormatNullable(row.BaselineTestExecutionTimeMs)),
+            Escape(FormatNullable(row.GeneratedTestExecutionTimeMs)),
             Escape(row.PromptVersion),
             Escape(row.GenerationAttemptId.ToString()),
             Escape(row.TestExecutionId?.ToString() ?? string.Empty),
@@ -252,6 +264,11 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
     private static string FormatNullable(int? value)
     {
         return value?.ToString() ?? string.Empty;
+    }
+
+    private static string FormatNullable(double? value)
+    {
+        return value?.ToString("R") ?? string.Empty;
     }
 
     private static string Escape(string value)

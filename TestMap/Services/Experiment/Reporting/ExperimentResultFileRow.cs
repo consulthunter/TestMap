@@ -13,6 +13,7 @@ public sealed class ExperimentResultFileRow
     public string ToolValidationOutcome { get; init; } = string.Empty;
     public string ToolArtifactPath { get; init; } = string.Empty;
     public int ToolChangedFilesCount { get; init; }
+    public int? ToolAttemptId { get; init; }
     public int? ToolAttemptTargetedBaselineId { get; init; }
     public int? ToolPostAttemptTestRunId { get; init; }
     public string RepoUrl { get; init; } = string.Empty;
@@ -91,7 +92,12 @@ public sealed class ExperimentResultFileRow
     public int NewRoslynDiagnosticsCount { get; init; }
     public string NewRoslynDiagnostics { get; init; } = string.Empty;
     public int TotalTokens { get; init; }
-    public double TotalDurationSeconds { get; init; }
+    public int CumulativeTokens { get; init; }
+    public double GenerationDurationSeconds { get; init; }
+    public double ValidationDurationSeconds { get; init; }
+    public double TotalAttemptDurationSeconds { get; init; }
+    public double? BaselineTestExecutionTimeMs { get; init; }
+    public double? GeneratedTestExecutionTimeMs { get; init; }
     public string PromptVersion { get; init; } = string.Empty;
     public int GenerationAttemptId { get; init; }
     public int? TestExecutionId { get; init; }

@@ -27,12 +27,25 @@ public class GenerationAttemptEntity
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public int TotalTokensUsed { get; set; }
+    public double GenerationDurationSeconds { get; set; }
+    public double ValidationDurationSeconds { get; set; }
+    public double TotalAttemptDurationSeconds { get; set; }
     [MaxLength(50)] public string Status { get; set; } = string.Empty;
     [MaxLength(50)] public string FailureKind { get; set; } = string.Empty;
     [MaxLength(50)] public string FailureStage { get; set; } = string.Empty;
     [MaxLength(100)] public string FailureCategory { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
     public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
+
+    // Basic Extension patch metadata (nullable; null for non-BE attempts)
+    public string? PatchJson { get; set; }
+    public string? RepairPatchJson { get; set; }
+    public string? PatchApplicationOutcome { get; set; }
+    public int? AppliedUsingCount { get; set; }
+    public int? AppliedHelperCount { get; set; }
+    public string? ModifiedFilePath { get; set; }
+    public string? ModifiedFileContents { get; set; }
+    [MaxLength(64)] public string? ModifiedFileSha256 { get; set; }
 
     public virtual CandidateMethodEntity? CandidateMethod { get; set; }
     public virtual ExperimentMatrixWorkItemEntity? ExperimentMatrixWorkItem { get; set; }

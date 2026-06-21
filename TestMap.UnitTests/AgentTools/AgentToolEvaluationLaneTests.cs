@@ -157,6 +157,79 @@ public sealed class AgentToolEvaluationLaneTests
         Assert.Equal(ToolObservedOutcome.NoChange.ToString(), attempt.ObservedOutcome);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ExecuteAsync_OnlyAgentMetadataChanged_PersistsCompletedNoChangeAttempt()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var (runId, workItemId, candidateId) = await SeedGraphAsync(db);
+
+        var runner = new TestAgentToolRunner
+        {
+            ChangedFiles =
+            [
+                ".testmap/prompt.md",
+                ".testmap/task-card.json",
+                ".codex/session.json"
+            ]
+        };
+        var repo = new ToolAttemptRepository(db);
+        var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
+            [MakeToolConfig()]);
+
+        var result = await lane.ExecuteAsync(
+            MakeContext(runId, workItemId, candidateId),
+            default);
+
+        Assert.True(result.Success);
+        Assert.Empty(result.ChangedFiles);
+        db.ChangeTracker.Clear();
+        var attempt = await db.ToolAttempts.SingleAsync();
+        Assert.Equal(ToolRunStatus.CompletedNoChange.ToString(), attempt.RunStatus);
+        Assert.Equal(0, attempt.ChangedFilesCount);
+        Assert.Equal(0, attempt.TestFilesChanged);
+        Assert.Equal(0, attempt.ProductionFilesChanged);
+        Assert.Equal(ToolObservedOutcome.NoChange.ToString(), attempt.ObservedOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ExecuteAsync_MixedRepositoryAndMetadataChanges_CountsOnlyRepositoryFiles()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var (runId, workItemId, candidateId) = await SeedGraphAsync(db);
+
+        var runner = new TestAgentToolRunner
+        {
+            ChangedFiles =
+            [
+                ".testmap/evidence-summary.md",
+                ".claude/settings.local.json",
+                "Tests/AddedTests.cs"
+            ]
+        };
+        var repo = new ToolAttemptRepository(db);
+        var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
+            [MakeToolConfig()]);
+
+        var result = await lane.ExecuteAsync(
+            MakeContext(runId, workItemId, candidateId),
+            default);
+
+        Assert.True(result.Success);
+        Assert.Equal(["Tests/AddedTests.cs"], result.ChangedFiles);
+        db.ChangeTracker.Clear();
+        var attempt = await db.ToolAttempts.SingleAsync();
+        Assert.Equal(ToolRunStatus.Completed.ToString(), attempt.RunStatus);
+        Assert.Equal(1, attempt.ChangedFilesCount);
+        Assert.Equal(1, attempt.TestFilesChanged);
+        Assert.Equal(0, attempt.ProductionFilesChanged);
+    }
+
     /// <summary>
     /// ExecuteAsync when the runner throws persists a ToolCrashed attempt and returns
     /// Success = false with the error message.
@@ -327,6 +400,32 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ExtractUsage_GeminiStreamJsonResult_ParsesCurrentTopLevelTokenStats()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "gemini.events.jsonl"),
+                """
+                {"type":"result","timestamp":"2026-06-05T18:07:27.926Z","status":"error","stats":{"total_tokens":96664,"input_tokens":92798,"output_tokens":1569,"cached":65372,"input":27426,"duration_ms":37313,"tool_calls":5,"models":{"gemini-2.5-pro":{"total_tokens":96664,"input_tokens":92798,"output_tokens":1569,"cached":65372,"input":27426}}}}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "gemini");
+
+            Assert.NotNull(usage);
+            Assert.Equal(92798, usage.InputTokens);
+            Assert.Equal(3866, usage.OutputTokens);
+            Assert.Equal("gemini.events.jsonl:result.stats", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ExtractUsage_OpenHandsPersistedState_SumsConversationMetrics()
     {
         var artifactPath = CreateTempArtifactDirectory();
@@ -375,6 +474,119 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ExtractUsage_AiderStdoutTokenLine_ReturnsSentAndReceivedTokens()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "aider.stdout.log"),
+                """
+                Some regular aider output.
+                Tokens: 3.2k sent, 1.1k received. Cost: $0.03 message, $0.04 session.
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "aider");
+
+            Assert.NotNull(usage);
+            Assert.Equal(3200, usage.InputTokens);
+            Assert.Equal(1100, usage.OutputTokens);
+            Assert.Equal("aider.stdout.log:tokens-line", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_AiderStdoutWithMultipleTokenLines_UsesLatest()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "aider.stdout.log"),
+                """
+                Tokens: 800 sent, 200 received. Cost: $0.01 message.
+                Tokens: 4.5k sent, 900 received. Cost: $0.02 message, $0.03 session.
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "aider");
+
+            Assert.NotNull(usage);
+            Assert.Equal(4500, usage.InputTokens);
+            Assert.Equal(900, usage.OutputTokens);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_MiniSweTrajectory_SumsUsageEntries()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "mini-swe-agent-trajectory.json"),
+                """
+                {
+                  "info": {
+                    "model_stats": {
+                      "api_calls": 2
+                    }
+                  },
+                  "trajectory": [
+                    {
+                      "response": {
+                        "usage": {
+                          "completion_tokens": 166,
+                          "prompt_tokens": 3481,
+                          "total_tokens": 3647,
+                          "prompt_tokens_details": {
+                            "cached_tokens": 0,
+                            "cache_creation_tokens": 3478
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "response": {
+                        "usage": {
+                          "completion_tokens": 473,
+                          "prompt_tokens": 14581,
+                          "total_tokens": 15054,
+                          "prompt_tokens_details": {
+                            "cached_tokens": 14163,
+                            "cache_creation_tokens": 417
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "mini-swe-agent");
+
+            Assert.NotNull(usage);
+            Assert.Equal(18062, usage.InputTokens);
+            Assert.Equal(639, usage.OutputTokens);
+            Assert.Equal("mini-swe-agent-trajectory.json:usage", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public async Task ExecuteAsync_UsageJsonl_PersistsTokenUsage()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -398,6 +610,13 @@ public sealed class AgentToolEvaluationLaneTests
         db.ChangeTracker.Clear();
         var attempt = await db.ToolAttempts.SingleAsync();
         Assert.True(attempt.JsonlLogAvailable);
+        Assert.Equal(
+            Path.Combine(attempt.ArtifactPath, "codex.events.jsonl"),
+            attempt.StdOutLogPath);
+        Assert.Equal(
+            Path.Combine(attempt.ArtifactPath, "codex.stderr.log"),
+            attempt.StdErrLogPath);
+        Assert.Equal(attempt.StdOutLogPath, attempt.JsonlLogPath);
         Assert.True(attempt.UsageAvailable);
         Assert.Equal("codex.events.jsonl:turn.completed", attempt.UsageSource);
         Assert.Equal(100, attempt.InputTokens);
@@ -429,6 +648,15 @@ public sealed class AgentToolEvaluationLaneTests
         db.ChangeTracker.Clear();
         var attempt = await db.ToolAttempts.SingleAsync();
         Assert.False(attempt.JsonlLogAvailable);
+        Assert.Equal(
+            Path.Combine(attempt.ArtifactPath, "openhands.stdout.log"),
+            attempt.StdOutLogPath);
+        Assert.Equal(
+            Path.Combine(attempt.ArtifactPath, "openhands.stderr.log"),
+            attempt.StdErrLogPath);
+        Assert.Equal(
+            Path.Combine(attempt.ArtifactPath, "openhands.events.jsonl"),
+            attempt.JsonlLogPath);
         Assert.False(attempt.UsageAvailable);
     }
 

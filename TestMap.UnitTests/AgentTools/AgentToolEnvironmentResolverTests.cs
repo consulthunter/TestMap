@@ -207,6 +207,38 @@ public sealed class AgentToolEnvironmentResolverTests
         Assert.Contains(missingVar, result.MissingRequiredSecrets);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_CopilotTokenFromHost_EmitsContainerOnlySecret()
+    {
+        // Arrange
+        var resolver = MakeResolver();
+        var previous = Environment.GetEnvironmentVariable("GITHUB_COPILOT_TOKEN");
+        Environment.SetEnvironmentVariable("GITHUB_COPILOT_TOKEN", "copilot-token");
+        try
+        {
+            var tool = new ExperimentToolConfig
+            {
+                Id = "copilot",
+                RequiredEnvironmentVariables = ["GITHUB_COPILOT_TOKEN"]
+            };
+            var providers = MakeProviders();
+            var genConfig = MakeGenerationConfig();
+
+            // Act
+            var result = resolver.Resolve(tool, providers, genConfig);
+
+            // Assert
+            Assert.True(result.IsValid);
+            Assert.Equal("copilot-token", result.NormalizedVars["GITHUB_COPILOT_TOKEN"]);
+            Assert.DoesNotContain(result.PersistableMetadata, kvp => kvp.Value == "copilot-token");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GITHUB_COPILOT_TOKEN", previous);
+        }
+    }
+
     /// <summary>
     /// PersistableMetadata never contains any value that matches the API key.
     /// </summary>

@@ -14,6 +14,7 @@ public class GeneratedTestExecutionEntityConfiguration : IEntityTypeConfiguratio
 
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.GenerationAttemptId).HasColumnName("generation_attempt_id").IsRequired();
+        builder.Property(x => x.TestRunId).HasColumnName("test_run_id");
         builder.Property(x => x.GeneratedTestCode).HasColumnName("generated_test_code");
         builder.Property(x => x.GeneratedTestMethodName).HasColumnName("generated_test_method_name");
         builder.Property(x => x.CompilationSucceeded).HasColumnName("compilation_succeeded").IsRequired();

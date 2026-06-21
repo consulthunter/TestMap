@@ -78,6 +78,10 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("experiment_run_id");
 
+                    b.Property<double>("GenerationDurationSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("generation_duration_seconds");
+
                     b.Property<string>("ImageKey")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -97,6 +101,11 @@ namespace TestMap.Migrations
                     b.Property<bool>("JsonlLogAvailable")
                         .HasColumnType("INTEGER")
                         .HasColumnName("jsonl_log_available");
+
+                    b.Property<string>("JsonlLogPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("jsonl_log_path");
 
                     b.Property<int?>("MatrixWorkItemId")
                         .HasColumnType("INTEGER")
@@ -151,6 +160,16 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("started_at");
 
+                    b.Property<string>("StdErrLogPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("stderr_log_path");
+
+                    b.Property<string>("StdOutLogPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("stdout_log_path");
+
                     b.Property<int?>("TargetedBaselineId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("targeted_baseline_id");
@@ -175,6 +194,10 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("tool_version");
 
+                    b.Property<double>("TotalAttemptDurationSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("total_attempt_duration_seconds");
+
                     b.Property<bool>("UsageAvailable")
                         .HasColumnType("INTEGER")
                         .HasColumnName("usage_available");
@@ -184,6 +207,10 @@ namespace TestMap.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("TEXT")
                         .HasColumnName("usage_source");
+
+                    b.Property<double>("ValidationDurationSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("validation_duration_seconds");
 
                     b.Property<string>("ValidationOutcome")
                         .IsRequired()
@@ -1482,6 +1509,10 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("test_passed");
 
+                    b.Property<int?>("TestRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("test_run_id");
+
                     b.Property<string>("ValidationResultJson")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -1512,6 +1543,14 @@ namespace TestMap.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT")
                         .HasColumnName("ablation_variant_id");
+
+                    b.Property<int?>("AppliedHelperCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("applied_helper_count");
+
+                    b.Property<int?>("AppliedUsingCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("applied_using_count");
 
                     b.Property<int>("AttemptNumber")
                         .HasColumnType("INTEGER")
@@ -1581,6 +1620,10 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("generation_approach");
 
+                    b.Property<double>("GenerationDurationSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("generation_duration_seconds");
+
                     b.Property<bool>("IsRepairAttempt")
                         .HasColumnType("INTEGER")
                         .HasColumnName("is_repair_attempt");
@@ -1597,6 +1640,19 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("model_name");
 
+                    b.Property<string>("ModifiedFileContents")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("modified_file_contents");
+
+                    b.Property<string>("ModifiedFilePath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("modified_file_path");
+
+                    b.Property<string>("ModifiedFileSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("modified_file_sha256");
+
                     b.Property<string>("Objective")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1607,11 +1663,24 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("parent_attempt_id");
 
+                    b.Property<string>("PatchApplicationOutcome")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("patch_application_outcome");
+
+                    b.Property<string>("PatchJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("patch_json");
+
                     b.Property<string>("ProviderName")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("TEXT")
                         .HasColumnName("provider_name");
+
+                    b.Property<string>("RepairPatchJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("repair_patch_json");
 
                     b.Property<string>("RuleDecisionSnapshotJson")
                         .IsRequired()
@@ -1643,9 +1712,17 @@ namespace TestMap.Migrations
                         .HasColumnType("REAL")
                         .HasColumnName("temperature");
 
+                    b.Property<double>("TotalAttemptDurationSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("total_attempt_duration_seconds");
+
                     b.Property<int>("TotalTokensUsed")
                         .HasColumnType("INTEGER")
                         .HasColumnName("total_tokens_used");
+
+                    b.Property<double>("ValidationDurationSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("validation_duration_seconds");
 
                     b.HasKey("Id");
 
@@ -2033,6 +2110,11 @@ namespace TestMap.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("mutator_name");
+
+                    b.Property<string>("OriginalCode")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("original_code");
 
                     b.Property<string>("Replacement")
                         .IsRequired()

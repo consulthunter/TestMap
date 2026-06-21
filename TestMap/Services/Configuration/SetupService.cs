@@ -435,7 +435,8 @@ public class SetupService
                        "### Custom ###\n" +
                        "CUSTOM_API_KEY=\n" +
                        "### GITHUB ###\n" +
-                       "GITHUB_TOKEN=\n";
+                       "GITHUB_TOKEN=\n" +
+                       "GITHUB_COPILOT_TOKEN=\n";
 
         if (!File.Exists(envPath))
         {

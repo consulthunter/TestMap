@@ -90,6 +90,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITestGenerationApproach, MetricsDrivenGenerationApproach>();
         services.AddScoped<ITestGenerationApproach, ActionAwareGenerationApproach>();
         services.AddScoped<ITestCodeEditService, TestCodeEditService>();
+        services.AddScoped<IBasicExtensionPatchApplicationService, BasicExtensionPatchApplicationService>();
         services.AddScoped<ITestActionExecutor, BasicExtensionTestActionExecutor>();
         services.AddScoped<ITestActionExecutor, ActionAwareTestActionExecutor>();
         services.AddScoped<IGeneratedTestApplicationService, GeneratedTestApplicationService>();

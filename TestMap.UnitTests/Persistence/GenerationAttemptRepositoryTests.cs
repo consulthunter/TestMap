@@ -135,6 +135,9 @@ public sealed class GenerationAttemptRepositoryTests
 
         attempt.Status = "Completed";
         attempt.TotalTokensUsed = 1234;
+        attempt.ModifiedFilePath = "/repo/tests/WidgetTests.cs";
+        attempt.ModifiedFileContents = "public class WidgetTests { }";
+        attempt.ModifiedFileSha256 = new string('b', 64);
         attempt.CompletedAt = DateTime.UtcNow;
         await repo.UpdateAsync(attempt);
 
@@ -142,6 +145,9 @@ public sealed class GenerationAttemptRepositoryTests
         Assert.NotNull(updated);
         Assert.Equal("Completed", updated!.Status);
         Assert.Equal(1234, updated.TotalTokensUsed);
+        Assert.Equal("/repo/tests/WidgetTests.cs", updated.ModifiedFilePath);
+        Assert.Equal("public class WidgetTests { }", updated.ModifiedFileContents);
+        Assert.Equal(new string('b', 64), updated.ModifiedFileSha256);
     }
 
     // ─── Infrastructure ───────────────────────────────────────────────────────

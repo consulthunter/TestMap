@@ -47,6 +47,41 @@ public sealed class DockerToolRunnerEnvironmentTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_ClaudeAnthropic_MapsModelAndApiKey()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "claude" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "anthropic",
+                ["TESTMAP_LLM_MODEL"] = "claude-sonnet-4-6",
+                ["TESTMAP_LLM_API_KEY"] = "sk-ant"
+            }
+        });
+
+        Assert.Equal("claude-sonnet-4-6", env["CLAUDE_MODEL"]);
+        Assert.Equal("sk-ant", env["ANTHROPIC_API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_Copilot_PreservesCopilotToken()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "copilot" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["GITHUB_COPILOT_TOKEN"] = "copilot-token"
+            }
+        });
+
+        Assert.Equal("copilot-token", env["GITHUB_COPILOT_TOKEN"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void BuildContainerEnvironment_MiniSweAgentGoogle_MapsModelAndGeminiAliases()
     {
         var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest

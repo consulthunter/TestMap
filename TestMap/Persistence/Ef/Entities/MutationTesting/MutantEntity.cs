@@ -10,6 +10,7 @@ public class MutantEntity
     public string StrykerMutantId { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
     public string MutatorName { get; set; } = string.Empty;
+    public string OriginalCode { get; set; } = string.Empty;
     public string Replacement { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string StatusReason { get; set; } = string.Empty;

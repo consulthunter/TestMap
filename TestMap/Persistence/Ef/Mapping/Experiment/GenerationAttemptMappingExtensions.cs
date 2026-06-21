@@ -43,7 +43,13 @@ public static class GenerationAttemptMappingExtensions
             StartedAt = entity.StartTime,
             CompletedAt = entity.EndTime,
             TotalTokensUsed = entity.TotalTokensUsed,
-            TotalDurationSeconds = entity.EndTime.HasValue ? (entity.EndTime.Value - entity.StartTime).TotalSeconds : 0,
+            GenerationDurationSeconds = entity.GenerationDurationSeconds,
+            ValidationDurationSeconds = entity.ValidationDurationSeconds,
+            TotalDurationSeconds = entity.TotalAttemptDurationSeconds > 0
+                ? entity.TotalAttemptDurationSeconds
+                : entity.EndTime.HasValue
+                    ? (entity.EndTime.Value - entity.StartTime).TotalSeconds
+                    : 0,
             Status = entity.Status,
             FailureKind = Enum.TryParse<TestFailureKind>(entity.FailureKind, true, out var failureKind)
                 ? failureKind
@@ -52,7 +58,15 @@ public static class GenerationAttemptMappingExtensions
             FailureCategory = EmptyToNull(entity.FailureCategory),
             ErrorMessage = EmptyToNull(entity.ErrorMessage) ?? ResolveErrorMessage(entity),
             GenerationSteps = entity.GenerationSteps?.Select(x => x.ToDomain()).ToList() ?? new List<GenerationStep>(),
-            TestExecution = entity.TestExecution?.ToDomain()
+            TestExecution = entity.TestExecution?.ToDomain(),
+            PatchJson = entity.PatchJson,
+            RepairPatchJson = entity.RepairPatchJson,
+            PatchApplicationOutcome = entity.PatchApplicationOutcome,
+            AppliedUsingCount = entity.AppliedUsingCount,
+            AppliedHelperCount = entity.AppliedHelperCount,
+            ModifiedFilePath = entity.ModifiedFilePath,
+            ModifiedFileContents = entity.ModifiedFileContents,
+            ModifiedFileSha256 = entity.ModifiedFileSha256
         };
     }
 
@@ -84,12 +98,23 @@ public static class GenerationAttemptMappingExtensions
             StartTime = attempt.StartedAt == default ? DateTime.UtcNow : attempt.StartedAt,
             EndTime = attempt.CompletedAt,
             TotalTokensUsed = attempt.TotalTokensUsed,
+            GenerationDurationSeconds = attempt.GenerationDurationSeconds,
+            ValidationDurationSeconds = attempt.ValidationDurationSeconds,
+            TotalAttemptDurationSeconds = attempt.TotalDurationSeconds,
             Status = ResolveStatus(attempt),
             FailureKind = ResolveFailureKind(attempt).ToString(),
             FailureStage = ResolveFailureStage(attempt) ?? string.Empty,
             FailureCategory = ResolveFailureCategory(attempt) ?? string.Empty,
             ErrorMessage = ResolvePersistedErrorMessage(attempt) ?? string.Empty,
-            RuleDecisionSnapshotJson = attempt.RuleDecisionSnapshotJson
+            RuleDecisionSnapshotJson = attempt.RuleDecisionSnapshotJson,
+            PatchJson = attempt.PatchJson,
+            RepairPatchJson = attempt.RepairPatchJson,
+            PatchApplicationOutcome = attempt.PatchApplicationOutcome,
+            AppliedUsingCount = attempt.AppliedUsingCount,
+            AppliedHelperCount = attempt.AppliedHelperCount,
+            ModifiedFilePath = attempt.ModifiedFilePath,
+            ModifiedFileContents = attempt.ModifiedFileContents,
+            ModifiedFileSha256 = attempt.ModifiedFileSha256
         };
     }
 

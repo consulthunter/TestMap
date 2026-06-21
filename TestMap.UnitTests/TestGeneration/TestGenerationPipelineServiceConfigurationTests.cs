@@ -45,6 +45,53 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public async Task GenerateTestAsync_BasicExtensionOneShot_DisablesSpeculativePlanningSteps()
+    {
+        const string patchJson = """
+            ```json
+            {
+              "usingsToAdd": [],
+              "helperMethodsToAdd": [],
+              "testMethod": "[Fact]\npublic void Add_ReturnsSum()\n{\n    Assert.Equal(3, Add(1, 2));\n}",
+              "testMethodName": "Add_ReturnsSum",
+              "integrationRationale": "Adds one focused append-only test."
+            }
+            ```
+            """;
+
+        var provider = new RecordingProvider([patchJson]);
+        var service = CreateService(provider);
+        var request = CreateRequest(
+            useStructuredPatchOutput: true,
+            steps: new GenerationStepConfig
+            {
+                EnableSpeculativePlanning = false,
+                EnableScenario = true,
+                EnableMethodName = true,
+                EnableArrangePlan = true,
+                EnableInputPlan = true,
+                EnableActionPlan = true,
+                EnableAssertionPlan = true
+            });
+
+        var result = await service.GenerateTestAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Single(provider.Prompts);
+        Assert.Equal("Add_ReturnsSum", result.TestMethodName);
+        Assert.DoesNotContain(result.Steps, x => x.StepType == GenerationStepType.Scenario);
+        Assert.DoesNotContain(result.Steps, x => x.StepType == GenerationStepType.ArrangePlan);
+        Assert.DoesNotContain(result.Steps, x => x.StepType == GenerationStepType.InputPlan);
+        Assert.DoesNotContain(result.Steps, x => x.StepType == GenerationStepType.AssertionPlan);
+        Assert.Contains(result.Steps, x => x.StepType == GenerationStepType.FinalTest &&
+                                           x.Status == GenerationStepStatus.Executed);
+        Assert.Contains("Add exactly one new xUnit test method", provider.Prompts[0]);
+        Assert.Contains("usingsToAdd", provider.Prompts[0]);
+        Assert.Contains("Prefer one valid", provider.Prompts[0]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public async Task GenerateTestAsync_NoHistory_DoesNotIncludeConversationTranscriptInLaterPrompts()
     {
         var provider = new RecordingProvider([
@@ -178,6 +225,7 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
         GenerationContextMode contextMode = GenerationContextMode.ChainedHistory,
         MetricsDrivenPath? metricsPath = null,
         string mutationSummary = "",
+        bool useStructuredPatchOutput = false,
         GenerationStepConfig? steps = null)
     {
         return new TestGenerationRequest
@@ -197,6 +245,7 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
             MetricsPath = metricsPath,
             CoverageGapSummary = string.Empty,
             MutationSummary = mutationSummary,
+            UseStructuredPatchOutput = useStructuredPatchOutput,
             Provider = AiProvider.OpenAi,
             ContextMode = contextMode,
             Steps = steps ?? new GenerationStepConfig()

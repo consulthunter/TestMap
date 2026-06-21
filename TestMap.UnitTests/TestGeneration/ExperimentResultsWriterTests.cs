@@ -74,13 +74,17 @@ public sealed class ExperimentResultsWriterTests
                         RunDate = new DateTime(2026, 4, 30, 0, 0, 0, DateTimeKind.Utc),
                         GeneratedTestCompiled = true,
                         GeneratedTestExecuted = true,
-                        GeneratedTestPassed = true
+                        GeneratedTestPassed = true,
+                        GenerationDurationSeconds = 1.25,
+                        ValidationDurationSeconds = 2.5,
+                        TotalAttemptDurationSeconds = 3.75,
+                        GeneratedTestExecutionTimeMs = 12.5
                     }
                 ]);
 
             var text = await File.ReadAllTextAsync(path);
 
-            Assert.Contains("experiment_run_id,producer_lane,tool_id,tool_run_status,tool_validation_outcome,tool_artifact_path,tool_changed_files_count,tool_attempt_targeted_baseline_id,tool_post_attempt_test_run_id,repo_url", text);
+            Assert.Contains("experiment_run_id,producer_lane,tool_id,tool_run_status,tool_validation_outcome,tool_artifact_path,tool_changed_files_count,tool_attempt_id,tool_attempt_targeted_baseline_id,tool_post_attempt_test_run_id,repo_url", text);
             Assert.DoesNotContain("metrics_path", text);
             Assert.Contains("source_method_mi,source_method_cc,source_method_coupling,source_method_dit,source_method_sloc,source_method_eloc", text);
             Assert.Contains("baseline_test_mi,baseline_test_cc,baseline_test_coupling,baseline_test_dit,baseline_test_sloc,baseline_test_eloc", text);
@@ -88,6 +92,10 @@ public sealed class ExperimentResultsWriterTests
             Assert.Contains("roslyn_diagnostics_before_raw_count,roslyn_diagnostics_after_raw_count,new_actionable_roslyn_diagnostics_count", text);
             Assert.Contains("source_member_visibility,access_strategy,access_path_member_ids,test_mapping_count,setup_binding_count", text);
             Assert.Contains("candidate_test_intentions_summary,candidate_type_construction_summary,candidate_metadata_json", text);
+            Assert.Contains(
+                "generation_duration_seconds,validation_duration_seconds,total_attempt_duration_seconds,baseline_test_execution_time_ms,generated_test_execution_time_ms",
+                text);
+            Assert.Contains(",1.25,2.5,3.75,,12.5,", text);
             Assert.Contains("tool_observed_outcome", text);
             Assert.Contains("testmap", text);
             Assert.DoesNotContain(",classification,", text);
