@@ -74,6 +74,7 @@
         "EnableContextGraph": true,
         "EnableContextResolution": true,
         "EnableRoslynValidation": true,
+        "EnableSpeculativePlanning": false,
         "EnableScenario": true,
         "EnableMethodName": true,
         "EnableArrangePlan": true,

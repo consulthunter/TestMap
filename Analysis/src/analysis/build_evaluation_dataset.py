@@ -19,6 +19,7 @@ import pandas as pd
 from analysis.files import ensure_output_dir, read_results_csvs
 from analysis.normalize import (
     build_candidate_summary,
+    build_generated_tests_dataset,
     build_repository_summary,
     normalize_attempts,
 )
@@ -47,34 +48,54 @@ def build_attempts_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     return normalize_attempts(raw_df)
 
 
-def build_generated_tests_dataset(
-    attempts_df: pd.DataFrame,
-    db_paths: list[str] | tuple[str, ...],
+def build_generated_tests_dataset_from_raw(
+    raw_df: pd.DataFrame,
+    db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """Build a generated-test-level dataset.
+    """Build a per-generated-test dataset.
 
-    For agentic attempts this requires joining tool_attempt_generated_tests
-    with the SQLite database. Returns an empty DataFrame when no databases
-    are provided.
+    The primary source is the raw CSV rows (both lanes are at per-test grain
+    before the agentic collapse step).  SQLite databases are an optional
+    secondary source for additional metadata; they are queried when provided.
+
+    Parameters
+    ----------
+    raw_df:
+        The raw DataFrame as loaded from result CSVs, *before*
+        ``normalize_attempts`` is called (so agentic rows have not been
+        collapsed yet).
+    db_paths:
+        Optional glob patterns for SQLite databases.
     """
+    return build_generated_tests_dataset(raw_df)
+
+
+def build_tool_generated_test_links(
+    db_paths: list[str] | tuple[str, ...] = (),
+) -> pd.DataFrame:
+    """Build optional raw DB link rows for tool attempts and generated tests."""
     if not db_paths:
         return pd.DataFrame()
 
-    frames: list[pd.DataFrame] = []
-    from analysis.db import connect, get_tool_attempt_generated_tests, get_members
+    from analysis.db import connect, get_members, get_tool_attempt_generated_tests
     from analysis.files import find_databases
 
+    frames: list[pd.DataFrame] = []
     for db_path in find_databases(list(db_paths)):
-        try:
-            with connect(db_path) as conn:
-                links = get_tool_attempt_generated_tests(conn)
-                members = get_members(conn)
-                merged = links.merge(members, left_on="member_id", right_on="id",
-                                     how="left", suffixes=("", "_member"))
-                merged["_source_db"] = str(db_path)
-                frames.append(merged)
-        except Exception as exc:
-            print(f"[warn] Could not read generated tests from {db_path}: {exc}")
+        with connect(db_path) as conn:
+            links = get_tool_attempt_generated_tests(conn)
+            if links.empty:
+                continue
+            members = get_members(conn)
+            merged = links.merge(
+                members,
+                left_on="member_id",
+                right_on="id",
+                how="left",
+                suffixes=("", "_member"),
+            )
+            merged["_source_db"] = str(db_path)
+            frames.append(merged)
 
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -86,6 +107,7 @@ def save_datasets(
     generated_tests: pd.DataFrame,
     overview: dict,
     output_dir: Path,
+    tool_generated_test_links: pd.DataFrame | None = None,
 ) -> None:
     """Write all datasets to *output_dir*."""
     attempts.to_csv(output_dir / "evaluation_attempts.csv", index=False)
@@ -93,6 +115,8 @@ def save_datasets(
     repositories.to_csv(output_dir / "evaluation_repositories.csv", index=False)
     if not generated_tests.empty:
         generated_tests.to_csv(output_dir / "generated_tests.csv", index=False)
+    if tool_generated_test_links is not None and not tool_generated_test_links.empty:
+        tool_generated_test_links.to_csv(output_dir / "tool_generated_test_links.csv", index=False)
 
     with open(output_dir / "evaluation_overview.json", "w", encoding="utf-8") as f:
         json.dump(overview, f, indent=2, default=str)
@@ -118,16 +142,28 @@ def run(
     raw = load_raw_attempts(results, db_paths)
     print(f"  {len(raw)} raw rows loaded.")
 
+    # Build generated-test dataset BEFORE agentic rows are collapsed
+    generated_tests = build_generated_tests_dataset_from_raw(raw, db_paths)
+    tool_generated_test_links = build_tool_generated_test_links(db_paths)
+
     attempts = build_attempts_dataset(raw)
     candidates = build_candidate_summary(attempts)
     repositories = build_repository_summary(candidates)
-    generated_tests = build_generated_tests_dataset(attempts, db_paths)
     overview = build_overview(attempts)
 
-    save_datasets(attempts, candidates, repositories, generated_tests, overview, out)
+    save_datasets(
+        attempts,
+        candidates,
+        repositories,
+        generated_tests,
+        overview,
+        out,
+        tool_generated_test_links=tool_generated_test_links,
+    )
 
     print(f"Datasets written to {out}")
     print(f"  attempts:     {len(attempts):,}")
     print(f"  candidates:   {len(candidates):,}")
     print(f"  repositories: {len(repositories):,}")
     print(f"  gen. tests:   {len(generated_tests):,}")
+    print(f"  tool links:   {len(tool_generated_test_links):,}")

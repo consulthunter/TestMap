@@ -92,6 +92,33 @@ def export_training(db, out, grain) -> None:
     run(db_path=db, output_dir=out, grain=grain)
 
 
+@main.command("repo-report")
+@click.option("--input", "input_path", required=True,
+              help="Path to evaluation_attempts.csv.")
+@click.option("--repo", "repo_name", default=None,
+              help="Repository name. Omit (or pass 'all') to run all repos.")
+@click.option("--out", required=True,
+              help="Output directory for Markdown reports and plot images.")
+@click.option("--notebook", default=None,
+              help="Path to NB01. Defaults to <input>/../notebooks/01_repository_evaluation.ipynb.")
+@click.option("--keep-notebook", is_flag=True, default=False,
+              help="Keep the executed .ipynb alongside the Markdown output.")
+def repo_report(input_path, repo_name, out, notebook, keep_notebook) -> None:
+    """Execute NB01 per repository via papermill and export to Markdown.
+
+    Produces one <repo>_report.md (+ <repo>_report_files/ with plots) per repo.
+    Pass --repo <name> for a single repository, or omit to run all repos.
+    """
+    from analysis.repo_report import run
+    run(
+        input_path=input_path,
+        repo_name=repo_name,
+        output_dir=out,
+        notebook=notebook,
+        keep_notebook=keep_notebook,
+    )
+
+
 @main.command("export-failures")
 @click.option("--results", multiple=True, required=True,
               help="Glob patterns for experiment result CSV files.")
@@ -117,7 +144,7 @@ def export_failures(results, db, artifacts, out, sample, n, markdown) -> None:
     """Export a qualitative failure dataset for later open coding.
 
     Outputs: failure_cases.csv, failure_cases.jsonl,
-    failure_cases/*.md (when --markdown is set).
+    cases/case_*/case.md (when --markdown is set).
     """
     from analysis.export_failure_cases import run
     run(

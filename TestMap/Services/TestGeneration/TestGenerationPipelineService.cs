@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Xml.Linq;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using SharpToken;
 using TestMap.App;
 using TestMap.Models.Configuration;
@@ -74,6 +77,19 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             }
 
             var contextSummary = BuildContextSummary(artifacts);
+
+            if (ShouldUseBasicExtensionOneShot(request))
+            {
+                return await GenerateBasicExtensionOneShotAsync(
+                    request,
+                    promptEvidence,
+                    contextSummary,
+                    steps,
+                    conversation,
+                    provider,
+                    overallStopwatch,
+                    cancellationToken);
+            }
 
             // Step 1: Generate Scenario
             var scenario = request.Steps.EnableScenario
@@ -272,6 +288,7 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
 
             var finalTest = ExtractCodeBlock(finalTestStep.Response);
             var extractedMethodName = Utilities.Utilities.ExtractTestMethodName(finalTest) ??
+                                      TryExtractPatchTestMethodName(finalTest) ??
                                       ExtractMethodName(artifacts.MethodName ?? string.Empty);
 
             return new TestGenerationResult
@@ -291,6 +308,65 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             overallStopwatch.Stop();
             return CreateFailureResult(steps, overallStopwatch, ex.Message);
         }
+    }
+
+    private async Task<TestGenerationResult> GenerateBasicExtensionOneShotAsync(
+        TestGenerationRequest request,
+        GenerationPromptEvidence promptEvidence,
+        string contextSummary,
+        List<GenerationStepMetadata> steps,
+        GenerationConversationState conversation,
+        IAiGenerationProvider provider,
+        Stopwatch overallStopwatch,
+        CancellationToken cancellationToken)
+    {
+        if (!request.Steps.EnableFinalTest)
+        {
+            steps.Add(CreateSkippedStep(
+                GenerationStepType.FinalTest,
+                "Final-test step disabled; no generated patch can be produced."));
+            return CreateFailureResult(steps, overallStopwatch, "Final-test step is disabled.");
+        }
+
+        var finalTestPrompt = CreateBasicExtensionOneShotPatchPrompt(promptEvidence, contextSummary);
+        var finalTestStep = await ExecuteStepAsync(
+            GenerationStepType.FinalTest,
+            PreparePrompt(
+                conversation,
+                request.ContextMode,
+                GenerationStepType.FinalTest,
+                finalTestPrompt),
+            provider,
+            request.Temperature,
+            request.StepErrorRetries,
+            request.StepRetryDelayMs,
+            cancellationToken);
+        steps.Add(finalTestStep);
+        if (!finalTestStep.Success) return CreateFailureResult(steps, overallStopwatch, finalTestStep.ErrorMessage);
+        conversation.Append(GenerationStepType.FinalTest, finalTestPrompt, finalTestStep.Response);
+
+        overallStopwatch.Stop();
+
+        var finalTest = ExtractCodeBlock(finalTestStep.Response);
+        var extractedMethodName = Utilities.Utilities.ExtractTestMethodName(finalTest)
+                                  ?? TryExtractPatchTestMethodName(finalTest)
+                                  ?? BuildFallbackMethodName(promptEvidence);
+
+        return new TestGenerationResult
+        {
+            Success = true,
+            GeneratedTest = finalTest,
+            TestMethodName = extractedMethodName,
+            Steps = steps,
+            TotalDurationSeconds = overallStopwatch.Elapsed.TotalSeconds,
+            TotalTokens = steps.Sum(s => s.TokenCount),
+            ConversationTranscript = conversation.Export()
+        };
+    }
+
+    private static bool ShouldUseBasicExtensionOneShot(TestGenerationRequest request)
+    {
+        return request.UseStructuredPatchOutput && !request.Steps.EnableSpeculativePlanning;
     }
 
     public async Task<TestGenerationResult> RepairTestAsync(
@@ -329,7 +405,10 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             if (!result.Success) return CreateFailureResult(steps, overallStopwatch, result.ErrorMessage);
 
             var repairedTest = ExtractCodeBlock(result.Response);
-            var testMethodName = Utilities.Utilities.ExtractTestMethodName(repairedTest);
+            // For Basic Extension patch repair the response is JSON, not raw C#.
+            // Try Roslyn method-name extraction first; fall back to deserializing the patch.
+            var testMethodName = Utilities.Utilities.ExtractTestMethodName(repairedTest)
+                ?? TryExtractPatchTestMethodName(repairedTest);
 
             return new TestGenerationResult
             {
@@ -921,6 +1000,12 @@ Respond with only JSON.";
         StructuredStepResult<AssertionPlan> assertionPlan,
         string contextSummary)
     {
+        if (request.UseStructuredPatchOutput)
+            return CreateBasicExtensionPatchPrompt(
+                request, scenario, methodName,
+                arrangePlan, inputPlan, actionPlan, assertionPlan,
+                contextSummary);
+
         var mutationEvidence = BuildMutationEvidencePromptBlock(request);
 
         return $@"Write the complete final {request.TestFramework} test method for this target method:
@@ -997,6 +1082,12 @@ Respond with only the complete test method code wrapped in ```csharp.";
 
     private string CreateRepairPrompt(TestRepairRequest request)
     {
+        // When UseStructuredPatchOutput is set this is a Basic Extension repair regardless of
+        // failure type (application failure, build failure, or runtime/assertion failure).
+        // ModifiedTestFileContents enriches the prompt when available but does not gate it.
+        if (request.UseStructuredPatchOutput)
+            return CreateBasicExtensionRepairPrompt(request);
+
         var mutationEvidence = BuildMutationEvidencePromptBlock(request.MetricsPath, request.MutationSummary);
 
         if (DetermineRepairStepType(request) == GenerationStepType.CompileRepair)
@@ -1091,6 +1182,430 @@ Focus only on behavior repair. Fix:
 - poor coverage targeting
 
 Respond with only the complete test method code wrapped in ```.";
+    }
+
+    /// <summary>
+    /// Builds the final-test prompt for Basic Extension mode.
+    /// Instructs the model to return a <c>BasicExtensionPatch</c> JSON object
+    /// containing only the additions needed for the new test (usings, helpers, test method).
+    /// </summary>
+    private string CreateBasicExtensionPatchPrompt(
+        GenerationPromptEvidence request,
+        string scenario,
+        string methodName,
+        StructuredStepResult<ArrangePlan> arrangePlan,
+        StructuredStepResult<InputPlan> inputPlan,
+        StructuredStepResult<ActionPlan> actionPlan,
+        StructuredStepResult<AssertionPlan> assertionPlan,
+        string contextSummary)
+    {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request);
+
+        var existingUsings = ExtractExistingUsings(request.TestFileContents);
+        var existingMethodNames = ExtractExistingMethodNames(request.TestFileContents, request.TestClass);
+        var availablePackages = ExtractPackageReferences(request.TestProjectPath);
+
+        var existingUsingsList = existingUsings.Count > 0
+            ? string.Join("\n", existingUsings.Select(u => $"  {u}"))
+            : "  (none)";
+
+        var existingMethodsList = existingMethodNames.Count > 0
+            ? string.Join("\n", existingMethodNames.Select(n => $"  {n}"))
+            : "  (none)";
+
+        var packagesList = availablePackages.Count > 0
+            ? string.Join("\n", availablePackages.Select(p => $"  {p}"))
+            : "  (none listed — use only well-known BCL namespaces and the source project's namespaces)";
+
+        return $@"Write a new {request.TestFramework} test method to extend this existing test file.
+
+Target method:
+{request.MethodBody}
+
+Scenario:
+{scenario}
+
+Test method name:
+{methodName}
+
+Arrange plan:
+{arrangePlan.Metadata.StructuredResponseJson ?? arrangePlan.Metadata.Response}
+
+Input plan:
+{inputPlan.Metadata.StructuredResponseJson ?? inputPlan.Metadata.Response}
+
+Action plan:
+{actionPlan.Metadata.StructuredResponseJson ?? actionPlan.Metadata.Response}
+
+Assertion plan:
+{assertionPlan.Metadata.StructuredResponseJson ?? assertionPlan.Metadata.Response}
+
+Context graph and resolution hints:
+{contextSummary}
+
+Candidate method test intentions:
+{request.CandidateTestIntentionsSummary}
+
+Type construction guidance:
+{request.CandidateTypeConstructionSummary}
+
+Selected access path:
+{request.AccessPathSummary}
+
+Example test for style and framework conventions:
+{request.ExampleTest}
+
+Example test metadata:
+{request.ExampleTestMetadataSummary}
+
+Project-wide test metadata patterns:
+{request.ProjectTestMetadataSummary}
+
+The test class (for structure reference):
+{request.TestClass}
+
+Full existing test file:
+{request.TestFileContents}
+
+Reusable helper/setup members already available:
+{request.TestSupportContext}
+
+Coverage gaps to target:
+{request.CoverageGapSummary}
+
+{mutationEvidence}
+
+--- INTEGRATION CONSTRAINTS ---
+
+Usings already in the file (do NOT add these to usingsToAdd):
+{existingUsingsList}
+
+Existing method names in the test class (do NOT add these to helperMethodsToAdd):
+{existingMethodsList}
+
+NuGet packages available in the test project (usingsToAdd must only reference namespaces
+from these packages or from the source project — do not request packages not listed here):
+{packagesList}
+
+--- OUTPUT FORMAT ---
+
+Return a JSON object matching this schema exactly, wrapped in ```json fences:
+
+{{
+  ""usingsToAdd"": [""Fully.Qualified.Namespace""],
+  ""helperMethodsToAdd"": [""private static ReturnType HelperName(...) {{ ... }}""],
+  ""testMethod"": ""[{request.TestFramework}Attribute]\npublic void {methodName}() {{ ... }}"",
+  ""testMethodName"": ""{methodName}"",
+  ""integrationRationale"": ""One sentence explaining what additions are needed and why.""
+}}
+
+Rules:
+- usingsToAdd: list of fully-qualified namespace strings only. No ""using"" keyword, no semicolons.
+  Only include namespaces NOT already in the file. Only use namespaces from the packages listed above.
+- helperMethodsToAdd: complete C# method declarations. Only add helpers that are essential and not already present.
+- testMethod: complete, valid C# method declaration including attributes and XML doc comment.
+  Include // Arrange, // Act, // Assert comments. Follow {request.TestFramework} conventions.
+- testMethodName: must match the method name declared in testMethod.
+- All usingsToAdd and helperMethodsToAdd entries must be valid C# that can be inserted verbatim.
+- Do not reproduce the full test file. Do not modify existing tests.
+- Do not include any explanation outside the JSON block.
+
+Respond with only the JSON object wrapped in ```json.";
+    }
+
+    private string CreateBasicExtensionOneShotPatchPrompt(
+        GenerationPromptEvidence request,
+        string contextSummary)
+    {
+        var mutationEvidence = BuildMutationEvidencePromptBlock(request);
+
+        var existingUsings = ExtractExistingUsings(request.TestFileContents);
+        var existingMethodNames = ExtractExistingMethodNames(request.TestFileContents, request.TestClass);
+        var availablePackages = ExtractPackageReferences(request.TestProjectPath);
+
+        var existingUsingsList = existingUsings.Count > 0
+            ? string.Join("\n", existingUsings.Select(u => $"  {u}"))
+            : "  (none)";
+
+        var existingMethodsList = existingMethodNames.Count > 0
+            ? string.Join("\n", existingMethodNames.Select(n => $"  {n}"))
+            : "  (none)";
+
+        var packagesList = availablePackages.Count > 0
+            ? string.Join("\n", availablePackages.Select(p => $"  {p}"))
+            : "  (none listed - use only well-known BCL namespaces and the source project's namespaces)";
+
+        return $@"Add exactly one new {request.TestFramework} test method to this existing test file.
+
+Use the evidence below to choose the best single behavior to test. Prefer one valid,
+terminating, high-confidence test over a broad brittle test. Do not try to cover every
+uncovered line if that requires guessing hidden input or setup details.
+
+Target method:
+{request.MethodBody}
+
+Context graph and resolution hints:
+{contextSummary}
+
+Candidate method test intentions:
+{request.CandidateTestIntentionsSummary}
+
+Type construction guidance:
+{request.CandidateTypeConstructionSummary}
+
+Selected access path:
+{request.AccessPathSummary}
+
+Example test for style and framework conventions:
+{request.ExampleTest}
+
+Example test metadata:
+{request.ExampleTestMetadataSummary}
+
+Project-wide test metadata patterns:
+{request.ProjectTestMetadataSummary}
+
+The test class (for structure reference):
+{request.TestClass}
+
+Full existing test file:
+{request.TestFileContents}
+
+Reusable helper/setup members already available:
+{request.TestSupportContext}
+
+Coverage gaps to target:
+{request.CoverageGapSummary}
+
+{mutationEvidence}
+
+--- INTEGRATION CONSTRAINTS ---
+
+Usings already in the file (do NOT add these to usingsToAdd):
+{existingUsingsList}
+
+Existing method names in the test class (do NOT add these to helperMethodsToAdd or reuse as the test method name):
+{existingMethodsList}
+
+NuGet packages available in the test project (usingsToAdd must only reference namespaces
+from these packages or from the source project; do not request packages not listed here):
+{packagesList}
+
+--- OUTPUT FORMAT ---
+
+Return a JSON object matching this schema exactly, wrapped in ```json fences:
+
+{{
+  ""usingsToAdd"": [""Fully.Qualified.Namespace""],
+  ""helperMethodsToAdd"": [""private static ReturnType HelperName(...) {{ ... }}""],
+  ""testMethod"": ""[{request.TestFramework}Attribute]\npublic void TestMethodName() {{ ... }}"",
+  ""testMethodName"": ""TestMethodName"",
+  ""integrationRationale"": ""One sentence explaining what additions are needed and why.""
+}}
+
+Rules:
+- Generate exactly one test method.
+- Choose the test method name yourself. It must not match any existing method name.
+- usingsToAdd: list of fully-qualified namespace strings only. No ""using"" keyword, no semicolons.
+  Only include namespaces NOT already in the file. Only use namespaces from the packages listed above.
+- helperMethodsToAdd: complete C# method declarations. Only add helpers that are essential and not already present.
+- testMethod: complete, valid C# method declaration including attributes and XML doc comment.
+  Include // Arrange, // Act, // Assert comments. Follow {request.TestFramework} conventions.
+- Do not reproduce the full test file. Do not modify existing tests.
+- Do not include any explanation outside the JSON block.
+
+Respond with only the JSON object wrapped in ```json.";
+    }
+
+    /// <summary>
+    /// Extracts the fully-qualified using directive strings from the parsed test file contents.
+    /// Returns strings like <c>"using System.IO;"</c>.
+    /// </summary>
+    private static IReadOnlyList<string> ExtractExistingUsings(string fileContents)
+    {
+        if (string.IsNullOrWhiteSpace(fileContents)) return [];
+
+        try
+        {
+            var root = CSharpSyntaxTree.ParseText(fileContents).GetCompilationUnitRoot();
+            return root.Usings
+                .Select(u => u.ToString().Trim())
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Extracts the method names from the target test class inside the test file.
+    /// Falls back to all classes when <paramref name="testClassName"/> is empty or unmatched.
+    /// </summary>
+    private static IReadOnlyList<string> ExtractExistingMethodNames(
+        string fileContents,
+        string testClassName)
+    {
+        if (string.IsNullOrWhiteSpace(fileContents)) return [];
+
+        try
+        {
+            var root = CSharpSyntaxTree.ParseText(fileContents).GetCompilationUnitRoot();
+
+            var targetClass = string.IsNullOrWhiteSpace(testClassName)
+                ? null
+                : root.DescendantNodes()
+                    .OfType<ClassDeclarationSyntax>()
+                    .FirstOrDefault(c => c.Identifier.Text == testClassName);
+
+            var members = targetClass != null
+                ? targetClass.Members.OfType<MethodDeclarationSyntax>()
+                : root.DescendantNodes().OfType<MethodDeclarationSyntax>();
+
+            return members
+                .Select(m => m.Identifier.Text)
+                .Distinct()
+                .OrderBy(n => n)
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Reads <c>&lt;PackageReference Include="..." /&gt;</c> entries from a <c>.csproj</c> file.
+    /// Returns an empty list if the file does not exist or cannot be parsed.
+    /// </summary>
+    private static IReadOnlyList<string> ExtractPackageReferences(string csprojPath)
+    {
+        if (string.IsNullOrWhiteSpace(csprojPath) || !File.Exists(csprojPath))
+            return [];
+
+        try
+        {
+            return XDocument.Load(csprojPath)
+                .Descendants("PackageReference")
+                .Select(e => e.Attribute("Include")?.Value ?? string.Empty)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Builds the repair prompt for Basic Extension mode.
+    /// Used for all failure types in the BasicExtension patch path:
+    /// <list type="bullet">
+    ///   <item>Application failure — patch could not be applied (e.g. duplicate method, malformed JSON):
+    ///   shows original file + error; <see cref="TestRepairRequest.ModifiedTestFileContents"/> is null.</item>
+    ///   <item>Build failure — patch applied but compilation failed:
+    ///   shows original file + integrated post-patch state + structured diagnostics.</item>
+    ///   <item>Runtime/assertion failure — compiled and ran but test did not pass:
+    ///   shows original file + runtime feedback; <see cref="TestRepairRequest.ModifiedTestFileContents"/> is null.</item>
+    /// </list>
+    /// In all cases the model is asked to return a corrected <c>BasicExtensionPatch</c> JSON applied
+    /// to the original (pre-patch) file. <see cref="TestRepairRequest.ModifiedTestFileContents"/>
+    /// enriches the prompt when present but does not determine the output format.
+    /// </summary>
+    private string CreateBasicExtensionRepairPrompt(TestRepairRequest request)
+    {
+        var hasIntegratedSnapshot = !string.IsNullOrWhiteSpace(request.ModifiedTestFileContents);
+        var hasStructuredErrors = !string.IsNullOrWhiteSpace(request.StructuredErrors);
+
+        // Repair objective adapts to the failure type:
+        // build failure → fix compilation; application/runtime failure → fix patch or test logic.
+        var repairObjective = hasIntegratedSnapshot
+            ? "Fix only the compilation and integration errors shown below. Preserve the intended test behavior."
+            : "Return a corrected patch that can be applied cleanly and produces a passing test.";
+
+        // Shown only for build failures — the file as it looked after the failed patch was applied.
+        var postPatchBlock = hasIntegratedSnapshot
+            ? $"\n\nPost-patch test file (the integrated state after the previous patch was applied — use this to understand the compilation errors):\n{request.ModifiedTestFileContents}"
+            : string.Empty;
+
+        // Shown only when structured compiler diagnostics are available (build failure path).
+        var diagnosticsBlock = hasStructuredErrors
+            ? $"\n\nStructured compiler/build diagnostics:\n{request.StructuredErrors}"
+            : string.Empty;
+
+        // Shown for repair attempts 3+ only: earlier failures the model wouldn't otherwise
+        // see (the immediately previous attempt is already covered by GeneratedTest + ErrorLogs).
+        var priorAttemptsBlock = !string.IsNullOrWhiteSpace(request.PriorAttemptsSummary)
+            ? $"\n\n{request.PriorAttemptsSummary}"
+            : string.Empty;
+
+        return $@"The previous Basic Extension patch did not produce a passing test. {repairObjective}
+The corrected patch will be applied to the original test file shown below.
+Do not modify production code, project files, or unrelated tests.
+
+Target method:
+{request.MethodBody}
+
+Original test file (before patch application — the corrected patch will be applied to this):
+{request.TestFileContents}{postPatchBlock}
+
+Previous patch (reference only — do not reproduce it verbatim):
+{request.GeneratedTest}
+
+Test class dependencies:
+{request.TestDependencies}
+
+Example test metadata:
+{request.ExampleTestMetadataSummary}
+
+Failure details:
+{request.ErrorLogs}{diagnosticsBlock}{priorAttemptsBlock}
+
+--- OUTPUT FORMAT ---
+
+Return a corrected JSON object matching this schema exactly, wrapped in ```json fences:
+
+{{
+  ""usingsToAdd"": [""Fully.Qualified.Namespace""],
+  ""helperMethodsToAdd"": [""private static ReturnType HelperName(...) {{ ... }}""],
+  ""testMethod"": ""[TestAttribute]\npublic void TestMethodName() {{ ... }}"",
+  ""testMethodName"": ""TestMethodName"",
+  ""integrationRationale"": ""One sentence explaining the corrections made.""
+}}
+
+Rules:
+- Fix only the issues visible in the failure details above.
+- Do not change the test's intended behavior or rename the test method unless the name itself caused the failure.
+- usingsToAdd: only include namespaces NOT already in the original file.
+- helperMethodsToAdd: only include new helpers not already in the original file.
+- testMethod: the corrected, complete test method including attributes and XML doc comment.
+- testMethodName: must match the method name declared in testMethod.
+- Respond with only the JSON object wrapped in ```json.";
+    }
+
+    /// <summary>
+    /// Tries to extract the test method name from a <c>BasicExtensionPatch</c> JSON response.
+    /// Used as a fallback when Roslyn extraction fails (e.g., because the response is JSON, not raw C#).
+    /// Returns null if the response is not a valid patch or has no <c>testMethodName</c>.
+    /// </summary>
+    private static string? TryExtractPatchTestMethodName(string generatedTest)
+    {
+        var json = ExtractJson(generatedTest);
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        try
+        {
+            var patch = JsonSerializer.Deserialize<BasicExtensionPatch>(
+                json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return string.IsNullOrWhiteSpace(patch?.TestMethodName) ? null : patch.TestMethodName;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     #endregion
@@ -1255,6 +1770,8 @@ Respond with only the complete test method code wrapped in ```.";
         public required string CandidateTestIntentionsSummary { get; init; }
         public required string CandidateTypeConstructionSummary { get; init; }
         public required string AccessPathSummary { get; init; }
+        public bool UseStructuredPatchOutput { get; init; }
+        public string TestProjectPath { get; init; } = string.Empty;
 
         public static GenerationPromptEvidence FromRequest(TestGenerationRequest request)
         {
@@ -1277,7 +1794,9 @@ Respond with only the complete test method code wrapped in ```.";
                 MutationSummary = request.MutationSummary,
                 CandidateTestIntentionsSummary = request.CandidateTestIntentionsSummary,
                 CandidateTypeConstructionSummary = request.CandidateTypeConstructionSummary,
-                AccessPathSummary = request.AccessPathSummary
+                AccessPathSummary = request.AccessPathSummary,
+                UseStructuredPatchOutput = request.UseStructuredPatchOutput,
+                TestProjectPath = request.TestProjectPath
             };
         }
     }

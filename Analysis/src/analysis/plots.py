@@ -34,16 +34,36 @@ def outcome_funnel(
     success_col: str = "validated_success",
     ax: Optional[Axes] = None,
 ) -> Axes:
-    """Horizontal bar funnel showing attempt counts at each pipeline stage."""
+    """Horizontal bar funnel showing attempt counts at each pipeline stage.
+
+    Stages (requires outcome_classification column):
+      total → produced_change → build_passed → tests_passed → validated (VEP)
+
+    build_passed: output compiled (outcome not BuildFailed/ValidationFailed/tool error).
+    tests_passed: generated tests ran and passed (VEP + VLI).
+    validated:    tests passed AND metrics improved above noise floor (VEP only).
+    """
+    _BUILD_PASSED_OC = frozenset({
+        "ValidatedEvidencePositive", "ValidatedLowImpact",
+        "FailedEvidencePositive", "TestsFailed",
+    })
+    _TESTS_PASSED_OC = frozenset({
+        "ValidatedEvidencePositive", "ValidatedLowImpact",
+    })
+
     ax = _ax(ax)
     lane_df = df[df.get("lane", pd.Series()) == lane] if "lane" in df.columns else df
+    oc = lane_df.get("outcome_classification", pd.Series(dtype=str))
+
     stages = ["total", "produced_change", "build_passed", "tests_passed", "validated"]
     counts: dict[str, int] = {
         "total": len(lane_df),
-        "produced_change": int(lane_df.get("produced_change", pd.Series(dtype=bool)).sum()),
-        "validated": int(lane_df.get(success_col, pd.Series(dtype=bool)).sum()),
+        "produced_change": int(lane_df.get("produced_change", pd.Series(dtype=bool)).fillna(False).sum()),
+        "build_passed": int(oc.isin(_BUILD_PASSED_OC).sum()),
+        "tests_passed": int(oc.isin(_TESTS_PASSED_OC).sum()),
+        "validated": int(oc.eq("ValidatedEvidencePositive").sum()),
     }
-    labels = [s for s in stages if s in counts]
+    labels = stages
     values = [counts[s] for s in labels]
     ax.barh(labels[::-1], values[::-1], color=sns.color_palette("Blues_d", len(labels)))
     ax.set_xlabel("Attempts")
@@ -61,7 +81,11 @@ def stacked_outcome_bar(
     ax = _ax(ax)
     if group_col not in df.columns or outcome_col not in df.columns:
         return ax
-    ct = df.groupby([group_col, outcome_col]).size().unstack(fill_value=0)
+    clean = df[[group_col, outcome_col]].dropna()
+    if clean.empty:
+        ax.set_title(f"No outcome data by {group_col}")
+        return ax
+    ct = clean.groupby([group_col, outcome_col]).size().unstack(fill_value=0)
     ct.plot(kind="bar", stacked=True, ax=ax)
     ax.set_ylabel("Attempts")
     ax.set_title(f"Outcomes by {group_col}")
@@ -201,6 +225,105 @@ def paired_win_loss_matrix(
 
 
 # ---------------------------------------------------------------------------
+# Outcome classification
+# ---------------------------------------------------------------------------
+
+OUTCOME_COLORS: dict[str, str] = {
+    "ValidatedEvidencePositive": "mediumseagreen",
+    "FailedEvidencePositive":    "steelblue",
+    "ValidationFailed":          "salmon",
+}
+
+
+def outcome_classification_bar(
+    df: pd.DataFrame,
+    group_col: Optional[str] = None,
+    outcome_col: str = "outcome_classification",
+    ax: Optional[Axes] = None,
+) -> Axes:
+    """Stacked bar of outcome_classification counts, optionally grouped by *group_col*."""
+    ax = _ax(ax)
+    if outcome_col not in df.columns:
+        return ax
+    if group_col and group_col in df.columns:
+        ct = df.groupby([group_col, outcome_col]).size().unstack(fill_value=0)
+        colors = [OUTCOME_COLORS.get(c, "grey") for c in ct.columns]
+        ct.plot(kind="bar", stacked=True, ax=ax, color=colors)
+        ax.tick_params(axis="x", rotation=30)
+    else:
+        counts = df[outcome_col].value_counts()
+        colors = [OUTCOME_COLORS.get(k, "grey") for k in counts.index]
+        ax.bar(counts.index, counts.values, color=colors)
+        ax.tick_params(axis="x", rotation=20)
+    ax.set_ylabel("Attempts")
+    ax.set_title(f"Outcome classification{' by ' + group_col if group_col else ''}")
+    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
+    return ax
+
+
+# ---------------------------------------------------------------------------
+# Test smell analysis
+# ---------------------------------------------------------------------------
+
+
+def smell_type_breakdown(
+    df: pd.DataFrame,
+    types_col: str,
+    top_n: int = 15,
+    ax: Optional[Axes] = None,
+) -> Axes:
+    """Horizontal bar chart of smell type frequencies from a JSON-array column."""
+    import json as _json
+    from collections import Counter
+    ax = _ax(ax)
+    if types_col not in df.columns:
+        return ax
+    counts: Counter = Counter()
+    for val in df[types_col].dropna():
+        try:
+            for t in _json.loads(val):
+                counts[t] += 1
+        except (ValueError, TypeError):
+            pass
+    if not counts:
+        ax.set_title(f"No smell data ({types_col})")
+        return ax
+    top = counts.most_common(top_n)
+    labels, values = zip(*top)
+    ax.barh(list(reversed(labels)), list(reversed(values)), color="steelblue", alpha=0.8)
+    ax.set_xlabel("Attempts with smell type")
+    ax.set_title(f"Smell types ({types_col.replace('_smell_types', '')})")
+    return ax
+
+
+# ---------------------------------------------------------------------------
+# Timing breakdown
+# ---------------------------------------------------------------------------
+
+
+def timing_stacked_bar(
+    df: pd.DataFrame,
+    group_col: str,
+    gen_col: str = "generation_duration_seconds",
+    val_col: str = "validation_duration_seconds",
+    ax: Optional[Axes] = None,
+) -> Axes:
+    """Stacked bar of median generation + validation duration by *group_col*."""
+    ax = _ax(ax)
+    present = [c for c in [gen_col, val_col] if c in df.columns]
+    if not present or group_col not in df.columns:
+        return ax
+    medians = df.groupby(group_col)[present].median()
+    medians.plot(kind="bar", stacked=True, ax=ax,
+                 color=["steelblue", "darkorange"][: len(present)])
+    ax.set_ylabel("Seconds (median)")
+    ax.set_title(f"Timing breakdown by {group_col}")
+    ax.tick_params(axis="x", rotation=30)
+    ax.legend(title="Phase", bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
+    return ax
+
+
+# ---------------------------------------------------------------------------
 # Failure taxonomy charts
 # ---------------------------------------------------------------------------
 
@@ -214,7 +337,11 @@ def failure_category_bar(
     ax = _ax(ax)
     if lane_col not in df.columns or category_col not in df.columns:
         return ax
-    ct = df.groupby([category_col, lane_col]).size().unstack(fill_value=0)
+    clean = df[[category_col, lane_col]].dropna()
+    if clean.empty:
+        ax.set_title("No failure category data")
+        return ax
+    ct = clean.groupby([category_col, lane_col]).size().unstack(fill_value=0)
     ct.plot(kind="bar", ax=ax)
     ax.set_ylabel("Attempts")
     ax.set_title("Failure categories by lane")

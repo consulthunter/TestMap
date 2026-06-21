@@ -98,7 +98,7 @@
         "Provider": "OpenAi",
         "Model": "github-copilot",
         "TimeoutMinutes": 45,
-        "RequiredEnvironmentVariables": [],
+        "RequiredEnvironmentVariables": [ "GITHUB_COPILOT_TOKEN" ],
         "Environment": {
           "COPILOT_HOME": "/tmp/testmap-copilot-home",
           "COPILOT_ALLOW_MODE": "allow-all"

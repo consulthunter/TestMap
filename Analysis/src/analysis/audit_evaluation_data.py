@@ -107,15 +107,89 @@ def audit_agentic_no_post_attempt(df: pd.DataFrame) -> list[dict]:
     agentic = df[df["lane"] == "agentic"]
     if agentic.empty:
         return findings
-    if "post_attempt_test_run_id" in agentic.columns:
-        n = int(agentic["post_attempt_test_run_id"].isna().sum())
+    if "tool_post_attempt_test_run_id" in agentic.columns:
+        measurable = agentic.get("tool_run_status", pd.Series("", index=agentic.index)).fillna("").eq("Completed")
+        n = int(agentic.loc[measurable, "tool_post_attempt_test_run_id"].isna().sum())
         if n > 0:
             findings.append({
                 "check": "agentic_missing_post_attempt_measurement",
                 "severity": "warning",
                 "count": n,
-                "detail": f"{n} agentic attempts have no post-attempt test run ID.",
+                "detail": f"{n} completed agentic attempts have no post-attempt test run ID.",
             })
+    return findings
+
+
+def audit_agentic_identity_and_artifacts(df: pd.DataFrame) -> list[dict]:
+    findings = []
+    if "lane" not in df.columns:
+        return findings
+    agentic = df[df["lane"] == "agentic"]
+    if agentic.empty:
+        return findings
+    if "tool_attempt_id" not in agentic.columns:
+        findings.append({
+            "check": "missing_tool_attempt_id_column",
+            "severity": "error",
+            "count": len(agentic),
+            "detail": "Agentic analysis requires tool_attempt_id.",
+        })
+    else:
+        missing = agentic["tool_attempt_id"].isna() | agentic["tool_attempt_id"].astype(str).str.strip().eq("")
+        if missing.any():
+            findings.append({
+                "check": "missing_tool_attempt_id",
+                "severity": "error",
+                "count": int(missing.sum()),
+                "detail": "Agentic rows must have non-empty tool_attempt_id values.",
+            })
+    if "tool_artifact_path" in agentic.columns:
+        missing_artifact = agentic["tool_artifact_path"].isna() | agentic["tool_artifact_path"].astype(str).str.strip().isin(["", "nan"])
+        if missing_artifact.any():
+            findings.append({
+                "check": "agentic_missing_artifact_path",
+                "severity": "warning",
+                "count": int(missing_artifact.sum()),
+                "detail": "Agentic attempts are missing artifact paths for qualitative drill-down.",
+            })
+    return findings
+
+
+def audit_outcome_classification(df: pd.DataFrame) -> list[dict]:
+    if "outcome_classification" not in df.columns:
+        return [{
+            "check": "missing_outcome_classification",
+            "severity": "error",
+            "count": len(df),
+            "detail": "Normalized attempts must include outcome_classification.",
+        }]
+    missing = df["outcome_classification"].isna() | df["outcome_classification"].astype(str).str.strip().eq("")
+    if missing.any():
+        return [{
+            "check": "unclassified_attempts",
+            "severity": "warning",
+            "count": int(missing.sum()),
+            "detail": "Some attempts could not be assigned a normalized outcome classification.",
+        }]
+    return []
+
+
+def audit_generated_test_links(df: pd.DataFrame) -> list[dict]:
+    findings = []
+    if "generated_test_count" not in df.columns:
+        return findings
+    agentic = df[df.get("lane", pd.Series("", index=df.index)) == "agentic"]
+    if agentic.empty:
+        return findings
+    changed = agentic.get("produced_change", pd.Series(False, index=agentic.index)).fillna(False)
+    missing_links = changed & pd.to_numeric(agentic["generated_test_count"], errors="coerce").fillna(0).eq(0)
+    if missing_links.any():
+        findings.append({
+            "check": "agentic_missing_generated_test_links",
+            "severity": "warning",
+            "count": int(missing_links.sum()),
+            "detail": "Agentic attempts with changes have no generated/linked tests.",
+        })
     return findings
 
 
@@ -189,7 +263,10 @@ def run(
     findings += audit_missing_mutation(df)
     findings += audit_missing_tokens(df)
     findings += audit_duplicate_rows(df)
+    findings += audit_agentic_identity_and_artifacts(df)
     findings += audit_agentic_no_post_attempt(df)
+    findings += audit_generated_test_links(df)
+    findings += audit_outcome_classification(df)
     findings += audit_missing_repo_metadata(df)
 
     report = build_audit_report(findings, df)
