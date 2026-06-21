@@ -25,6 +25,10 @@ RAW_COLUMN_RENAMES: dict[str, str] = {
     "total_duration_seconds": "duration_seconds",
     "total_attempt_duration_seconds": "duration_seconds",
     "tool_changed_files_count": "changed_files_count",
+    "tool_production_files_changed": "production_files_changed",
+    "tool_test_files_changed": "test_files_changed",
+    "tool_project_files_changed": "project_files_changed",
+    "tool_deleted_files_count": "deleted_files_count",
 }
 
 # ---------------------------------------------------------------------------

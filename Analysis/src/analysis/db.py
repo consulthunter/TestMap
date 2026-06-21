@@ -89,6 +89,11 @@ def get_members(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM members")
 
 
+def get_invocations(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Parsed call-site invocations (incl. ``is_assertion``) per member."""
+    return _query(conn, "SELECT * FROM invocations")
+
+
 def get_generated_test_executions(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM generated_test_executions")
 

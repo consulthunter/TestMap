@@ -477,13 +477,100 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
 
     # 8. Coerce types
     _coerce_numeric(out)
+    _invalidate_inconsistent_measurements(out)
     _coerce_bool(out)
 
     # 9. Parse smell strings into structured columns
     _expand_smell_columns(out, "baseline_test_smells", "baseline_test_smell_count", "baseline_test_smell_types")
     _expand_smell_columns(out, "generated_test_smells", "generated_test_smell_count", "generated_test_smell_types")
 
+    # 10. Lane-fair token cost
+    out["effective_tokens"] = _compute_effective_tokens(out)
+
     return out
+
+
+def _compute_effective_tokens(df: pd.DataFrame) -> pd.Series:
+    """Tokens attributable to producing each attempt's result, made lane-comparable.
+
+    LLM attempts are repair *steps* in a chain, so ``total_tokens`` is per-step;
+    ``cumulative_tokens`` carries the running chain total and is the cost that is
+    comparable to an agentic run. Agentic attempts are self-contained runs whose
+    cost is ``total_tokens`` (their ``cumulative_tokens`` is not populated).
+
+    Rule: agentic -> ``total_tokens``; LLM -> ``cumulative_tokens`` (fallback to
+    ``total_tokens`` when cumulative is missing/zero).
+
+    WARNING: do not ``sum`` attempt-level ``effective_tokens`` across an LLM chain
+    -- cumulative double-counts. Use the candidate-level ``effective_tokens`` from
+    :func:`build_candidate_summary` for per-lane / per-model totals and rates.
+    """
+    index = df.index
+    total = (
+        pd.to_numeric(df["total_tokens"], errors="coerce")
+        if "total_tokens" in df.columns
+        else pd.Series(pd.NA, index=index, dtype="Float64")
+    )
+    eff = total.astype("Float64").copy()
+    if "cumulative_tokens" in df.columns and "lane" in df.columns:
+        cum = pd.to_numeric(df["cumulative_tokens"], errors="coerce")
+        use_cum = df["lane"].eq(LANE_LLM) & cum.notna() & cum.gt(0)
+        eff[use_cum] = cum[use_cum].astype("Float64")
+    return eff
+
+
+def _candidate_effective_tokens(group: pd.DataFrame) -> float:
+    """Total tokens to produce a candidate's result for one lane (chain-aware).
+
+    LLM -> max ``cumulative_tokens`` over the repair chain (the terminal total);
+    agentic -> sum of ``total_tokens`` across the candidate's attempts.
+    """
+    lane = str(group["lane"].iloc[0]) if "lane" in group.columns and len(group) else ""
+    total = (
+        pd.to_numeric(group["total_tokens"], errors="coerce")
+        if "total_tokens" in group.columns
+        else pd.Series(dtype="float64")
+    )
+    if lane == LANE_LLM and "cumulative_tokens" in group.columns:
+        cum = pd.to_numeric(group["cumulative_tokens"], errors="coerce")
+        if cum.notna().any() and cum.max() > 0:
+            return float(cum.max())
+    return float(total.sum()) if total.notna().any() else float("nan")
+
+
+def _invalidate_inconsistent_measurements(df: pd.DataFrame) -> None:
+    """Null out post-attempt metrics that were never validly measured.
+
+    When the generated test breaks the build (or otherwise fails to run), the
+    project becomes uncompilable and coverage/mutation cannot be measured. The
+    pipeline records a sentinel ``coverage_after = 0`` for these rows even though
+    ``coverage_before > 0`` — and stores ``coverage_delta = 0``. Both are
+    defaults, not measurements: the honest value is **unknown (NaN)**, not 0
+    (a false "coverage collapsed to zero") and not ``before`` (a false "measured,
+    unchanged").
+
+    Detection is by internal consistency. A genuine post-measurement satisfies
+    ``after == before + delta`` (e.g. an attempt that improved coverage, even one
+    that later failed validation for an unrelated reason, stays consistent and is
+    kept). Where ``after`` *contradicts* ``before + delta`` beyond rounding, the
+    triple is a failed-measurement sentinel, so both ``after`` and ``delta`` are
+    set to NaN and the row drops out of before/after slope charts and metric-
+    movement distributions instead of corrupting them.
+    """
+    pairs = [
+        ("coverage_before", "coverage_delta", "coverage_after"),
+        ("mutation_score_before", "mutation_score_delta", "mutation_score_after"),
+    ]
+    for before_col, delta_col, after_col in pairs:
+        if not all(c in df.columns for c in (before_col, delta_col, after_col)):
+            continue
+        before = pd.to_numeric(df[before_col], errors="coerce")
+        delta = pd.to_numeric(df[delta_col], errors="coerce")
+        after = pd.to_numeric(df[after_col], errors="coerce")
+        contradicts = before.notna() & delta.notna() & (after.sub(before + delta).abs() > 1e-6)
+        if contradicts.any():
+            df.loc[contradicts, after_col] = pd.NA
+            df.loc[contradicts, delta_col] = pd.NA
 
 
 def _coerce_numeric(df: pd.DataFrame) -> None:
@@ -569,6 +656,7 @@ def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     out["produced_change"] = _compute_produced_change(out)
 
     _coerce_numeric(out)
+    _invalidate_inconsistent_measurements(out)
     _coerce_bool(out)
     _expand_smell_columns(out, "baseline_test_smells", "baseline_test_smell_count", "baseline_test_smell_types")
     _expand_smell_columns(out, "generated_test_smells", "generated_test_smell_count", "generated_test_smell_types")
@@ -594,6 +682,7 @@ def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
     - ``best_coverage_delta``
     - ``best_mutation_delta``
     - ``total_generated_tests``
+    - ``effective_tokens`` (lane-fair token cost: LLM max cumulative chain, agentic total)
     """
     if attempts_df.empty:
         return pd.DataFrame()
@@ -649,6 +738,7 @@ def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
             if "generated_test_count" in group.columns
             else None
         )
+        row["effective_tokens"] = _candidate_effective_tokens(group)
         records.append(row)
 
     return pd.DataFrame(records)
