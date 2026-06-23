@@ -1147,6 +1147,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 ToolValidationOutcome = attempt.ValidationOutcome.ToString(),
                 ToolArtifactPath = attempt.ArtifactPath,
                 ToolChangedFilesCount = attempt.ChangedFilesCount,
+                ToolProductionFilesChanged = attempt.ProductionFilesChanged,
+                ToolTestFilesChanged = attempt.TestFilesChanged,
+                ToolProjectFilesChanged = attempt.ProjectFilesChanged,
+                ToolDeletedFilesCount = attempt.DeletedFilesCount,
                 ToolAttemptId = attempt.Id,
                 ToolAttemptTargetedBaselineId = attempt.TargetedBaselineId,
                 ToolPostAttemptTestRunId = attempt.PostAttemptTestRunId,
@@ -2030,6 +2034,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 ? (long)Math.Round(execution.GeneratedTestExecutionTimeMs.Value)
                 : null,
             TestRunId = execution.TestRun?.DbId > 0 ? execution.TestRun.DbId : null,
+            BaselineTestRunId = execution.BaselineTestRun?.DbId > 0 ? execution.BaselineTestRun.DbId : null,
+            MemberId = execution.GeneratedTestMemberId,
             // Transient: carry patch metadata back to the orchestrator for attempt-level persistence.
             PatchApplicationOutcome = execution.PatchApplicationOutcome,
             AppliedUsingCount = execution.AppliedUsingCount,

@@ -20,7 +20,7 @@ public static class AgentToolLogPathResolver
 
         return normalizedToolId switch
         {
-            "codex" or "claude" => JsonlStdOut(artifactPath, normalizedToolId, stderrPath),
+            "codex" or "claude" or "copilot" => JsonlStdOut(artifactPath, normalizedToolId, stderrPath),
             "gemini" => GeminiPaths(artifactPath, stderrPath, environment),
             "openhands" => new AgentToolLogPaths(
                 Path.Combine(artifactPath, "openhands.stdout.log"),

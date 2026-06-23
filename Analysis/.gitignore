@@ -2,7 +2,7 @@
 *hosts.yml
 *groups.yml
 *.csv
-
+*pytest_cache/
 data/*
 
 # Byte-compiled / optimized / DLL files

@@ -8,6 +8,10 @@ public class TestExecution
     public int Id { get; set; }
     public int GenerationAttemptId { get; set; }
     public int? TestRunId { get; set; }
+    /// <summary>Pre-attempt baseline test run id (the "before" measurement). Mirrors the tool lane's targeted baseline.</summary>
+    public int? BaselineTestRunId { get; set; }
+    /// <summary>DB id of the persisted generated-test member, for linking to its invocations/assertions.</summary>
+    public int? MemberId { get; set; }
     public string? GeneratedTestCode { get; set; }
     public string? GeneratedTestMethodName { get; set; }
     public bool CompilationSuccess { get; set; }

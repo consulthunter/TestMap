@@ -43,6 +43,33 @@ public sealed class AgentToolDockerfileNonRootTests
         Assert.Contains("diff --binary --no-index -- /dev/null", runner);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CopilotRunner_AliasesTestMapTokenToCopilotCliToken()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "copilot", "run-copilot.sh"));
+
+        Assert.Contains("COPILOT_GITHUB_TOKEN", runner);
+        Assert.Contains("GITHUB_COPILOT_TOKEN", runner);
+        Assert.Contains("export COPILOT_GITHUB_TOKEN=\"${GITHUB_COPILOT_TOKEN}\"", runner);
+        Assert.Contains("COPILOT_GITHUB_TOKEN_SET=", runner);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CopilotRunner_EnablesJsonlOutputAndOtelUsageExport()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "copilot", "run-copilot.sh"));
+
+        Assert.Contains("--output-format json", runner);
+        Assert.Contains("--no-color", runner);
+        Assert.Contains("COPILOT_OTEL_FILE_EXPORTER_PATH", runner);
+        Assert.Contains("/attempt/copilot-otel.jsonl", runner);
+        Assert.Contains("/attempt/copilot.events.jsonl", runner);
+    }
+
     private static string ResolveAgentToolsRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

@@ -94,6 +94,30 @@ def get_invocations(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM invocations")
 
 
+def get_coverage_gaps(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Uncovered lines per (coverage_report, source member)."""
+    return _query(conn, "SELECT id, coverage_report_id, member_id, line_number FROM coverage_gaps")
+
+
+def get_candidate_methods(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Candidate methods (maps candidate_method_id -> source_member_id)."""
+    return _query(conn, "SELECT id, source_member_id, existing_test_member_id FROM candidate_methods")
+
+
+def get_projects(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Repository/project rows (owner, repo_name) for building repo-qualified keys."""
+    return _query(conn, "SELECT id, owner, repo_name FROM projects")
+
+
+def get_tool_attempt_post_logs(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Map each tool attempt to its post-attempt (integration) test-run log path."""
+    return _query(conn, """
+        SELECT ta.id AS tool_attempt_id, tr.log_path
+        FROM tool_attempts ta
+        LEFT JOIN test_runs tr ON tr.id = ta.post_attempt_test_run_id
+    """)
+
+
 def get_generated_test_executions(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM generated_test_executions")
 
@@ -248,7 +272,7 @@ def get_llm_attempt_artifacts(conn: sqlite3.Connection) -> pd.DataFrame:
     Returns columns: attempt_id, modified_file_contents, modified_file_path,
                      generated_test_code, log_path
     """
-    if _has_column(conn, "generated_test_executions", "test_run"):
+    if _has_column(conn, "generated_test_executions", "test_run_id"):
         sql = """
             SELECT
                 ga.id                  AS attempt_id,
@@ -259,7 +283,7 @@ def get_llm_attempt_artifacts(conn: sqlite3.Connection) -> pd.DataFrame:
                 tr.log_path
             FROM generation_attempts ga
             LEFT JOIN generated_test_executions gte ON gte.generation_attempt_id = ga.id
-            LEFT JOIN test_runs tr ON tr.id = gte.test_run
+            LEFT JOIN test_runs tr ON tr.id = gte.test_run_id
         """
     else:
         sql = """

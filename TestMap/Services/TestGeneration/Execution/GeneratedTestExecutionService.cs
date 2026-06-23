@@ -15,6 +15,7 @@ using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
 using TestMap.Persistence.Ef.Repositories.Testing;
 using TestMap.Persistence.Ef.Repositories.MutationTesting;
+using TestMap.Persistence.Ef.Repositories.Code;
 
 namespace TestMap.Services.TestGeneration.Execution;
 
@@ -30,6 +31,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
     private readonly ITestSmellService _testSmellService;
     private readonly TestRunRepository _testRunRepository;
     private readonly MutationTestingReportRepository _mutationTestingReportRepository;
+    private readonly MemberRepository _memberRepository;
 
     public GeneratedTestExecutionService(
         ProjectContext context,
@@ -41,7 +43,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         IRoslynGeneratedTestValidationService roslynValidationService,
         ITestSmellService testSmellService,
         TestRunRepository testRunRepository,
-        MutationTestingReportRepository mutationTestingReportRepository)
+        MutationTestingReportRepository mutationTestingReportRepository,
+        MemberRepository memberRepository)
     {
         _context = context;
         _config = config;
@@ -53,6 +56,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         _testSmellService = testSmellService;
         _testRunRepository = testRunRepository;
         _mutationTestingReportRepository = mutationTestingReportRepository;
+        _memberRepository = memberRepository;
     }
 
     public async Task<GeneratedTestExecutionResult> ExecuteAsync(
@@ -272,6 +276,11 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
 
             await RefreshProjectMetadataAsync(context.TestProjectPath, cancellationToken);
 
+            // Resolve the persisted generated-test member (post-analysis) and mark it generated,
+            // so its invocations/assertions can be linked back to this execution.
+            var generatedTestMemberId = await _memberRepository.ResolveAndMarkGeneratedTestMemberAsync(
+                testMethodName, actionResult.AppliedFilePath);
+
             var buildResult = await RunScopedValidationMetricsAsync(
                 context,
                 experimentRunId,
@@ -286,7 +295,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 roslynValidation,
                 preBuildDecision,
                 ResolveScopedMethodCoverage(baselineRun),
-                baselineRun.MutationScore);
+                baselineRun.MutationScore,
+                baselineRun,
+                generatedTestMemberId);
         }
         catch (Exception ex)
         {
@@ -316,7 +327,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         RoslynGeneratedTestValidationResult roslynValidation,
         RoslynPreBuildDecision preBuildDecision,
         double baselineCoverage,
-        double? baselineMutationScore)
+        double? baselineMutationScore,
+        TestRunModel baselineRun,
+        int? generatedTestMemberId)
     {
         var compilationSucceeded = DidCompilationSucceed(buildResult);
         var failedTests = buildResult.Results.Where(x => x.Outcome != "Passed").ToList();
@@ -363,6 +376,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             RoslynDiagnosticsAfter = roslynValidation.After.Diagnostics,
             NewRoslynDiagnostics = roslynValidation.NewDiagnostics,
             TestRun = buildResult,
+            BaselineTestRun = baselineRun,
+            GeneratedTestMemberId = generatedTestMemberId,
             FailureKind = TestFailureKind.None
         };
 
@@ -615,6 +630,8 @@ internal static class GeneratedTestExecutionResultExtensions
             RoslynPreBuildRuleDecisions = result.RoslynPreBuildRuleDecisions,
             GeneratedTestExecutionTimeMs = result.GeneratedTestExecutionTimeMs,
             TestRun = result.TestRun,
+            BaselineTestRun = result.BaselineTestRun,
+            GeneratedTestMemberId = result.GeneratedTestMemberId,
             ExecutedAt = result.ExecutedAt
         };
     }

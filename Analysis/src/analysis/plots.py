@@ -348,3 +348,72 @@ def failure_category_bar(
     ax.tick_params(axis="x", rotation=45)
     ax.legend(title="Lane")
     return ax
+
+
+def failure_flow_alluvial(
+    df: pd.DataFrame,
+    left_col: str,
+    right_col: str,
+    ax: Optional[matplotlib.axes.Axes] = None,
+) -> matplotlib.axes.Axes:
+    """Two-stage alluvial/flow diagram of counts flowing from *left_col* to *right_col*.
+
+    Each left/right category is a stacked node; bands between them are sized by the
+    number of failures taking that path. Degrades to a message when data is absent.
+    """
+    ax = _ax(ax)
+    if df.empty or left_col not in df.columns or right_col not in df.columns:
+        ax.text(0.5, 0.5, "No flow data", ha="center", va="center")
+        ax.axis("off")
+        return ax
+
+    d = df[[left_col, right_col]].fillna("(none)").astype(str)
+    ct = d.value_counts().reset_index(name="n")
+    if ct.empty:
+        ax.text(0.5, 0.5, "No flow data", ha="center", va="center")
+        ax.axis("off")
+        return ax
+
+    left_tot = ct.groupby(left_col)["n"].sum().sort_values(ascending=False)
+    right_tot = ct.groupby(right_col)["n"].sum().sort_values(ascending=False)
+    gap = max(0.04 * left_tot.sum(), 0.3)
+
+    def stack(tot):
+        pos, y = {}, 0.0
+        for k, v in tot.items():
+            pos[k] = (y, y + v)
+            y += v + gap
+        return pos, max(y - gap, 1.0)
+
+    lpos, lh = stack(left_tot)
+    rpos, rh = stack(right_tot)
+    height = max(lh, rh)
+    palette = sns.color_palette("tab10", max(len(left_tot), 1))
+    lcolor = {k: palette[i % 10] for i, k in enumerate(left_tot.index)}
+
+    x0, x1, nodew = 0.0, 1.0, 0.04
+    for k, (a, b) in lpos.items():
+        ax.fill_betweenx([height - b, height - a], x0 - nodew, x0, color=lcolor[k])
+        ax.text(x0 - nodew - 0.02, height - (a + b) / 2, f"{k} ({int(left_tot[k])})",
+                ha="right", va="center", fontsize=8)
+    for k, (a, b) in rpos.items():
+        ax.fill_betweenx([height - b, height - a], x1, x1 + nodew, color="0.6")
+        ax.text(x1 + nodew + 0.02, height - (a + b) / 2, f"{k} ({int(right_tot[k])})",
+                ha="left", va="center", fontsize=8)
+
+    loff = {k: lpos[k][0] for k in left_tot.index}
+    roff = {k: rpos[k][0] for k in right_tot.index}
+    for r in ct.itertuples():
+        lk, rk, n = getattr(r, left_col), getattr(r, right_col), r.n
+        ls, rs = loff[lk], roff[rk]
+        loff[lk] += n
+        roff[rk] += n
+        y_l0, y_l1 = height - (ls + n), height - ls
+        y_r0, y_r1 = height - (rs + n), height - rs
+        ax.fill([x0, x1, x1, x0], [y_l1, y_r1, y_r0, y_l0], color=lcolor[lk], alpha=0.45, linewidth=0)
+
+    ax.set_xlim(-0.55, 1.55)
+    ax.set_ylim(-gap, height + gap)
+    ax.axis("off")
+    ax.set_title(f"Failure flow: {left_col} → {right_col}")
+    return ax

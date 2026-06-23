@@ -65,5 +65,9 @@ public sealed class GeneratedTestExecutionResult
     public int AppliedHelperCount { get; init; }
     public double? GeneratedTestExecutionTimeMs { get; init; }
     public TestRunModel? TestRun { get; init; }
+    /// <summary>The pre-attempt baseline test run (before the generated test was applied).</summary>
+    public TestRunModel? BaselineTestRun { get; init; }
+    /// <summary>DB id of the persisted generated-test member (when it validated and was analyzed).</summary>
+    public int? GeneratedTestMemberId { get; init; }
     public DateTime ExecutedAt { get; init; } = DateTime.UtcNow;
 }

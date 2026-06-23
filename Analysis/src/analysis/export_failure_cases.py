@@ -155,6 +155,7 @@ def build_failure_cases(
     llm_artifacts: dict[tuple, dict] = {}   # (db_key, attempt_id)
     source_members: dict[tuple, dict] = {}  # (db_key, member_id)
     existing_tests: dict[tuple, dict] = {}  # (db_key, source_member_id)
+    tool_post_logs: dict[tuple, str] = {}   # (db_key, tool_attempt_id) -> post-attempt log_path
 
     if db_paths:
         from analysis.db import (
@@ -163,6 +164,7 @@ def build_failure_cases(
             get_llm_attempt_artifacts,
             get_llm_final_prompts,
             get_members_with_source,
+            get_tool_attempt_post_logs,
         )
         from analysis.files import find_databases
 
@@ -170,6 +172,10 @@ def build_failure_cases(
             db_key = Path(db_path).parent.name
             try:
                 with connect(db_path) as conn:
+                    for _, r in get_tool_attempt_post_logs(conn).iterrows():
+                        taid = r.get("tool_attempt_id")
+                        if taid is not None and pd.notna(taid):
+                            tool_post_logs[(db_key, int(taid))] = _str(r.get("log_path", ""))
                     prompts = {
                         int(r["attempt_id"]): r["prompt"]
                         for _, r in get_llm_final_prompts(conn).iterrows()
@@ -239,6 +245,10 @@ def build_failure_cases(
             row["modified_file_path"]     = ""
             row["_artifact_dir"]          = str(artifact_dir) if artifact_dir else ""
             row["_tool_id_lower"]         = tool_id
+            taid = row.get("tool_attempt_id")
+            row["_post_attempt_log_path"] = (
+                tool_post_logs.get((db_key, int(float(taid))), "")
+                if taid is not None and pd.notna(taid) else "")
 
         else:  # LLM lane
             attempt_id = row.get("generation_attempt_id") or row.get("attempt_id")
@@ -306,6 +316,12 @@ def write_case_dir(case: pd.Series, cases_root: Path) -> Path:
         ]:
             if artifact_dir and (artifact_dir / filename).exists():
                 shutil.copy2(artifact_dir / filename, case_dir / filename)
+
+        # Post-attempt (integration) test-run log — the run where the applied test was
+        # built and executed; symmetric with the LLM lane's test_run.log.
+        post_log = _str(case.get("_post_attempt_log_path", ""))
+        if post_log and Path(post_log).exists():
+            shutil.copy2(post_log, case_dir / "test_run.log")
 
     else:  # LLM
         db_row: dict = case.get("_db_row") or {}

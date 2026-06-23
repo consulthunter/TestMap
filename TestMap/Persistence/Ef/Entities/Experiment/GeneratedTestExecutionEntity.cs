@@ -8,6 +8,8 @@ public class GeneratedTestExecutionEntity
     public int Id { get; set; }
     public int GenerationAttemptId { get; set; }
     public int? TestRunId { get; set; }
+    public int? BaselineTestRunId { get; set; }
+    public int? MemberId { get; set; }
     public string GeneratedTestCode { get; set; } = string.Empty;
     [MaxLength(500)] public string GeneratedTestMethodName { get; set; } = string.Empty;
     public bool CompilationSucceeded { get; set; }

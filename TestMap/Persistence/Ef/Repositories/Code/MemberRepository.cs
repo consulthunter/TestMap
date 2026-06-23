@@ -31,6 +31,49 @@ public class MemberRepository
         return entity?.ToDomain();
     }
 
+    /// <summary>
+    /// Resolves the persisted test member for a freshly generated test (by method name,
+    /// preferring the member in the applied file), marks it <c>IsGenerated</c>, and returns
+    /// its DB id. Returns null when no matching member is found (e.g. the test did not validate
+    /// and was therefore not persisted). Mirrors the member→object→file lookup used by the
+    /// agentic <c>ToolAttemptGeneratedTestService</c>.
+    /// </summary>
+    public async Task<int?> ResolveAndMarkGeneratedTestMemberAsync(string methodName, string? appliedFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(methodName))
+            return null;
+
+        var candidates = await (
+            from member in _context.Members
+            join obj in _context.Objects on member.ObjectEntityId equals obj.Id
+            join file in _context.Files on obj.FileId equals file.Id
+            where member.IsTestMember && member.Kind == "method" && member.Name == methodName
+            select new { Member = member, file.FilePath }
+        ).ToListAsync();
+
+        if (candidates.Count == 0)
+            return null;
+
+        var chosen = candidates[0].Member;
+        if (!string.IsNullOrWhiteSpace(appliedFilePath))
+        {
+            var applied = Path.GetFullPath(appliedFilePath);
+            var match = candidates.FirstOrDefault(x =>
+                !string.IsNullOrWhiteSpace(x.FilePath) &&
+                string.Equals(Path.GetFullPath(x.FilePath), applied, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                chosen = match.Member;
+        }
+
+        if (!chosen.IsGenerated)
+        {
+            chosen.IsGenerated = true;
+            await _context.SaveChangesAsync();
+        }
+
+        return chosen.Id;
+    }
+
     public async Task<int> InsertOrUpdateAsync(MemberModel model)
     {
         var existing = await _context.Members.FirstOrDefaultAsync(x => x.ContentHash == model.ContentHash);

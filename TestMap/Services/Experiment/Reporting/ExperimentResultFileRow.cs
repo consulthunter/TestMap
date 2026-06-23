@@ -13,6 +13,10 @@ public sealed class ExperimentResultFileRow
     public string ToolValidationOutcome { get; init; } = string.Empty;
     public string ToolArtifactPath { get; init; } = string.Empty;
     public int ToolChangedFilesCount { get; init; }
+    public int ToolProductionFilesChanged { get; init; }
+    public int ToolTestFilesChanged { get; init; }
+    public int ToolProjectFilesChanged { get; init; }
+    public int ToolDeletedFilesCount { get; init; }
     public int? ToolAttemptId { get; init; }
     public int? ToolAttemptTargetedBaselineId { get; init; }
     public int? ToolPostAttemptTestRunId { get; init; }

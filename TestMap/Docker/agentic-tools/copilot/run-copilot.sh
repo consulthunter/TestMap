@@ -15,6 +15,11 @@ mkdir -p /attempt
 #   COPILOT_EXTRA_ARGS="..."
 export COPILOT_HOME="${COPILOT_HOME:-/tmp/testmap-copilot-home}"
 mkdir -p "$COPILOT_HOME"
+export COPILOT_OTEL_FILE_EXPORTER_PATH="${COPILOT_OTEL_FILE_EXPORTER_PATH:-/attempt/copilot-otel.jsonl}"
+
+if [ -z "${COPILOT_GITHUB_TOKEN:-}" ] && [ -n "${GITHUB_COPILOT_TOKEN:-}" ]; then
+  export COPILOT_GITHUB_TOKEN="${GITHUB_COPILOT_TOKEN}"
+fi
 
 write_metadata_start
 capture_git_before
@@ -24,7 +29,9 @@ cat > /attempt/runner-env.txt <<EOF
 TOOL_ID=github-copilot-cli
 COPILOT_HOME=${COPILOT_HOME}
 COPILOT_ALLOW_MODE=${COPILOT_ALLOW_MODE:-allow-all}
+COPILOT_OTEL_FILE_EXPORTER_PATH=${COPILOT_OTEL_FILE_EXPORTER_PATH}
 GITHUB_COPILOT_TOKEN_SET=$([ -n "${GITHUB_COPILOT_TOKEN:-}" ] && echo yes || echo no)
+COPILOT_GITHUB_TOKEN_SET=$([ -n "${COPILOT_GITHUB_TOKEN:-}" ] && echo yes || echo no)
 WORKSPACE=/workspace
 ATTEMPT=/attempt
 EOF
@@ -57,16 +64,18 @@ if [ -n "${COPILOT_EXTRA_ARGS:-}" ]; then
 fi
 
 {
-  echo "copilot --prompt <prompt.md> ${ALLOW_ARGS[*]} ${EXTRA_ARGS[*]}"
+  echo "copilot --prompt <prompt.md> --output-format json --no-color ${ALLOW_ARGS[*]} ${EXTRA_ARGS[*]}"
 } > /attempt/command.txt
 
 set +e
 
 copilot \
   --prompt "$(cat /attempt/prompt.md)" \
+  --output-format json \
+  --no-color \
   "${ALLOW_ARGS[@]}" \
   "${EXTRA_ARGS[@]}" \
-  > /attempt/copilot.stdout.log \
+  > /attempt/copilot.events.jsonl \
   2> /attempt/copilot.stderr.log
 
 EXIT_CODE=$?

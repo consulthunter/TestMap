@@ -527,6 +527,110 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ExtractUsage_CopilotOtelTokenMetric_ReturnsInputAndOutputTokens()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot-otel.jsonl"),
+                """
+                {"name":"gen_ai.client.token.usage","data":{"dataPoints":[{"sum":330400,"attributes":[{"key":"gen_ai.token.type","value":{"stringValue":"input"}}]},{"sum":6200,"attributes":[{"key":"gen_ai.token.type","value":{"stringValue":"output"}}]}]}}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "copilot");
+
+            Assert.NotNull(usage);
+            Assert.Equal(330400, usage.InputTokens);
+            Assert.Equal(6200, usage.OutputTokens);
+            Assert.Equal("copilot-otel.jsonl:gen_ai.client.token.usage", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_CopilotOtelHistogramMetric_UsesLatestCumulativeSums()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot-otel.jsonl"),
+                """
+                {"type":"metric","name":"gen_ai.client.token.usage","dataPoints":[{"attributes":{"gen_ai.token.type":"input"},"value":{"count":5,"sum":125033.0}},{"attributes":{"gen_ai.token.type":"output"},"value":{"count":5,"sum":3386.0}}]}
+                {"type":"metric","name":"gen_ai.client.token.usage","dataPoints":[{"attributes":{"gen_ai.token.type":"input"},"value":{"count":10,"sum":285026.0}},{"attributes":{"gen_ai.token.type":"output"},"value":{"count":10,"sum":5340.0}}]}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "copilot");
+
+            Assert.NotNull(usage);
+            Assert.Equal(285026, usage.InputTokens);
+            Assert.Equal(5340, usage.OutputTokens);
+            Assert.Equal("copilot-otel.jsonl:gen_ai.client.token.usage", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_CopilotOtelSpanFallback_DoesNotDoubleCountCacheDetails()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot-otel.jsonl"),
+                """
+                {"type":"span","name":"chat claude-haiku-4.5","attributes":{"gen_ai.usage.input_tokens":23056,"gen_ai.usage.output_tokens":513,"gen_ai.usage.cache_creation_input_tokens":23046,"gen_ai.usage.reasoning_output_tokens":285}}
+                {"type":"span","name":"chat claude-haiku-4.5","attributes":{"gen_ai.usage.input_tokens":23737,"gen_ai.usage.output_tokens":124,"gen_ai.usage.cache_read_input_tokens":23046,"gen_ai.usage.cache_creation_input_tokens":684,"gen_ai.usage.reasoning_output_tokens":124}}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "copilot");
+
+            Assert.NotNull(usage);
+            Assert.Equal(46793, usage.InputTokens);
+            Assert.Equal(637, usage.OutputTokens);
+            Assert.Equal("copilot-otel.jsonl:spans", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_CopilotStderrTokenFooter_ReturnsInputAndOutputTokens()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot.stderr.log"),
+                "Tokens     ↑ 330.4k (292.2k cached, 37.4k written) \u2022 ↓ 6.2k (2.4k reasoning)");
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "copilot");
+
+            Assert.NotNull(usage);
+            Assert.Equal(330400, usage.InputTokens);
+            Assert.Equal(6200, usage.OutputTokens);
+            Assert.Equal("copilot.stderr.log:tokens-line", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ExtractUsage_MiniSweTrajectory_SumsUsageEntries()
     {
         var artifactPath = CreateTempArtifactDirectory();

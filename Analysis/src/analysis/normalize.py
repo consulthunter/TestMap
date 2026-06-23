@@ -93,9 +93,17 @@ def _assign_attempt_ids(df: pd.DataFrame) -> None:
     if llm_mask.any():
         if "generation_attempt_id" not in df.columns:
             raise ValueError("LLM rows require generation_attempt_id.")
-        df.loc[llm_mask, "attempt_id"] = (
-            "llm:" + df.loc[llm_mask, "generation_attempt_id"].astype(str).str.strip()
-        )
+        gaid = df.loc[llm_mask, "generation_attempt_id"].astype(str).str.strip()
+        # generation_attempt_id is only unique within a repository, so qualify the LLM
+        # attempt_id with owner|repo to make it globally unique (avoids cross-repo collisions
+        # on any attempt_id join). owner/repo match the DB ``projects`` table used by the
+        # DB-side builders (build_assertion_counts / build_metric_diffs).
+        if "repo_owner" in df.columns and "repo_name" in df.columns:
+            repo_qual = (df.loc[llm_mask, "repo_owner"].astype(str).str.strip() + "|"
+                         + df.loc[llm_mask, "repo_name"].astype(str).str.strip())
+            df.loc[llm_mask, "attempt_id"] = "llm:" + repo_qual + ":" + gaid
+        else:
+            df.loc[llm_mask, "attempt_id"] = "llm:" + gaid
 
     if agentic_mask.any():
         # Derive tool_attempt_id from tool_artifact_path when the column is absent.
@@ -120,9 +128,15 @@ def _assign_attempt_ids(df: pd.DataFrame) -> None:
                 )
             if missing.any():
                 raise ValueError("Agentic rows require non-empty tool_attempt_id values.")
-        df.loc[agentic_mask, "attempt_id"] = (
-            "agentic:" + df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip()
-        )
+        # Build attempt_id from the globally-unique tool_artifact_path; the numeric
+        # tool_attempt_id is only unique within a repo (and is float-formatted in the CSV).
+        # This matches the artifact-path key used by the DB-side builders
+        # (build_assertion_counts / build_metric_diffs).
+        ag_attempt = df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip()
+        if "tool_artifact_path" in df.columns:
+            path = df.loc[agentic_mask, "tool_artifact_path"].astype(str).str.strip()
+            ag_attempt = path.where(path != "", ag_attempt)
+        df.loc[agentic_mask, "attempt_id"] = "agentic:" + ag_attempt
 
 
 # ---------------------------------------------------------------------------

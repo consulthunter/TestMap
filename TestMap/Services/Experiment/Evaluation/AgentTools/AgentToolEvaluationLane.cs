@@ -380,6 +380,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         return latest
                ?? ExtractOpenHandsPersistedUsage(artifactPath)
                ?? ExtractMiniSweTrajectoryUsage(artifactPath, toolId)
+               ?? ExtractCopilotUsage(artifactPath, toolId)
                ?? ExtractAiderStdoutUsage(artifactPath, toolId);
     }
 
@@ -693,6 +694,391 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             $"{sourceFile}:tokens-line");
     }
 
+    private static ToolUsageSummary? ExtractCopilotUsage(string artifactPath, string toolId)
+    {
+        if (!toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return ExtractCopilotOtelUsage(artifactPath)
+               ?? ExtractCopilotStderrUsage(artifactPath);
+    }
+
+    private static ToolUsageSummary? ExtractCopilotOtelUsage(string artifactPath)
+    {
+        var otelPath = Path.Combine(artifactPath, "copilot-otel.jsonl");
+        if (!File.Exists(otelPath))
+            return null;
+
+        ToolUsageSummary? latestMetricUsage = null;
+        long spanInputTokens = 0;
+        long spanOutputTokens = 0;
+        var anySpanUsage = false;
+
+        try
+        {
+            foreach (var line in File.ReadLines(otelPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                using var doc = JsonDocument.Parse(line);
+                var metricUsage = TryParseCopilotOtelMetricUsage(doc.RootElement, Path.GetFileName(otelPath));
+                if (metricUsage != null)
+                    latestMetricUsage = metricUsage;
+
+                var spanUsage = TryParseCopilotOtelSpanUsage(doc.RootElement, Path.GetFileName(otelPath));
+                if (spanUsage == null)
+                    continue;
+
+                if (spanUsage.InputTokens.HasValue)
+                {
+                    spanInputTokens += spanUsage.InputTokens.Value;
+                    anySpanUsage = true;
+                }
+
+                if (spanUsage.OutputTokens.HasValue)
+                {
+                    spanOutputTokens += spanUsage.OutputTokens.Value;
+                    anySpanUsage = true;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+
+        if (latestMetricUsage != null)
+            return latestMetricUsage;
+
+        return anySpanUsage
+            ? new ToolUsageSummary(
+                ClampToInt(spanInputTokens),
+                ClampToInt(spanOutputTokens),
+                $"{Path.GetFileName(otelPath)}:spans")
+            : null;
+    }
+
+    private static ToolUsageSummary? TryParseCopilotOtelMetricUsage(JsonElement root, string sourceFile)
+    {
+        ToolUsageSummary? latest = null;
+        foreach (var obj in EnumerateObjects(root))
+        {
+            if (!TryReadString(obj, "name", out var name) ||
+                !name.Equals("gen_ai.client.token.usage", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var parsed = TryParseCopilotTokenUsageMetric(obj, sourceFile);
+            if (parsed != null)
+                latest = parsed;
+        }
+
+        return latest;
+    }
+
+    private static ToolUsageSummary? TryParseCopilotTokenUsageMetric(JsonElement metric, string sourceFile)
+    {
+        long inputTokens = 0;
+        long outputTokens = 0;
+        var any = false;
+
+        foreach (var point in EnumerateObjects(metric))
+        {
+            var count = ReadTokenMetricValue(point);
+            if (!count.HasValue || !TryReadTokenType(point, out var tokenType))
+                continue;
+
+            if (IsInputTokenType(tokenType))
+            {
+                inputTokens += count.Value;
+                any = true;
+            }
+            else if (IsOutputTokenType(tokenType))
+            {
+                outputTokens += count.Value;
+                any = true;
+            }
+        }
+
+        if (!any)
+            return null;
+
+        return new ToolUsageSummary(
+            ClampToInt(inputTokens),
+            ClampToInt(outputTokens),
+            $"{sourceFile}:gen_ai.client.token.usage");
+    }
+
+    private static ToolUsageSummary? TryParseCopilotOtelSpanUsage(JsonElement root, string sourceFile)
+    {
+        long inputTokens = 0;
+        long outputTokens = 0;
+        var any = false;
+
+        foreach (var obj in EnumerateObjects(root))
+        {
+            if (!TryReadString(obj, "type", out var type) ||
+                !type.Equals("span", StringComparison.OrdinalIgnoreCase) ||
+                !TryReadString(obj, "name", out var name) ||
+                !name.StartsWith("chat ", StringComparison.OrdinalIgnoreCase) ||
+                !TryGetObject(obj, "attributes", out var attributes))
+                continue;
+
+            // Copilot's gen_ai.usage.input_tokens already includes cached/write input.
+            // Cache attributes are detail fields and must not be added on top.
+            var input = ReadInt(attributes, "gen_ai.usage.input_tokens") ??
+                        ReadInt(attributes, "gen_ai.usage.prompt_tokens") ??
+                        Sum(
+                            ReadInt(attributes, "gen_ai.usage.cache_read_input_tokens"),
+                            ReadInt(attributes, "gen_ai.usage.cache_creation_input_tokens"));
+            var output = ReadInt(attributes, "gen_ai.usage.output_tokens") ??
+                         ReadInt(attributes, "gen_ai.usage.completion_tokens") ??
+                         ReadInt(attributes, "gen_ai.usage.reasoning_output_tokens") ??
+                         ReadInt(attributes, "gen_ai.usage.reasoning_tokens");
+
+            if (input.HasValue)
+            {
+                inputTokens += input.Value;
+                any = true;
+            }
+
+            if (output.HasValue)
+            {
+                outputTokens += output.Value;
+                any = true;
+            }
+        }
+
+        if (!any)
+            return null;
+
+        return new ToolUsageSummary(
+            ClampToInt(inputTokens),
+            ClampToInt(outputTokens),
+            $"{sourceFile}:span.usage");
+    }
+
+    private static ToolUsageSummary? ExtractCopilotStderrUsage(string artifactPath)
+    {
+        var stderrPath = Path.Combine(artifactPath, "copilot.stderr.log");
+        if (!File.Exists(stderrPath))
+            return null;
+
+        ToolUsageSummary? latest = null;
+        foreach (var line in File.ReadLines(stderrPath))
+        {
+            var parsed = TryParseCopilotTokenLine(line, Path.GetFileName(stderrPath));
+            if (parsed != null)
+                latest = parsed;
+        }
+
+        return latest;
+    }
+
+    private static ToolUsageSummary? TryParseCopilotTokenLine(string line, string sourceFile)
+    {
+        var match = Regex.Match(
+            line,
+            @"Tokens\s+.*?(?<input>[\d.,]+)\s*(?<inputSuffix>[kKmM]?).*?(?:\u2022|\|).*?(?<output>[\d.,]+)\s*(?<outputSuffix>[kKmM]?)",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        if (!match.Success)
+            return null;
+
+        var inputTokens = ParseScaledTokenCount(
+            match.Groups["input"].Value,
+            match.Groups["inputSuffix"].Value);
+        var outputTokens = ParseScaledTokenCount(
+            match.Groups["output"].Value,
+            match.Groups["outputSuffix"].Value);
+        if (!inputTokens.HasValue && !outputTokens.HasValue)
+            return null;
+
+        return new ToolUsageSummary(
+            inputTokens,
+            outputTokens,
+            $"{sourceFile}:tokens-line");
+    }
+
+    private static long? ReadTokenMetricValue(JsonElement point)
+    {
+        return ReadLong(point, "sum") ??
+               ReadLong(point, "value") ??
+               (TryGetObject(point, "value", out var value)
+                   ? ReadLong(value, "sum") ??
+                     ReadLong(value, "value") ??
+                     ReadLong(value, "asDouble") ??
+                     ReadLong(value, "asInt") ??
+                     ReadLong(value, "doubleValue") ??
+                     ReadLong(value, "intValue")
+                   : null) ??
+               ReadLong(point, "asDouble") ??
+               ReadLong(point, "asInt") ??
+               ReadLong(point, "doubleValue") ??
+               ReadLong(point, "intValue");
+    }
+
+    private static bool TryReadTokenType(JsonElement point, out string tokenType)
+    {
+        foreach (var key in new[] { "gen_ai.token.type", "token.type", "type" })
+        {
+            if (TryReadAttributeString(point, key, out tokenType))
+                return true;
+        }
+
+        tokenType = string.Empty;
+        return false;
+    }
+
+    private static bool IsInputTokenType(string tokenType)
+    {
+        var normalized = tokenType.Trim().ToLowerInvariant();
+        return normalized is "input" or "input_tokens" or "prompt" or "prompt_tokens" or
+            "cache" or "cached" or "cached_input" or "cached_input_tokens" or
+            "cache_read" or "cache_read_input_tokens" or "cache_write" or "cache_creation_input_tokens";
+    }
+
+    private static bool IsOutputTokenType(string tokenType)
+    {
+        var normalized = tokenType.Trim().ToLowerInvariant();
+        return normalized is "output" or "output_tokens" or "completion" or "completion_tokens" or
+            "reasoning" or "reasoning_tokens" or "reasoning_output_tokens";
+    }
+
+    private static int? ReadCopilotAttributeTokenSum(JsonElement obj, params string[] keys)
+    {
+        long total = 0;
+        var any = false;
+        foreach (var key in keys)
+        {
+            var value = ReadAttributeLong(obj, key);
+            if (!value.HasValue)
+                continue;
+
+            total += value.Value;
+            any = true;
+        }
+
+        return any ? ClampToInt(total) : null;
+    }
+
+    private static long? ReadAttributeLong(JsonElement obj, string key)
+    {
+        if (obj.ValueKind == JsonValueKind.Object &&
+            obj.TryGetProperty(key, out var direct))
+            return ReadLong(direct);
+
+        if (!TryGetAttributeValue(obj, key, out var value))
+            return null;
+
+        return ReadLong(value);
+    }
+
+    private static bool TryReadAttributeString(JsonElement obj, string key, out string value)
+    {
+        if (obj.ValueKind == JsonValueKind.Object &&
+            obj.TryGetProperty(key, out var direct) &&
+            TryReadStringValue(direct, out value))
+            return true;
+
+        if (TryGetAttributeValue(obj, key, out var attributeValue) &&
+            TryReadStringValue(attributeValue, out value))
+            return true;
+
+        value = string.Empty;
+        return false;
+    }
+
+    private static bool TryGetAttributeValue(JsonElement obj, string key, out JsonElement value)
+    {
+        if (!obj.TryGetProperty("attributes", out var attributes))
+        {
+            value = default;
+            return false;
+        }
+
+        if (attributes.ValueKind == JsonValueKind.Object)
+            return attributes.TryGetProperty(key, out value);
+
+        if (attributes.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var attribute in attributes.EnumerateArray())
+            {
+                if (attribute.ValueKind != JsonValueKind.Object ||
+                    !TryReadString(attribute, "key", out var attributeKey) ||
+                    !attributeKey.Equals(key, StringComparison.OrdinalIgnoreCase) ||
+                    !attribute.TryGetProperty("value", out value))
+                    continue;
+
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static long? ReadLong(JsonElement obj, string propertyName)
+    {
+        if (!obj.TryGetProperty(propertyName, out var value))
+            return null;
+
+        return ReadLong(value);
+    }
+
+    private static long? ReadLong(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt64(out var number) => number,
+            JsonValueKind.Number when value.TryGetDecimal(out var number) =>
+                (long)Math.Round(number, MidpointRounding.AwayFromZero),
+            JsonValueKind.String when decimal.TryParse(
+                value.GetString(),
+                NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var number) => (long)Math.Round(number, MidpointRounding.AwayFromZero),
+            JsonValueKind.Object => ReadLong(value, "sum") ??
+                                    ReadLong(value, "intValue") ??
+                                    ReadLong(value, "doubleValue") ??
+                                    ReadLong(value, "stringValue"),
+            _ => null
+        };
+    }
+
+    private static bool TryReadString(JsonElement obj, string propertyName, out string value)
+    {
+        if (obj.TryGetProperty(propertyName, out var property) &&
+            TryReadStringValue(property, out value))
+            return true;
+
+        value = string.Empty;
+        return false;
+    }
+
+    private static bool TryReadStringValue(JsonElement valueElement, out string value)
+    {
+        if (valueElement.ValueKind == JsonValueKind.String)
+        {
+            value = valueElement.GetString() ?? string.Empty;
+            return true;
+        }
+
+        if (valueElement.ValueKind == JsonValueKind.Object &&
+            valueElement.TryGetProperty("stringValue", out var stringValue) &&
+            stringValue.ValueKind == JsonValueKind.String)
+        {
+            value = stringValue.GetString() ?? string.Empty;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
     private static int? ParseScaledTokenCount(string value, string suffix)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -771,6 +1157,23 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         {
             foreach (var item in element.EnumerateArray())
             foreach (var match in EnumerateNamedObjects(item, propertyName))
+                yield return match;
+        }
+    }
+
+    private static IEnumerable<JsonElement> EnumerateObjects(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            yield return element;
+            foreach (var property in element.EnumerateObject())
+            foreach (var match in EnumerateObjects(property.Value))
+                yield return match;
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            foreach (var match in EnumerateObjects(item))
                 yield return match;
         }
     }

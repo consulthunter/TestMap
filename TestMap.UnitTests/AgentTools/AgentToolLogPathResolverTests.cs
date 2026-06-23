@@ -8,6 +8,7 @@ public sealed class AgentToolLogPathResolverTests
     [Trait("Category", "Unit")]
     [InlineData("codex")]
     [InlineData("claude")]
+    [InlineData("copilot")]
     public void Resolve_JsonlStdOutTool_UsesJsonlForStdOutAndJsonl(string toolId)
     {
         var result = AgentToolLogPathResolver.Resolve("/attempt", toolId);
