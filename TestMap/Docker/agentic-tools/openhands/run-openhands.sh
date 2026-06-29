@@ -28,6 +28,10 @@ record_version "openhands" "openhands --version || openhands --help"
 
 cd /workspace
 
+# Keep file-editor temporary files on the workspace filesystem. Moving a file
+# from /tmp onto a Docker Desktop bind mount falls back to copy2, whose metadata
+# preservation is not supported by the Windows bind-mount filesystem.
+export TMPDIR="${OPENHANDS_TMPDIR:-/workspace/.testmap/tmp}"
 export SAVE_TRAJECTORY_PATH="${SAVE_TRAJECTORY_PATH:-/attempt/openhands-trajectories}"
 export OH_PERSISTENCE_DIR="${OH_PERSISTENCE_DIR:-/attempt/openhands-state}"
 export OPENHANDS_SUPPRESS_BANNER="${OPENHANDS_SUPPRESS_BANNER:-1}"
@@ -36,6 +40,7 @@ export NO_COLOR="${NO_COLOR:-1}"
 export TERM="${TERM:-dumb}"
 export TTY_COMPATIBLE="${TTY_COMPATIBLE:-0}"
 export TTY_INTERACTIVE="${TTY_INTERACTIVE:-0}"
+mkdir -p "$TMPDIR"
 mkdir -p "$SAVE_TRAJECTORY_PATH"
 mkdir -p "$OH_PERSISTENCE_DIR"
 
@@ -78,6 +83,7 @@ LLM_MODEL=${LLM_MODEL:-}
 LLM_BASE_URL=${LLM_BASE_URL:-}
 SAVE_TRAJECTORY_PATH=${SAVE_TRAJECTORY_PATH}
 OH_PERSISTENCE_DIR=${OH_PERSISTENCE_DIR}
+TMPDIR=${TMPDIR}
 OPENHANDS_SUPPRESS_BANNER=${OPENHANDS_SUPPRESS_BANNER}
 DISABLE_COLOR=${DISABLE_COLOR}
 NO_COLOR=${NO_COLOR}

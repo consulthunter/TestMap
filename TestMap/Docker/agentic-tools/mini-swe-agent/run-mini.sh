@@ -16,6 +16,9 @@ export MSWEA_CONFIGURED="${MSWEA_CONFIGURED:-true}"
 #   MINI_EXTRA_ARGS="..."
 #   MINI_MODEL="anthropic/claude-sonnet-4-5"
 #   MINI_CONFIG=/attempt/mini-config.yaml
+#   MINI_INCLUDE_DEFAULT_CONFIG=true | false
+#   MINI_PROVIDER="openai"
+#   MINI_API_BASE="https://example.com/v1"
 
 write_metadata_start
 capture_git_before
@@ -44,7 +47,31 @@ if [ -n "${MINI_MODEL:-}" ]; then
 fi
 
 CONFIG_ARGS=()
+if [ -z "${MINI_CONFIG:-}" ] && [ -n "${MINI_API_BASE:-}" ]; then
+  MINI_CONFIG=/attempt/mini-custom-model.yaml
+  export MINI_CONFIG
+  python3 - "${MINI_CONFIG}" <<'PY'
+import json
+import os
+import sys
+
+def quote(value: str) -> str:
+    return json.dumps(value)
+
+with open(sys.argv[1], "w", encoding="utf-8") as output:
+    output.write("model:\n")
+    output.write(f"  model_name: {quote(os.environ['MINI_MODEL'])}\n")
+    output.write("  model_kwargs:\n")
+    output.write(f"    api_base: {quote(os.environ['MINI_API_BASE'])}\n")
+    output.write(f"    custom_llm_provider: {quote(os.environ.get('MINI_PROVIDER', 'openai'))}\n")
+    output.write("  cost_tracking: ignore_errors\n")
+PY
+fi
+
 if [ -n "${MINI_CONFIG:-}" ]; then
+  if [ "${MINI_INCLUDE_DEFAULT_CONFIG:-true}" = "true" ]; then
+    CONFIG_ARGS+=(--config mini.yaml)
+  fi
   CONFIG_ARGS+=(--config "${MINI_CONFIG}")
 fi
 
@@ -65,6 +92,9 @@ TOOL_ID=mini-swe-agent
 MINI_ALLOW_MODE=${MINI_ALLOW_MODE:-yolo}
 MINI_MODEL=${MINI_MODEL:-}
 MINI_CONFIG=${MINI_CONFIG:-}
+MINI_INCLUDE_DEFAULT_CONFIG=${MINI_INCLUDE_DEFAULT_CONFIG:-true}
+MINI_PROVIDER=${MINI_PROVIDER:-}
+MINI_API_BASE=${MINI_API_BASE:-}
 WORKSPACE=/workspace
 ATTEMPT=/attempt
 EOF

@@ -1,6 +1,9 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using TestMap.App;
 using TestMap.Models.AgentTools;
+using TestMap.Models;
+using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef;
@@ -9,6 +12,8 @@ using TestMap.Persistence.Ef.Repositories.AgentTools;
 using TestMap.Services.AgentTools;
 using TestMap.Services.Experiment.Evaluation;
 using TestMap.Services.Experiment.Evaluation.AgentTools;
+using TestMap.Services.Experiment.TaskCards;
+using TestMap.Services.TestGeneration.TargetSelection;
 
 namespace TestMap.UnitTests.AgentTools;
 
@@ -228,6 +233,99 @@ public sealed class AgentToolEvaluationLaneTests
         Assert.Equal(1, attempt.ChangedFilesCount);
         Assert.Equal(1, attempt.TestFilesChanged);
         Assert.Equal(0, attempt.ProductionFilesChanged);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ExecuteAsync_TaskPromptUsesContainerWorkspacePaths()
+    {
+        var workspace = Directory.CreateTempSubdirectory("testmap-agent-workspace-");
+        var output = Directory.CreateTempSubdirectory("testmap-agent-output-");
+        try
+        {
+            await using var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            await using var db = await CreateDbAsync(connection);
+            var (runId, workItemId, candidateId) = await SeedGraphAsync(db);
+
+            var sourceFilePath = Path.Combine(workspace.FullName, "src", "Program.cs");
+            var sourceProjectPath = Path.Combine(workspace.FullName, "src", "App.csproj");
+            var testProjectPath = Path.Combine(workspace.FullName, "tests", "App.Tests.csproj");
+            var testFilePath = Path.Combine(workspace.FullName, "tests", "ProgramTests.cs");
+            var candidate = new CandidateMethod
+            {
+                Id = candidateId,
+                MethodName = "Start",
+                Signature = "public static void Start(TextReader reader, TextWriter writer)"
+            };
+            var context = new ExperimentEvaluationWorkItemContext
+            {
+                WorkItem = new ExperimentMatrixWorkItem
+                {
+                    Id = workItemId,
+                    ExperimentRunId = runId,
+                    CandidateMethodId = candidateId
+                },
+                Candidate = candidate,
+                MethodContext = new CandidateMethodContext
+                {
+                    Method = candidate,
+                    MethodSignature = candidate.Signature,
+                    ContainingClass = "public class Program {}",
+                    TestNamespace = "App.Tests",
+                    TestClassName = "ProgramTests",
+                    TestFilePath = testFilePath,
+                    SourceFilePath = sourceFilePath,
+                    SourceLocation = new CandidateSourceLocation
+                    {
+                        SourceFilePath = sourceFilePath,
+                        StartLine = 1,
+                        EndLine = 10
+                    },
+                    SourceProjectPath = sourceProjectPath,
+                    TestProjectPath = testProjectPath,
+                    TargetBuildFramework = "net10.0",
+                    SolutionFilePath = Path.Combine(workspace.FullName, "App.sln"),
+                    ExampleTest = "[TestMethod] public void Existing() {}",
+                    ExampleTestMetadataSummary = string.Empty,
+                    ProjectTestMetadataSummary = string.Empty,
+                    TestClass = "public class ProgramTests {}",
+                    TestFileContents = string.Empty,
+                    TestSupportContext = "No helpers.",
+                    TestFramework = "MSTest",
+                    TestDependencies = string.Empty,
+                    CoverageGapSummary = "Cover line 1."
+                }
+            };
+            var project = new ProjectModel(directoryPath: workspace.FullName, outputDirPath: output.FullName)
+            {
+                OutputPath = output.FullName
+            };
+            var lane = new AgentToolEvaluationLane(
+                new TestAgentToolRunner { ChangedFiles = [] },
+                new AgentToolEnvironmentResolver(),
+                new ToolAttemptRepository(db),
+                [new ExperimentToolConfig { Id = "copilot", TimeoutMinutes = 45 }],
+                new ProjectContext(project),
+                new TestMapConfig(),
+                new TaskCardWriter());
+
+            var result = await lane.ExecuteAsync(context, default);
+
+            Assert.True(result.Success);
+            var promptPath = Path.Combine(workspace.FullName, ".testmap", "prompt.md");
+            var prompt = await File.ReadAllTextAsync(promptPath);
+            Assert.Contains("Source file: /workspace/src/Program.cs", prompt);
+            Assert.Contains("Source project: /workspace/src/App.csproj", prompt);
+            Assert.Contains("Test project: /workspace/tests/App.Tests.csproj", prompt);
+            Assert.Contains("Test file: /workspace/tests/ProgramTests.cs", prompt);
+            Assert.DoesNotContain(workspace.FullName, prompt);
+        }
+        finally
+        {
+            workspace.Delete(recursive: true);
+            output.Delete(recursive: true);
+        }
     }
 
     /// <summary>

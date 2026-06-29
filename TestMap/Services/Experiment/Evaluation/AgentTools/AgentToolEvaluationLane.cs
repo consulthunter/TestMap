@@ -112,7 +112,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         attempt.StdOutLogPath = logPaths.StdOutLogPath;
         attempt.StdErrLogPath = logPaths.StdErrLogPath;
         attempt.JsonlLogPath = logPaths.JsonlLogPath;
-        var taskCardContent = CreateTaskCardContent(context);
+        var taskCardContent = CreateTaskCardContent(context, attempt.WorkspacePath);
 
         if (_taskCardWriter != null && !string.IsNullOrWhiteSpace(attempt.WorkspacePath))
             await _taskCardWriter.WriteAsync(
@@ -234,7 +234,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             attempt.Id.ToString());
     }
 
-    private static TaskCardContent CreateTaskCardContent(ExperimentEvaluationWorkItemContext context)
+    private static TaskCardContent CreateTaskCardContent(
+        ExperimentEvaluationWorkItemContext context,
+        string? workspacePath = null)
     {
         var methodContext = context.MethodContext;
         var method = context.Candidate;
@@ -263,7 +265,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         return new TaskCardContent
         {
             Card = card,
-            Prompt = BuildPrompt(methodContext, method),
+            Prompt = BuildPrompt(methodContext, method, workspacePath),
             EvidenceSummary = BuildEvidenceSummary(methodContext)
         };
     }
@@ -1253,7 +1255,8 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
 
     private static string BuildPrompt(
         TestMap.Services.TestGeneration.TargetSelection.CandidateMethodContext? context,
-        CandidateMethod method)
+        CandidateMethod method,
+        string? workspacePath = null)
     {
         var targetName = context?.Method.MethodName ?? method.MethodName;
         var signature = context?.MethodSignature ?? method.Signature;
@@ -1270,10 +1273,10 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             return builder.ToString();
 
         builder.AppendLine($"Containing class: {context.ContainingClass}");
-        builder.AppendLine($"Source file: {context.SourceFilePath}");
-        builder.AppendLine($"Source project: {context.SourceProjectPath}");
-        builder.AppendLine($"Test project: {context.TestProjectPath}");
-        builder.AppendLine($"Test file: {context.TestFilePath}");
+        builder.AppendLine($"Source file: {ToContainerWorkspacePath(context.SourceFilePath, workspacePath)}");
+        builder.AppendLine($"Source project: {ToContainerWorkspacePath(context.SourceProjectPath, workspacePath)}");
+        builder.AppendLine($"Test project: {ToContainerWorkspacePath(context.TestProjectPath, workspacePath)}");
+        builder.AppendLine($"Test file: {ToContainerWorkspacePath(context.TestFilePath, workspacePath)}");
         builder.AppendLine($"Test framework: {context.TestFramework}");
         builder.AppendLine();
         builder.AppendLine("Coverage gap:");
@@ -1289,6 +1292,32 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         builder.AppendLine(context.ExampleTest);
 
         return builder.ToString();
+    }
+
+    private static string ToContainerWorkspacePath(string? path, string? workspacePath)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(workspacePath))
+            return path ?? string.Empty;
+
+        var fullPath = Path.GetFullPath(path);
+        var fullWorkspace = Path.GetFullPath(workspacePath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (string.Equals(fullPath, fullWorkspace, comparison))
+            return "/workspace";
+
+        var workspacePrefix = fullWorkspace + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(workspacePrefix, comparison))
+            return path;
+
+        var relative = Path.GetRelativePath(fullWorkspace, fullPath)
+            .Replace(Path.DirectorySeparatorChar, '/')
+            .Replace(Path.AltDirectorySeparatorChar, '/');
+
+        return $"/workspace/{relative}";
     }
 
     private static string BuildEvidenceSummary(

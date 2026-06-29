@@ -8,6 +8,34 @@ public sealed class DockerToolRunnerEnvironmentTests
 {
     [Fact]
     [Trait("Category", "Unit")]
+    public void BuildDockerRunArguments_AddsHostDockerInternalGateway()
+    {
+        var workspace = Directory.CreateTempSubdirectory("testmap-workspace-");
+        var attempt = Directory.CreateTempSubdirectory("testmap-attempt-");
+        try
+        {
+            var args = DockerToolRunner.BuildDockerRunArguments(
+                new ToolRunRequest
+                {
+                    ToolConfig = new ExperimentToolConfig { Id = "mini-swe-agent" },
+                    WorkspacePath = workspace.FullName,
+                    ArtifactPath = attempt.FullName
+                },
+                "testmap-agent-eval-mini-swe-agent:latest");
+
+            var addHostIndex = args.IndexOf("--add-host");
+            Assert.True(addHostIndex >= 0);
+            Assert.Equal("host.docker.internal:host-gateway", args[addHostIndex + 1]);
+        }
+        finally
+        {
+            workspace.Delete(recursive: true);
+            attempt.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void BuildContainerEnvironment_OpenHandsAnthropic_MapsNormalizedProviderTuple()
     {
         var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
@@ -24,6 +52,46 @@ public sealed class DockerToolRunnerEnvironmentTests
         Assert.Equal("anthropic/claude-sonnet-4-5", env["LLM_MODEL"]);
         Assert.Equal("sk-ant", env["LLM_API_KEY"]);
         Assert.Equal("sk-ant", env["ANTHROPIC_API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_OpenHandsCustomOpenAi_MapsEndpoint()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "openhands" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "unsloth/gemma-4-E4B-it-GGUF/BF16",
+                ["TESTMAP_LLM_API_KEY"] = "custom-key",
+                ["TESTMAP_LLM_BASE_URL"] = "http://host.docker.internal:8080/v1/"
+            }
+        });
+
+        Assert.Equal("openai/unsloth/gemma-4-E4B-it-GGUF/BF16", env["LLM_MODEL"]);
+        Assert.Equal("custom-key", env["LLM_API_KEY"]);
+        Assert.Equal("http://host.docker.internal:8080/v1/", env["LLM_BASE_URL"]);
+        Assert.Equal("custom-key", env["OPENAI_API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_OpenHandsAlreadyPrefixedModel_DoesNotDoublePrefix()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "openhands" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "openai/gpt-oss-120b",
+                ["TESTMAP_LLM_API_KEY"] = "custom-key"
+            }
+        });
+
+        Assert.Equal("openai/gpt-oss-120b", env["LLM_MODEL"]);
     }
 
     [Fact]
@@ -98,6 +166,28 @@ public sealed class DockerToolRunnerEnvironmentTests
         Assert.Equal("gemini/gemini-2.5-pro", env["MINI_MODEL"]);
         Assert.Equal("gemini-key", env["GEMINI_API_KEY"]);
         Assert.Equal("gemini-key", env["GOOGLE_API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_MiniSweAgentCustomOpenAi_MapsCustomEndpoint()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "mini-swe-agent" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "unsloth/gemma-4-E4B-it-GGUF/BF16",
+                ["TESTMAP_LLM_API_KEY"] = "custom-key",
+                ["TESTMAP_LLM_BASE_URL"] = "https://models.example.test/v1"
+            }
+        });
+
+        Assert.Equal("openai/unsloth/gemma-4-E4B-it-GGUF/BF16", env["MINI_MODEL"]);
+        Assert.Equal("openai", env["MINI_PROVIDER"]);
+        Assert.Equal("https://models.example.test/v1", env["MINI_API_BASE"]);
+        Assert.Equal("custom-key", env["OPENAI_API_KEY"]);
     }
 
     [Fact]

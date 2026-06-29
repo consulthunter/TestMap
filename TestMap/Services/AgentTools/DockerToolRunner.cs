@@ -145,25 +145,7 @@ public sealed class DockerToolRunner : IAgentToolRunner
             ? TimeSpan.FromSeconds(request.Attempt.TimeoutSeconds)
             : TimeSpan.FromMinutes(Math.Max(1, request.ToolConfig.TimeoutMinutes));
 
-        var args = new List<string>
-        {
-            "run",
-            "--rm",
-            "--name",
-            CreateContainerName(request),
-            "-v",
-            $"{Path.GetFullPath(request.WorkspacePath)}:/workspace",
-            "-v",
-            $"{Path.GetFullPath(request.ArtifactPath)}:/attempt"
-        };
-
-        foreach (var (name, value) in BuildContainerEnvironment(request))
-        {
-            args.Add("-e");
-            args.Add($"{name}={value}");
-        }
-
-        args.Add(imageName);
+        var args = BuildDockerRunArguments(request, imageName);
 
         var result = await RunProcessAsync(
             "docker",
@@ -182,6 +164,33 @@ public sealed class DockerToolRunner : IAgentToolRunner
             TimedOut = result.TimedOut,
             ToolVersion = File.Exists(versionPath) ? File.ReadAllText(versionPath).Trim() : string.Empty
         };
+    }
+
+    public static List<string> BuildDockerRunArguments(ToolRunRequest request, string imageName)
+    {
+        var args = new List<string>
+        {
+            "run",
+            "--rm",
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "--name",
+            CreateContainerName(request),
+            "-v",
+            $"{Path.GetFullPath(request.WorkspacePath)}:/workspace",
+            "-v",
+            $"{Path.GetFullPath(request.ArtifactPath)}:/attempt"
+        };
+
+        foreach (var (name, value) in BuildContainerEnvironment(request))
+        {
+            args.Add("-e");
+            args.Add($"{name}={value}");
+        }
+
+        args.Add(imageName);
+
+        return args;
     }
 
     private IReadOnlyList<string> BuildDockerPrefix(IReadOnlyList<string> args)
@@ -276,6 +285,9 @@ public sealed class DockerToolRunner : IAgentToolRunner
         if (toolId.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
         {
             AddIfMissing(env, "MINI_MODEL", providerModel);
+            AddIfMissing(env, "MINI_PROVIDER", provider);
+            if (env.TryGetValue("TESTMAP_LLM_BASE_URL", out var baseUrl))
+                AddIfMissing(env, "MINI_API_BASE", baseUrl);
             return;
         }
 
@@ -292,17 +304,24 @@ public sealed class DockerToolRunner : IAgentToolRunner
 
     private static string NormalizeProviderModel(string provider, string model)
     {
-        if (string.IsNullOrWhiteSpace(model) || model.Contains('/'))
+        if (string.IsNullOrWhiteSpace(model))
             return model;
 
         return provider switch
         {
-            "anthropic" => $"anthropic/{model}",
-            "google-gemini" or "google-cloud" or "gemini" => $"gemini/{model}",
-            "ollama" => $"ollama/{model}",
-            "amazon" => $"bedrock/{model}",
-            _ => $"openai/{model}"
+            "anthropic" => EnsureProviderPrefix(model, "anthropic"),
+            "google-gemini" or "google-cloud" or "gemini" => EnsureProviderPrefix(model, "gemini"),
+            "ollama" => EnsureProviderPrefix(model, "ollama"),
+            "amazon" => EnsureProviderPrefix(model, "bedrock"),
+            _ => EnsureProviderPrefix(model, "openai")
         };
+    }
+
+    private static string EnsureProviderPrefix(string model, string providerPrefix)
+    {
+        return model.StartsWith($"{providerPrefix}/", StringComparison.OrdinalIgnoreCase)
+            ? model
+            : $"{providerPrefix}/{model}";
     }
 
     private static void AddIfMissing(Dictionary<string, string> env, string key, string value)

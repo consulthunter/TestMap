@@ -50,7 +50,7 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
         }
 
         // 3. Emit base URL when applicable.
-        var baseUrl = ResolveBaseUrl(effectiveProvider, providerConfig);
+        var baseUrl = ResolveBaseUrl(tool, effectiveProvider, providerConfig);
         if (!string.IsNullOrEmpty(baseUrl))
         {
             normalized["TESTMAP_LLM_BASE_URL"] = baseUrl;
@@ -102,8 +102,14 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
         _ => provider.ToString().ToLowerInvariant()
     };
 
-    private static string? ResolveBaseUrl(AiProvider provider, IAiProviderConfig? config)
+    private static string? ResolveBaseUrl(
+        ExperimentToolConfig tool,
+        AiProvider provider,
+        IAiProviderConfig? config)
     {
+        if (!string.IsNullOrWhiteSpace(tool.Endpoint))
+            return tool.Endpoint;
+
         if (provider == AiProvider.CustomOpenAi && config is CustomOpenAiConfig customConfig)
             return customConfig.Endpoint;
 
@@ -130,7 +136,8 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
 
     private static IReadOnlyList<string> ResolveCanonicalSecretNames(AiProvider provider) => provider switch
     {
-        AiProvider.OpenAi or AiProvider.CustomOpenAi => ["OPENAI_API_KEY"],
+        AiProvider.OpenAi => ["OPENAI_API_KEY"],
+        AiProvider.CustomOpenAi => ["CUSTOM_API_KEY"],
         AiProvider.Anthropic => ["ANTHROPIC_API_KEY", "ANTHROPIC_KEY"],
         AiProvider.GoogleGemini or AiProvider.GoogleCloud => ["GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY"],
         _ => []

@@ -24,6 +24,12 @@ public sealed class ExperimentToolConfig
     /// </summary>
     public string? Model { get; init; }
 
+    /// <summary>
+    /// Optional endpoint override for the tool lane. This is useful when the host lane
+    /// reaches a service through localhost but Docker tools need host.docker.internal.
+    /// </summary>
+    public string? Endpoint { get; init; }
+
     public int TimeoutMinutes { get; init; } = 45;
 
     /// <summary>

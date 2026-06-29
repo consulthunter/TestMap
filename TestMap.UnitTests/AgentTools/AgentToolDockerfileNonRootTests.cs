@@ -70,6 +70,35 @@ public sealed class AgentToolDockerfileNonRootTests
         Assert.Contains("/attempt/copilot.events.jsonl", runner);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void MiniSweAgentRunner_GeneratesCustomEndpointModelConfig()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "mini-swe-agent", "run-mini.sh"));
+
+        Assert.Contains("MINI_API_BASE", runner);
+        Assert.Contains("MINI_PROVIDER", runner);
+        Assert.Contains("--config mini.yaml", runner);
+        Assert.Contains("MINI_INCLUDE_DEFAULT_CONFIG", runner);
+        Assert.Contains("/attempt/mini-custom-model.yaml", runner);
+        Assert.Contains("api_base:", runner);
+        Assert.Contains("custom_llm_provider:", runner);
+        Assert.Contains("cost_tracking: ignore_errors", runner);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void OpenHandsRunner_UsesWorkspaceTempDirectoryForAtomicFileEdits()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "openhands", "run-openhands.sh"));
+
+        Assert.Contains("export TMPDIR=\"${OPENHANDS_TMPDIR:-/workspace/.testmap/tmp}\"", runner);
+        Assert.Contains("mkdir -p \"$TMPDIR\"", runner);
+        Assert.Contains("TMPDIR=${TMPDIR}", runner);
+    }
+
     private static string ResolveAgentToolsRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

@@ -63,6 +63,7 @@ public sealed class ExperimentEvaluationConfigTests
         Assert.Empty(config.Metadata);
         Assert.Null(config.Provider);
         Assert.Null(config.Model);
+        Assert.Null(config.Endpoint);
         Assert.Null(config.ImageKey);
     }
 
@@ -112,6 +113,7 @@ public sealed class ExperimentEvaluationConfigTests
             ImageKey = "codex",
             Provider = AiProvider.OpenAi,
             Model = "gpt-4o",
+            Endpoint = "https://models.example.test/v1/",
             TimeoutMinutes = 60,
             Environment = new Dictionary<string, string> { ["KEY"] = "VALUE" },
             RequiredEnvironmentVariables = ["OPENAI_API_KEY"],
@@ -128,6 +130,7 @@ public sealed class ExperimentEvaluationConfigTests
         Assert.Equal("codex", deserialized.ImageKey);
         Assert.Equal(AiProvider.OpenAi, deserialized.Provider);
         Assert.Equal("gpt-4o", deserialized.Model);
+        Assert.Equal("https://models.example.test/v1/", deserialized.Endpoint);
         Assert.Equal(60, deserialized.TimeoutMinutes);
         Assert.Equal("VALUE", deserialized.Environment["KEY"]);
         Assert.Contains("OPENAI_API_KEY", deserialized.RequiredEnvironmentVariables);

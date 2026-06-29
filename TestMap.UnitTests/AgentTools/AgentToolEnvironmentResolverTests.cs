@@ -146,6 +146,48 @@ public sealed class AgentToolEnvironmentResolverTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void Resolve_CustomOpenAiProviderConfigKeyEmpty_UsesCustomApiKey()
+    {
+        var resolver = MakeResolver();
+        var previousCustom = Environment.GetEnvironmentVariable("CUSTOM_API_KEY");
+        var previousOpenAi = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        Environment.SetEnvironmentVariable("CUSTOM_API_KEY", "custom-host-key");
+        Environment.SetEnvironmentVariable("OPENAI_API_KEY", "openai-host-key");
+        try
+        {
+            var tool = new ExperimentToolConfig
+            {
+                Id = "mini-swe-agent",
+                Provider = AiProvider.CustomOpenAi
+            };
+            var providers = new AiProviderConfig
+            {
+                CustomOpenAi = new CustomOpenAiConfig
+                {
+                    ApiKey = string.Empty,
+                    Model = "custom-coder",
+                    Endpoint = "https://models.example.test/v1"
+                }
+            };
+
+            var result = resolver.Resolve(
+                tool,
+                providers,
+                MakeGenerationConfig(AiProvider.CustomOpenAi));
+
+            Assert.True(result.IsValid);
+            Assert.Equal("custom-host-key", result.NormalizedVars["TESTMAP_LLM_API_KEY"]);
+            Assert.DoesNotContain("CUSTOM_API_KEY", result.MissingRequiredSecrets);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CUSTOM_API_KEY", previousCustom);
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", previousOpenAi);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void Resolve_AnthropicProviderConfigKeyEmpty_UsesAnthropicKeyAlias()
     {
         // Arrange
@@ -283,6 +325,35 @@ public sealed class AgentToolEnvironmentResolverTests
         Assert.True(result.NormalizedVars.ContainsKey("TESTMAP_LLM_BASE_URL"));
         Assert.Equal(endpoint, result.NormalizedVars["TESTMAP_LLM_BASE_URL"]);
         Assert.Equal(endpoint, result.PersistableMetadata["base_url"]);
+    }
+
+    /// <summary>
+    /// Tool endpoint override wins over the shared provider endpoint so Docker tools can
+    /// use host.docker.internal while host-side enrichment keeps localhost.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_ToolEndpointOverride_OverridesProviderBaseUrl()
+    {
+        // Arrange
+        var resolver = MakeResolver();
+        var hostEndpoint = "http://localhost:8080/v1/";
+        var containerEndpoint = "http://host.docker.internal:8080/v1/";
+        var tool = new ExperimentToolConfig
+        {
+            Id = "mini-swe-agent",
+            Provider = AiProvider.CustomOpenAi,
+            Endpoint = containerEndpoint
+        };
+        var providers = MakeProviders(customEndpoint: hostEndpoint);
+        var genConfig = MakeGenerationConfig(AiProvider.CustomOpenAi);
+
+        // Act
+        var result = resolver.Resolve(tool, providers, genConfig);
+
+        // Assert
+        Assert.Equal(containerEndpoint, result.NormalizedVars["TESTMAP_LLM_BASE_URL"]);
+        Assert.Equal(containerEndpoint, result.PersistableMetadata["base_url"]);
     }
 
     /// <summary>
