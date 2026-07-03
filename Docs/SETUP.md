@@ -93,7 +93,6 @@ Start with a small candidate limit and one target repository.
 
 ```powershell
 dotnet run --project .\TestMap\TestMap.csproj -- check-projects --config .\TestMap\Config\default-config.json
-dotnet run --project .\TestMap\TestMap.csproj -- static-analysis --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- experiment --config .\TestMap\Config\default-config.json
 ```

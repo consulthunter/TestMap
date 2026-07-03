@@ -1,3 +1,8 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18258537.svg)](https://doi.org/10.5281/zenodo.18258537)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Language](https://img.shields.io/badge/Language-CSharp-blue.svg)
+[![arXiv](https://img.shields.io/badge/arXiv-2606.10211-b31b1b.svg)](https://arxiv.org/abs/2606.10211)
+
 # TestMap
 
 TestMap is a C# repository analysis and test-generation evaluation tool. It ingests repositories,
@@ -39,11 +44,13 @@ Analysis/                     analysis helpers for result datasets
 ```powershell
 dotnet run --project .\TestMap\TestMap.csproj -- setup
 dotnet run --project .\TestMap\TestMap.csproj -- check-projects --config .\TestMap\Config\default-config.json
-dotnet run --project .\TestMap\TestMap.csproj -- static-analysis --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- generate-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- experiment --config .\TestMap\Config\default-config.json
 ```
+
+> **Note:** `generate-tests` is experimental. For measured evaluation runs, prefer
+> `experiment` (see [Stable And Experimental Surfaces](#stable-and-experimental-surfaces)).
 
 ## Documentation
 
@@ -54,10 +61,14 @@ dotnet run --project .\TestMap\TestMap.csproj -- experiment --config .\TestMap\C
 
 ## Stable And Experimental Surfaces
 
-The repository ingestion, static analysis, persistence, and validation plumbing are the platform
+The repository ingestion, analysis, persistence, and validation plumbing are the platform
 layers. The LLM generation lane, repair loops, metric-driven target selection, and agentic tool
 comparison are active evaluation surfaces. They are useful, but should be run with small candidate
 limits first and interpreted as experiment results rather than product guarantees.
+
+The standalone `generate-tests` command is **experimental** — it runs the built-in LLM pipeline
+outside the controlled experiment harness. Use it for ad hoc generation only; use `experiment` for
+anything you intend to measure or report.
 
 For Basic Extension generation, keep `EnableSpeculativePlanning` disabled unless you are deliberately
 running an ablation. The one-shot structured patch path is the recommended default.

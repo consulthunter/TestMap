@@ -28,7 +28,6 @@ For a new repository, run discovery and analysis before generation:
 
 ```powershell
 dotnet run --project .\TestMap\TestMap.csproj -- check-projects --config .\TestMap\Config\default-config.json
-dotnet run --project .\TestMap\TestMap.csproj -- static-analysis --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 ```
 
@@ -36,6 +35,10 @@ dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMa
 need stored source, test, coverage, and mutation evidence.
 
 ## Run Built-In LLM Generation
+
+> **Experimental:** `generate-tests` runs the built-in LLM pipeline outside the controlled
+> experiment harness. Use it for ad hoc generation only; use `experiment` for anything you intend to
+> measure or report.
 
 Use `generate-tests` when you want TestMap to select targets from the configured generation profile
 and run the built-in LLM pipeline:
