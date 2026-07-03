@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="TestMap.EndToEndTests/TestMap.EndToEndTests.csproj" />
+  <Project Path="TestMap.IntegrationTests/TestMap.IntegrationTests.csproj" />
+  <Project Path="TestMap.UnitTests/TestMap.UnitTests.csproj" />
+  <Project Path="TestMap/TestMap.csproj" />
+</Solution>

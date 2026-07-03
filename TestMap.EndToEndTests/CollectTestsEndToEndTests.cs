@@ -219,7 +219,7 @@ public sealed class CollectTestsEndToEndTests : IDisposable
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current != null)
         {
-            if (File.Exists(Path.Combine(current.FullName, "TestMap.sln"))) return current.FullName;
+            if (File.Exists(Path.Combine(current.FullName, "TestMap.slnx"))) return current.FullName;
             current = current.Parent;
         }
 
