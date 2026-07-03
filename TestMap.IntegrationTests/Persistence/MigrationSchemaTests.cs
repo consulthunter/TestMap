@@ -89,7 +89,7 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Equal(7, applied.Count);
+            Assert.Equal(10, applied.Count);
             Assert.Contains(applied, x => x.Contains("InitialCreate"));
             Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
@@ -97,6 +97,9 @@ public sealed class MigrationSchemaTests
             Assert.Contains(applied, x => x.Contains("AddEvaluationTimingMetrics"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptLogPaths"));
             Assert.Contains(applied, x => x.Contains("AddGenerationAttemptModifiedFileSnapshot"));
+            Assert.Contains(applied, x => x.Contains("AddMutantOriginalCode"));
+            Assert.Contains(applied, x => x.Contains("AddGeneratedTestExecutionTestRunId"));
+            Assert.Contains(applied, x => x.Contains("AddGeneratedTestExecutionMemberAndBaseline"));
         });
     }
 
