@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2024-11-07
  * Core structure for storing information
@@ -8,6 +8,7 @@
  */
 
 using Serilog;
+using TestMap.Models.Code;
 using TestMap.Models.Configuration;
 using TestMap.Models.Coverage;
 using TestMap.Models.Results;
@@ -34,20 +35,18 @@ public class ProjectModel
     /// <param name="scripts">Batch or shell scripts defined in the config</param>
     public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "", string runDate = "",
         string directoryPath = "", string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
-        Dictionary<string, List<string>>? testingFrameworks = null,
-        string? databasePath = null, TestMapConfig config = null)
+        string? databasePath = null, TestMapConfig? config = null)
     {
         GitHubUrl = gitHubUrl;
         Owner = owner;
         RepoName = repoName;
         _runDate = runDate;
-        Solutions = new List<AnalysisSolution>();
-        Projects = new List<AnalysisProject>();
+        Solutions = new List<CSharpSolutionModel>();
+        Projects = new List<CSharpProjectModel>();
         DirectoryPath = directoryPath;
         LogsDirPath = logsDirPath;
         OutputDirPath = outputDirPath;
         TempDirPath = tempDirPath;
-        TestingFrameworks = testingFrameworks;
         DatabasePath = databasePath;
         Config = config ?? new TestMapConfig();
 
@@ -70,10 +69,10 @@ public class ProjectModel
     public string? LastAnalyzedCommit { get; set; }
     public string? DatabasePath { get; set; }
 
-    public List<AnalysisSolution> Solutions { get; set; }
-    public List<AnalysisProject> Projects { get; set; }
-    public CoverageReport? CoverageReport { get; set; }
-    public List<TrxTestResult> TestResults { get; set; } = new();
+    public List<CSharpSolutionModel> Solutions { get; set; }
+    public List<CSharpProjectModel> Projects { get; set; }
+    public CoverageReportModel? CoverageReport { get; set; }
+    public List<TestResultModel> TestResults { get; set; } = new();
     public string DirectoryPath { get; set; }
     public string? TempDirPath { get; set; }
     private string? LogsDirPath { get; }

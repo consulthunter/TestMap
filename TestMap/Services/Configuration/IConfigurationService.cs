@@ -1,4 +1,4 @@
-﻿/*
+/*
  * consulthunter
  * 2024-11-07
  * Interface for the configuration

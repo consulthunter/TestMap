@@ -1,0 +1,110 @@
+{
+  "RuntimeConfig": {
+    "Project": {
+      "KeepProjectFiles": true,
+      "AnalyzeLatestCommit": false
+    },
+    "FilePaths": {
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+      "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
+      "TempDirPath": "D:\\Projects\\TestMap\\Temp",
+      "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
+    },
+    "Docker": {
+      "DefaultContext": "desktop-linux",
+      "WindowsContext": "desktop-windows",
+      "WindowsNetwork": "nat",
+      "Images": {
+        "ValidationSdkAll": "testmap-validation-sdk-all:latest",
+        "AgentTools": {
+          "codex": "testmap-agent-eval-codex:latest"
+        }
+      }
+    },
+    "Frameworks": {
+      "NUnit": [ "Test", "TestCase", "TestCaseSource", "Theory" ],
+      "xUnit": [ "Fact", "Theory" ],
+      "MSTest": [ "TestMethod", "DataSource" ],
+      "Microsoft.VisualStudio.TestTools.UnitTesting": [ "TestMethod", "DataSource" ]
+    },
+    "MaxConcurrency": 1,
+    "RunDateFormat": "yyyy-MM-dd"
+  },
+  "TestingConfig": {
+    "GenerationConfig": {
+      "Objective": "test-suite-expansion",
+      "Provider": "openai",
+      "Mode": "chat",
+      "MetricsPath": "coverage-and-mutation",
+      "BudgetMode": "pass-at1",
+      "Temperature": 0,
+      "StepErrorRetries": 0,
+      "StepRetryDelayMs": 1000,
+      "ContextMode": "chained-history",
+      "TargetSelection": {
+        "Strategy": "existing",
+        "CandidateLimit": 1,
+        "ContextMappingMode": "heuristic-with-grounded-preference",
+        "MaxTestCodeDepth": 3,
+        "MaxProductionCallDepth": 3,
+        "MaxIndirectInvocationDepth": 2
+      }
+    }
+  },
+  "MetadataEnrichmentConfig": {
+    "Enabled": true,
+    "UseModel": false
+  },
+  "AiProviderConfig": {
+    "OpenAi": {
+      "Model": "gpt-5.3-codex",
+      "OrgId": "",
+      "ApiKey": "",
+      "Provider": "openai"
+    }
+  },
+  "ExperimentConfig": {
+    "Objective": "test-suite-expansion",
+    "CandidateSelectionStrategy": "metric-driven-improvement",
+    "ContextMappingMode": "heuristic-with-grounded-preference",
+    "Approaches": [ "metrics-driven" ],
+    "MetricsPaths": [ "coverage-and-mutation" ],
+    "BudgetModes": [ "pass-at1" ],
+    "ContextModes": [ "chained-history" ],
+    "Temperature": 0,
+    "IncludeProviders": [ "OpenAi" ],
+    "PreferredProvider": "OpenAi",
+    "CandidateLimit": 1,
+    "MinCoverageThreshold": 0.0,
+    "MaxCoverageThreshold": 0.99,
+    "StepErrorRetries": 0,
+    "StepRetryDelayMs": 1000,
+    "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output\\codex-tool-experiment-results.csv",
+    "IncludeDetailedErrors": true,
+    "Evaluation": {
+      "TestMap": {
+        "Enabled": false
+      },
+      "Tools": {
+        "Enabled": true,
+        "ToolIds": [ "codex" ],
+        "RequireAvailabilityInSetup": true
+      }
+    },
+    "Tools": [
+      {
+        "Id": "codex",
+        "ImageKey": "codex",
+        "Provider": "OpenAi",
+        "Model": "gpt-5.1",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [ "OPENAI_API_KEY" ],
+        "Environment": {
+          "CODEX_REASONING_EFFORT": "high",
+          "CODEX_REASONING_SUMMARY": "auto",
+          "CODEX_NETWORK_ACCESS": "true"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "RuntimeConfig": {
+    "Project": {
+      "KeepProjectFiles": true,
+      "AnalyzeLatestCommit": false
+    },
+    "FilePaths": {
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+      "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
+      "TempDirPath": "D:\\Projects\\TestMap\\Temp",
+      "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
+    },
+    "Docker": {
+      "DefaultContext": "desktop-linux",
+      "WindowsContext": "desktop-windows",
+      "WindowsNetwork": "nat",
+      "Images": {
+        "ValidationSdkAll": "testmap-validation-sdk-all:latest",
+        "AgentTools": {
+          "gemini": "testmap-agent-eval-gemini:latest"
+        }
+      }
+    },
+    "Frameworks": {
+      "NUnit": [ "Test", "TestCase", "TestCaseSource", "Theory" ],
+      "xUnit": [ "Fact", "Theory" ],
+      "MSTest": [ "TestMethod", "DataSource" ],
+      "Microsoft.VisualStudio.TestTools.UnitTesting": [ "TestMethod", "DataSource" ]
+    },
+    "MaxConcurrency": 1,
+    "RunDateFormat": "yyyy-MM-dd"
+  },
+  "TestingConfig": {
+    "GenerationConfig": {
+      "Objective": "test-suite-expansion",
+      "Provider": "google-gemini",
+      "Mode": "chat",
+      "MetricsPath": "coverage-and-mutation",
+      "BudgetMode": "pass-at1",
+      "Temperature": 0,
+      "StepErrorRetries": 0,
+      "StepRetryDelayMs": 1000,
+      "ContextMode": "chained-history",
+      "TargetSelection": {
+        "Strategy": "existing",
+        "CandidateLimit": 1,
+        "ContextMappingMode": "heuristic-with-grounded-preference",
+        "MaxTestCodeDepth": 3,
+        "MaxProductionCallDepth": 3,
+        "MaxIndirectInvocationDepth": 2
+      }
+    }
+  },
+  "MetadataEnrichmentConfig": {
+    "Enabled": true,
+    "UseModel": false
+  },
+  "AiProviderConfig": {
+    "GoogleGemini": {
+      "Model": "gemini-2.5-pro",
+      "ApiKey": "",
+      "Provider": "google-gemini"
+    }
+  },
+  "ExperimentConfig": {
+    "Objective": "test-suite-expansion",
+    "CandidateSelectionStrategy": "metric-driven-improvement",
+    "ContextMappingMode": "heuristic-with-grounded-preference",
+    "Approaches": [ "metrics-driven" ],
+    "MetricsPaths": [ "coverage-and-mutation" ],
+    "BudgetModes": [ "pass-at1" ],
+    "ContextModes": [ "chained-history" ],
+    "Temperature": 0,
+    "IncludeProviders": [ "GoogleGemini" ],
+    "PreferredProvider": "GoogleGemini",
+    "CandidateLimit": 1,
+    "MinCoverageThreshold": 0.0,
+    "MaxCoverageThreshold": 0.99,
+    "StepErrorRetries": 0,
+    "StepRetryDelayMs": 1000,
+    "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output\\gemini-tool-experiment-results.csv",
+    "IncludeDetailedErrors": true,
+    "Evaluation": {
+      "TestMap": {
+        "Enabled": false
+      },
+      "Tools": {
+        "Enabled": true,
+        "ToolIds": [ "gemini" ],
+        "RequireAvailabilityInSetup": true
+      }
+    },
+    "Tools": [
+      {
+        "Id": "gemini",
+        "ImageKey": "gemini",
+        "Provider": "GoogleGemini",
+        "Model": "gemini-2.5-pro",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [ "GEMINI_API_KEY" ],
+        "Environment": {
+          "GEMINI_MODEL": "gemini-2.5-pro",
+          "GEMINI_OUTPUT_FORMAT": "stream-json",
+          "GEMINI_APPROVAL_MODE": "yolo",
+          "GEMINI_SANDBOX": "false"
+        }
+      }
+    ]
+  }
+}

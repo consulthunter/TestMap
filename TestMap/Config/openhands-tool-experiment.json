@@ -1,0 +1,107 @@
+{
+  "RuntimeConfig": {
+    "Project": {
+      "KeepProjectFiles": true,
+      "AnalyzeLatestCommit": false
+    },
+    "FilePaths": {
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+      "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
+      "TempDirPath": "D:\\Projects\\TestMap\\Temp",
+      "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
+    },
+    "Docker": {
+      "DefaultContext": "desktop-linux",
+      "WindowsContext": "desktop-windows",
+      "WindowsNetwork": "nat",
+      "Images": {
+        "ValidationSdkAll": "testmap-validation-sdk-all:latest",
+        "AgentTools": {
+          "openhands": "testmap-agent-eval-openhands:latest"
+        }
+      }
+    },
+    "Frameworks": {
+      "NUnit": [ "Test", "TestCase", "TestCaseSource", "Theory" ],
+      "xUnit": [ "Fact", "Theory" ],
+      "MSTest": [ "TestMethod", "DataSource" ],
+      "Microsoft.VisualStudio.TestTools.UnitTesting": [ "TestMethod", "DataSource" ]
+    },
+    "MaxConcurrency": 1,
+    "RunDateFormat": "yyyy-MM-dd"
+  },
+  "TestingConfig": {
+    "GenerationConfig": {
+      "Objective": "test-suite-expansion",
+      "Provider": "anthropic",
+      "Mode": "chat",
+      "MetricsPath": "coverage-and-mutation",
+      "BudgetMode": "pass-at1",
+      "Temperature": 0,
+      "StepErrorRetries": 0,
+      "StepRetryDelayMs": 1000,
+      "ContextMode": "chained-history",
+      "TargetSelection": {
+        "Strategy": "existing",
+        "CandidateLimit": 1,
+        "ContextMappingMode": "heuristic-with-grounded-preference",
+        "MaxTestCodeDepth": 3,
+        "MaxProductionCallDepth": 3,
+        "MaxIndirectInvocationDepth": 2
+      }
+    }
+  },
+  "MetadataEnrichmentConfig": {
+    "Enabled": true,
+    "UseModel": false
+  },
+  "AiProviderConfig": {
+    "Anthropic": {
+      "Model": "claude-sonnet-4-6",
+      "ApiKey": "",
+      "Provider": "anthropic"
+    }
+  },
+  "ExperimentConfig": {
+    "Objective": "test-suite-expansion",
+    "CandidateSelectionStrategy": "metric-driven-improvement",
+    "ContextMappingMode": "heuristic-with-grounded-preference",
+    "Approaches": [ "metrics-driven" ],
+    "MetricsPaths": [ "coverage-and-mutation" ],
+    "BudgetModes": [ "pass-at1" ],
+    "ContextModes": [ "chained-history" ],
+    "Temperature": 0,
+    "IncludeProviders": [ "Anthropic" ],
+    "PreferredProvider": "Anthropic",
+    "CandidateLimit": 1,
+    "MinCoverageThreshold": 0.0,
+    "MaxCoverageThreshold": 0.99,
+    "StepErrorRetries": 0,
+    "StepRetryDelayMs": 1000,
+    "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output\\openhands-tool-experiment-results.csv",
+    "IncludeDetailedErrors": true,
+    "Evaluation": {
+      "TestMap": {
+        "Enabled": false
+      },
+      "Tools": {
+        "Enabled": true,
+        "ToolIds": [ "openhands" ],
+        "RequireAvailabilityInSetup": true
+      }
+    },
+    "Tools": [
+      {
+        "Id": "openhands",
+        "ImageKey": "openhands",
+        "Provider": "Anthropic",
+        "Model": "claude-sonnet-4-6",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [],
+        "Environment": {
+          "OPENHANDS_APPROVAL_MODE": "always-approve"
+        }
+      }
+    ]
+  }
+}

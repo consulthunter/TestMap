@@ -19,9 +19,9 @@ public class CoverageMethodResult
 
     // Related test class info (null if none)
     public int TestClassId { get; set; }
-    public string TestClassName { get; set; }
-    public string TestFramework { get; set; }
-    public string TestClassBody { get; set; }
+    public string TestClassName { get; set; } = string.Empty;
+    public string TestFramework { get; set; } = string.Empty;
+    public string TestClassBody { get; set; } = string.Empty;
 
     // Test class location (nullable since not all methods have tests)
     public int TestClassLineStart { get; set; }
@@ -30,14 +30,14 @@ public class CoverageMethodResult
     public int TestClassBodyEnd { get; set; }
 
     // Source file info
-    public string TestFilePath { get; set; }
-    public string TestDependencies { get; set; }
-    public string TestNamespace { get; set; }
+    public string TestFilePath { get; set; } = string.Empty;
+    public string TestDependencies { get; set; } = string.Empty;
+    public string TestNamespace { get; set; } = string.Empty;
 
     // Test method info
     public int TestMethodId { get; set; }
-    public string TestMethodName { get; set; }
-    public string TestMethodBody { get; set; }
+    public string TestMethodName { get; set; } = string.Empty;
+    public string TestMethodBody { get; set; } = string.Empty;
 
     public string SolutionFilePath { get; set; } = string.Empty;
 }

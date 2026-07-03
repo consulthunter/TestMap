@@ -1,0 +1,68 @@
+namespace TestMap.Models.Experiment;
+
+/// <summary>
+/// Represents the execution result of a generated test.
+/// </summary>
+public class TestExecution
+{
+    public int Id { get; set; }
+    public int GenerationAttemptId { get; set; }
+    public int? TestRunId { get; set; }
+    /// <summary>Pre-attempt baseline test run id (the "before" measurement). Mirrors the tool lane's targeted baseline.</summary>
+    public int? BaselineTestRunId { get; set; }
+    /// <summary>DB id of the persisted generated-test member, for linking to its invocations/assertions.</summary>
+    public int? MemberId { get; set; }
+    public string? GeneratedTestCode { get; set; }
+    public string? GeneratedTestMethodName { get; set; }
+    public bool CompilationSuccess { get; set; }
+    public bool TestsExecuted { get; set; }
+    public bool TestPassed { get; set; }
+    public double CoverageAfter { get; set; }
+    public double CoverageImprovement { get; set; }
+    public double? BaselineMutationScore { get; set; }
+    public double? MutationScoreAfter { get; set; }
+    public double? MutationScoreImprovement { get; set; }
+    public TestClassification Classification { get; set; } = TestClassification.ValidationFailed;
+    public string ValidationResultJson { get; set; } = string.Empty;
+    public bool? Accepted { get; set; }
+    public string? AcceptanceReason { get; set; }
+    public string ValidationRuleDecisionSnapshotJson { get; set; } = string.Empty;
+    public string ClassificationRuleDecisionSnapshotJson { get; set; } = string.Empty;
+    public TestFailureKind FailureKind { get; set; } = TestFailureKind.None;
+    public string? CompilationErrors { get; set; }
+    public string? RuntimeErrors { get; set; }
+    public string? AssertionErrors { get; set; }
+    public string? FailureStage { get; set; }
+    public string? FailureCategory { get; set; }
+    public string? FailureSummary { get; set; }
+    public string? StructuredErrors { get; set; }
+    public string? ErrorLogs { get; set; }
+    public bool RoslynValidationSucceeded { get; set; } = true;
+    public bool RoslynValidationSkipped { get; set; }
+    public int RoslynDiagnosticsBeforeCount { get; set; }
+    public int RoslynDiagnosticsAfterCount { get; set; }
+    public int NewRoslynDiagnosticsCount { get; set; }
+    public string? NewRoslynDiagnostics { get; set; }
+    public long? ExecutionTimeMs { get; set; }
+    public DateTime ExecutedAt { get; set; }
+
+    public virtual GenerationAttempt? GenerationAttempt { get; set; }
+
+    // -----------------------------------------------------------------------
+    // Transient fields — NOT persisted to generated_test_executions.
+    // Carry patch metadata back to ExperimentOrchestrationService so it can
+    // write the values to the generation_attempts columns.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Machine-readable patch outcome from <c>BasicExtensionPatchApplicationService</c>.
+    /// Null when the BasicExtension patch path was not taken.
+    /// </summary>
+    public string? PatchApplicationOutcome { get; set; }
+
+    /// <summary>Number of new <c>using</c> directives added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedUsingCount { get; set; }
+
+    /// <summary>Number of helper methods added by the patch applier (0 for non-patch paths).</summary>
+    public int AppliedHelperCount { get; set; }
+}

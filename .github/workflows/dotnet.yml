@@ -9,6 +9,10 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   build:
 
@@ -19,7 +23,17 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0
+          dotnet-version: 10.0.x
+      - name: Authenticate to GitHub Packages
+        # Adds a token to the "github" source declared in nuget.config so restore can read
+        # DotNetCodeMetrics.Core / XNoseNext.Core. Uses PACKAGES_PAT if set, else the built-in
+        # GITHUB_TOKEN (which only works if the packages grant this repository read access).
+        run: >
+          dotnet nuget update source github
+          --username consulthunter
+          --password ${{ secrets.GITHUB_TOKEN }}
+          --store-password-in-clear-text
+          --configfile nuget.config
       - name: Restore dependencies
         run: dotnet restore
       - name: Build
