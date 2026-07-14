@@ -49,7 +49,16 @@ ANTHROPIC_API_KEY=...
 GEMINI_API_KEY=...
 GOOGLE_API_KEY=...
 GITHUB_COPILOT_TOKEN=...
+GITHUB_TOKEN=...
 ```
+
+`GITHUB_TOKEN` is a GitHub personal access token (PAT). It is **required** by
+`check-projects`, which queries the GitHub API to determine whether each target repository has
+tests. Without a valid token the API call fails and every repository is written to
+`repos_without_tests.txt`, regardless of its actual contents. Use a classic PAT with `repo`
+(or `public_repo` for public targets only), or a fine-grained token with Contents: read. Tokens
+expire — if a run that previously worked suddenly reports that all repositories have no tests, a
+lapsed or wrongly scoped `GITHUB_TOKEN` is the usual cause.
 
 Avoid shell syntax in `.env`:
 

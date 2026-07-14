@@ -83,6 +83,7 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
                 addedLinesByPath.TryGetValue(Path.GetFullPath(x.FilePath), out var addedLines)
                 && addedLines.Contains(x.Location.StartLineNumber))
             .Select(x => x.Id)
+            .Distinct()
             .ToList();
 
         if (memberIds.Count == 0)
@@ -90,12 +91,16 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
 
         // Look up existing source-test mappings for these test members so we can
         // optionally record which candidate they map to.
-        var mappingByMemberId = await (
+        var mappingRows = await (
             from mapping in _dbContext.SourceTestMappings
-            where memberIds.Contains(mapping.TestMemberId)
-            orderby mapping.Confidence descending
+            where mapping.ProjectId == projectId
+                  && memberIds.Contains(mapping.TestMemberId)
+            orderby mapping.Confidence descending, mapping.Id descending
             select new { mapping.TestMemberId, MappingId = mapping.Id }
-        ).ToDictionaryAsync(x => x.TestMemberId, x => x.MappingId, cancellationToken);
+        ).ToListAsync(cancellationToken);
+        var mappingByMemberId = mappingRows
+            .GroupBy(x => x.TestMemberId)
+            .ToDictionary(x => x.Key, x => x.First().MappingId);
 
         var rows = memberIds.Select(memberId => new ToolAttemptGeneratedTest
         {

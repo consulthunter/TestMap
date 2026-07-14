@@ -31,6 +31,12 @@ dotnet run --project .\TestMap\TestMap.csproj -- check-projects --config .\TestM
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 ```
 
+> **Requires a GitHub token:** `check-projects` queries the GitHub API to decide whether each
+> target repository has tests, so a valid `GITHUB_TOKEN` PAT must be set in `TestMap/.env` (or the
+> process environment). If the token is missing, expired, or wrongly scoped, every repository is
+> classified into `repos_without_tests.txt` even when it clearly has tests. See
+> [Setup — Secrets](SETUP.md#secrets) for scope and token details.
+
 `collect-tests` is the important step before experiments because candidate selection and validation
 need stored source, test, coverage, and mutation evidence.
 
@@ -82,6 +88,60 @@ Start small:
 ```
 
 Then add dimensions one at a time.
+
+## Chain Runs Across Separately Hosted Models
+
+Use a candidate cohort when only one custom model endpoint can be active at a time. The first run
+creates and freezes a random candidate sample. Later runs reuse that sample while changing the model
+or evaluation lane.
+
+Ready-to-run paired examples are available at
+`TestMap/Config/candidate-cohort-testmap-custom-model.json` and
+`TestMap/Config/candidate-cohort-mini-swe-custom-model.json`.
+
+In the first model's config:
+
+```json
+{
+  "ExperimentConfig": {
+    "ExperimentSeriesId": "hosted-model-comparison-2026-07",
+    "CandidateLimit": 5,
+    "CandidateCohort": {
+      "Id": "hosted-model-comparison-cohort-a",
+      "Mode": "create",
+      "Randomize": true
+    },
+    "IncludeProviders": ["CustomOpenAi"]
+  }
+}
+```
+
+Run that config normally. For the second and later models, keep the series ID, cohort ID, candidate
+limit, selection settings, coverage thresholds, repository, and commit unchanged. Switch only the
+cohort mode and the model/lane settings:
+
+```json
+{
+  "ExperimentConfig": {
+    "ExperimentSeriesId": "hosted-model-comparison-2026-07",
+    "CandidateLimit": 5,
+    "CandidateCohort": {
+      "Id": "hosted-model-comparison-cohort-a",
+      "Mode": "reuse"
+    },
+    "IncludeProviders": ["CustomOpenAi"]
+  }
+}
+```
+
+Each invocation remains a separate execution run with its own attempts and results. The runs share
+the immutable candidate cohort and experiment series. The series ID also acts as the resume group
+unless `Resume.ResumeRunId` explicitly overrides it, so rerunning the same model configuration can
+skip completed work while a different model still receives its own work items.
+
+The project must keep using the same `analysis.db`. Reuse fails rather than silently selecting new
+candidates when the cohort is missing or incompatible. Each chained execution still performs its
+normal baseline and post-attempt measurement workflow.
 
 ## Run Tool Evaluation
 
@@ -151,6 +211,7 @@ workspace and then measure what changed. Both are summarized in the experiment C
 
 Use the CSV for quick analysis:
 
+- experiment series and candidate cohort identifiers for joining chained runs
 - provider and model
 - budget mode and attempt number
 - generated test name

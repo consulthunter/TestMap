@@ -47,6 +47,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     private readonly ExperimentRunRepository _experimentRunRepo;
     private readonly ExperimentMatrixWorkItemRepository _workItemRepo;
     private readonly CandidateMethodRepository _candidateMethodRepo;
+    private readonly CandidateCohortService _candidateCohortService;
     private readonly GenerationAttemptRepository _attemptRepo;
     private readonly GenerationStepRepository _stepRepo;
     private readonly TestExecutionRepository _executionRepo;
@@ -87,6 +88,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         ExperimentRunRepository experimentRunRepo,
         ExperimentMatrixWorkItemRepository workItemRepo,
         CandidateMethodRepository candidateMethodRepo,
+        CandidateCohortService candidateCohortService,
         GenerationAttemptRepository attemptRepo,
         GenerationStepRepository stepRepo,
         TestExecutionRepository executionRepo,
@@ -120,6 +122,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _experimentRunRepo = experimentRunRepo;
         _workItemRepo = workItemRepo;
         _candidateMethodRepo = candidateMethodRepo;
+        _candidateCohortService = candidateCohortService;
         _attemptRepo = attemptRepo;
         _stepRepo = stepRepo;
         _executionRepo = executionRepo;
@@ -152,6 +155,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CancellationToken cancellationToken = default)
     {
         _activeExperimentConfig = config;
+        CandidateCohortService.PrepareConfiguration(config);
         await _workspace.EnsureWorkspaceReadyAsync(cancellationToken);
         _artifactCleanupService.CleanupProjectDirectory(false);
         var experimentStopwatch = Stopwatch.StartNew();
@@ -174,6 +178,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             CandidateSelectionStrategy = config.CandidateSelectionStrategy?.ToString()
                                          ?? string.Empty,
             CandidateLimit = config.CandidateLimit,
+            ExperimentSeriesId = config.ExperimentSeriesId ?? string.Empty,
             ResultsFilePath = ResolveResultsFilePath(config),
             Status = "Running"
         };
@@ -183,10 +188,48 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
         try
         {
-            var candidateMethods = await _methodSelection.SelectCandidateMethodsAsync(
-                config,
-                requirePassingExistingTest: ShouldRequirePassingExistingTest(config.Objective),
-                cancellationToken);
+            var repositoryIdentity = GetRepositoryIdentity();
+            var commitHash = GetCommitHash();
+            CandidateCohortResolution? cohortResolution = null;
+            List<CandidateMethod> candidateMethods;
+
+            if (config.CandidateCohort.Mode == CandidateCohortMode.Reuse)
+            {
+                cohortResolution = await _candidateCohortService.ReuseAsync(
+                    config,
+                    _config,
+                    _context.Project.DbId,
+                    repositoryIdentity,
+                    commitHash,
+                    cancellationToken);
+                candidateMethods = cohortResolution.Candidates.ToList();
+            }
+            else
+            {
+                candidateMethods = await _methodSelection.SelectCandidateMethodsAsync(
+                    config,
+                    requirePassingExistingTest: ShouldRequirePassingExistingTest(config.Objective),
+                    cancellationToken);
+
+                if (config.CandidateCohort.Mode == CandidateCohortMode.Create)
+                {
+                    cohortResolution = await _candidateCohortService.CreateAsync(
+                        config,
+                        _config,
+                        _context.Project.DbId,
+                        repositoryIdentity,
+                        commitHash,
+                        candidateMethods,
+                        cancellationToken);
+                    candidateMethods = cohortResolution.Candidates.ToList();
+                }
+            }
+
+            if (cohortResolution != null)
+            {
+                experimentRun.CandidateCohortId = cohortResolution.Cohort.Id;
+                await _experimentRunRepo.UpdateAsync(experimentRun, cancellationToken);
+            }
             _context.Project.Logger?.Information($"Selected {candidateMethods.Count} candidate methods");
 
             foreach (var method in candidateMethods)
@@ -385,6 +428,28 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
+    private string ResolveResumeGroupId(ExperimentRun experimentRun)
+    {
+        if (!string.IsNullOrWhiteSpace(_activeExperimentConfig?.Resume.ResumeRunId))
+            return _activeExperimentConfig.Resume.ResumeRunId;
+        if (!string.IsNullOrWhiteSpace(_activeExperimentConfig?.ExperimentSeriesId))
+            return _activeExperimentConfig.ExperimentSeriesId;
+        return experimentRun.Id.ToString();
+    }
+
+    private string GetRepositoryIdentity()
+    {
+        return $"{_context.Project.Owner}/{_context.Project.RepoName}";
+    }
+
+    private string GetCommitHash()
+    {
+        return _context.Project.Commit ??
+               _context.Project.LastAnalyzedCommit ??
+               _context.CurrentCommit ??
+               string.Empty;
+    }
+
     private sealed record MutationBaselineKey(
         string SourceProjectPath,
         string TestProjectPath,
@@ -441,11 +506,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         GenerationExperimentMatrixItem matrixItem,
         CancellationToken cancellationToken)
     {
-        var resumeGroupId = string.IsNullOrWhiteSpace(_activeExperimentConfig?.Resume.ResumeRunId)
-            ? experimentRun.Id.ToString()
-            : _activeExperimentConfig!.Resume.ResumeRunId!;
-        var repositoryIdentity = $"{_context.Project.Owner}/{_context.Project.RepoName}";
-        var commitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty;
+        var resumeGroupId = ResolveResumeGroupId(experimentRun);
+        var repositoryIdentity = GetRepositoryIdentity();
+        var commitHash = GetCommitHash();
         var candidateWorkItem = _resumeService.CreateWorkItem(
             experimentRun.Id,
             resumeGroupId,
@@ -713,111 +776,123 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     ExperimentMatrixWorkItemStatus.Running,
                     cancellationToken: cancellationToken);
 
-                var anySucceeded = false;
-                string? lastError = null;
-                for (var attemptNumber = 1; attemptNumber <= GetAgentToolAttemptCount(budgetMode); attemptNumber++)
+                try
                 {
-                    // Execute and refresh inside try/finally so the workspace is always reset to HEAD
-                    // before the next tool attempt runs, even on crash or timeout.
-                    ExperimentEvaluationAttemptResult? result = null;
-                    Stopwatch? validationStopwatch = null;
-                    try
+                    var anySucceeded = false;
+                    string? lastError = null;
+                    for (var attemptNumber = 1; attemptNumber <= GetAgentToolAttemptCount(budgetMode); attemptNumber++)
                     {
-                        result = await lane.ExecuteAsync(
-                            new ExperimentEvaluationWorkItemContext
-                            {
-                                WorkItem = workItem,
-                                Candidate = candidateMethod,
-                                TargetedBaselineId = targetedBaseline.TestRunId,
-                                MethodContext = methodContext
-                            },
-                            cancellationToken);
-
-                        anySucceeded |= result.Success;
-                        lastError = result.ErrorMessage ?? lastError;
-
-                        if (result.ToolAttempt is { RunStatus: ToolRunStatus.Completed, ChangedFilesCount: > 0 })
+                        // Execute and refresh inside try/finally so the workspace is always reset to HEAD
+                        // before the next tool attempt runs, even on crash or timeout.
+                        ExperimentEvaluationAttemptResult? result = null;
+                        Stopwatch? validationStopwatch = null;
+                        try
                         {
-                            validationStopwatch = Stopwatch.StartNew();
-
-                            // Re-analyze the workspace: update the code graph, collect code metrics,
-                            // and collect test smells for the test project. This must run before
-                            // LinkAsync so that newly-generated test member IDs exist in the DB.
-                            var analysis = await _toolPostAttemptAnalysisService.AnalyzeAsync(
-                                methodContext,
+                            result = await lane.ExecuteAsync(
+                                new ExperimentEvaluationWorkItemContext
+                                {
+                                    WorkItem = workItem,
+                                    Candidate = candidateMethod,
+                                    TargetedBaselineId = targetedBaseline.TestRunId,
+                                    MethodContext = methodContext
+                                },
                                 cancellationToken);
-                            if (!analysis.Analyzed)
-                                _context.Project.Logger?.Warning(
-                                    "Skipping post-attempt analysis for tool attempt {ToolAttemptId}: {Reason}",
-                                    result.ToolAttempt.Id,
-                                    analysis.SkipReason);
 
-                            // Link test members in changed files to the tool attempt.
-                            var linkResult = await _toolAttemptGeneratedTestService.LinkAsync(
-                                result.ToolAttempt,
-                                result.ChangedFiles,
-                                _context.Project.DbId,
-                                cancellationToken);
-                            if (linkResult.LinkedCount > 0)
-                                _context.Project.Logger?.Information(
-                                    "Linked {Count} test member(s) to tool attempt {ToolAttemptId}.",
-                                    linkResult.LinkedCount,
-                                    result.ToolAttempt.Id);
+                            anySucceeded |= result.Success;
+                            lastError = result.ErrorMessage ?? lastError;
 
-                            // Run build/test measurement on the modified workspace and reclassify outcome.
-                            var measurement = await _toolPostAttemptMeasurementService.MeasureAsync(
-                                result.ToolAttempt,
-                                candidateMethod,
-                                methodContext,
-                                cancellationToken);
-                            if (!measurement.Measured)
-                                _context.Project.Logger?.Warning(
-                                    "Skipping post-attempt measurement for tool attempt {ToolAttemptId}: {Reason}",
-                                    result.ToolAttempt.Id,
-                                    measurement.SkipReason);
+                            if (result.ToolAttempt is { RunStatus: ToolRunStatus.Completed, ChangedFilesCount: > 0 })
+                            {
+                                validationStopwatch = Stopwatch.StartNew();
+
+                                // Re-analyze the workspace: update the code graph, collect code metrics,
+                                // and collect test smells for the test project. This must run before
+                                // LinkAsync so that newly-generated test member IDs exist in the DB.
+                                var analysis = await _toolPostAttemptAnalysisService.AnalyzeAsync(
+                                    methodContext,
+                                    cancellationToken);
+                                if (!analysis.Analyzed)
+                                    _context.Project.Logger?.Warning(
+                                        "Skipping post-attempt analysis for tool attempt {ToolAttemptId}: {Reason}",
+                                        result.ToolAttempt.Id,
+                                        analysis.SkipReason);
+
+                                // Link test members in changed files to the tool attempt.
+                                var linkResult = await _toolAttemptGeneratedTestService.LinkAsync(
+                                    result.ToolAttempt,
+                                    result.ChangedFiles,
+                                    _context.Project.DbId,
+                                    cancellationToken);
+                                if (linkResult.LinkedCount > 0)
+                                    _context.Project.Logger?.Information(
+                                        "Linked {Count} test member(s) to tool attempt {ToolAttemptId}.",
+                                        linkResult.LinkedCount,
+                                        result.ToolAttempt.Id);
+
+                                // Run build/test measurement on the modified workspace and reclassify outcome.
+                                var measurement = await _toolPostAttemptMeasurementService.MeasureAsync(
+                                    result.ToolAttempt,
+                                    candidateMethod,
+                                    methodContext,
+                                    cancellationToken);
+                                if (!measurement.Measured)
+                                    _context.Project.Logger?.Warning(
+                                        "Skipping post-attempt measurement for tool attempt {ToolAttemptId}: {Reason}",
+                                        result.ToolAttempt.Id,
+                                        measurement.SkipReason);
+                            }
                         }
-                    }
-                    finally
-                    {
+                        finally
+                        {
+                            if (result?.ToolAttempt != null)
+                            {
+                                validationStopwatch?.Stop();
+                                result.ToolAttempt.GenerationDurationSeconds = result.ToolAttempt.ElapsedSeconds;
+                                result.ToolAttempt.ValidationDurationSeconds =
+                                    validationStopwatch?.Elapsed.TotalSeconds ?? 0;
+                                result.ToolAttempt.TotalAttemptDurationSeconds =
+                                    result.ToolAttempt.GenerationDurationSeconds
+                                    + result.ToolAttempt.ValidationDurationSeconds;
+                                result.ToolAttempt.CompletedAt = DateTime.UtcNow;
+                                await _toolAttemptRepo.UpdateAsync(result.ToolAttempt, cancellationToken);
+                            }
+
+                            // Always restore the workspace to HEAD so the next tool attempt starts clean.
+                            await _workspace.RollbackChangesAsync(cancellationToken);
+                        }
+
                         if (result?.ToolAttempt != null)
                         {
-                            validationStopwatch?.Stop();
-                            result.ToolAttempt.GenerationDurationSeconds = result.ToolAttempt.ElapsedSeconds;
-                            result.ToolAttempt.ValidationDurationSeconds =
-                                validationStopwatch?.Elapsed.TotalSeconds ?? 0;
-                            result.ToolAttempt.TotalAttemptDurationSeconds =
-                                result.ToolAttempt.GenerationDurationSeconds
-                                + result.ToolAttempt.ValidationDurationSeconds;
-                            result.ToolAttempt.CompletedAt = DateTime.UtcNow;
-                            await _toolAttemptRepo.UpdateAsync(result.ToolAttempt, cancellationToken);
+                            var toolRows = await CreateToolResultFileRowsAsync(
+                                experimentRun,
+                                candidateMethod,
+                                methodContext,
+                                workItem,
+                                result.ToolAttempt,
+                                attemptNumber,
+                                cancellationToken);
+                            foreach (var toolRow in toolRows)
+                                await _resultsWriter.AppendAsync(experimentRun, toolRow, cancellationToken);
                         }
-
-                        // Always restore the workspace to HEAD so the next tool attempt starts clean.
-                        await _workspace.RollbackChangesAsync(cancellationToken);
                     }
 
-                    if (result?.ToolAttempt != null)
-                    {
-                        var toolRows = await CreateToolResultFileRowsAsync(
-                            experimentRun,
-                            candidateMethod,
-                            methodContext,
-                            workItem,
-                            result.ToolAttempt,
-                            attemptNumber,
-                            cancellationToken);
-                        foreach (var toolRow in toolRows)
-                            await _resultsWriter.AppendAsync(experimentRun, toolRow, cancellationToken);
-                    }
+                    await _workItemRepo.UpdateStatusAsync(
+                        workItem.Id,
+                        anySucceeded
+                            ? ExperimentMatrixWorkItemStatus.Completed
+                            : ExperimentMatrixWorkItemStatus.Failed,
+                        lastError,
+                        cancellationToken);
                 }
-
-                await _workItemRepo.UpdateStatusAsync(
-                    workItem.Id,
-                    anySucceeded
-                        ? ExperimentMatrixWorkItemStatus.Completed
-                        : ExperimentMatrixWorkItemStatus.Failed,
-                    lastError,
-                    cancellationToken);
+                catch (Exception ex)
+                {
+                    await _workItemRepo.UpdateStatusAsync(
+                        workItem.Id,
+                        ExperimentMatrixWorkItemStatus.Failed,
+                        ex.Message,
+                        CancellationToken.None);
+                    throw;
+                }
             }
         }
     }
@@ -886,11 +961,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         GenerationBudgetMode budgetMode,
         CancellationToken cancellationToken)
     {
-        var resumeGroupId = string.IsNullOrWhiteSpace(_activeExperimentConfig?.Resume.ResumeRunId)
-            ? experimentRun.Id.ToString()
-            : _activeExperimentConfig!.Resume.ResumeRunId!;
-        var repositoryIdentity = $"{_context.Project.Owner}/{_context.Project.RepoName}";
-        var commitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty;
+        var resumeGroupId = ResolveResumeGroupId(experimentRun);
+        var repositoryIdentity = GetRepositoryIdentity();
+        var commitHash = GetCommitHash();
         var provider = tool.Provider ?? _config.TestingConfig.GenerationConfig.Provider;
         var modelName = tool.Model ?? _config.AiProviderConfig.GetProviderConfig(provider)?.Model ?? string.Empty;
         var stableKey = string.Join(
@@ -900,7 +973,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             repositoryIdentity,
             commitHash,
             experimentRun.Objective,
-            candidateMethod.MemberId,
+            ExperimentResumeService.BuildCandidateIdentity(candidateMethod),
             budgetMode,
             tool.Id,
             modelName);
@@ -959,6 +1032,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return new ExperimentResultFileRow
         {
             ExperimentRunId = experimentRun.Id,
+            ExperimentSeriesId = experimentRun.ExperimentSeriesId,
+            CandidateCohortId = experimentRun.CandidateCohortId,
+            CandidateCohortMemberId = candidateMethod.CandidateCohortMemberId,
             RepoUrl = _context.Project.GitHubUrl,
             RepoOwner = _context.Project.Owner,
             RepoName = _context.Project.RepoName,
@@ -1141,6 +1217,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             return new()
             {
                 ExperimentRunId = experimentRun.Id,
+                ExperimentSeriesId = experimentRun.ExperimentSeriesId,
+                CandidateCohortId = experimentRun.CandidateCohortId,
+                CandidateCohortMemberId = candidateMethod.CandidateCohortMemberId,
                 ProducerLane = "agent-tool",
                 ToolId = attempt.ToolId,
                 ToolRunStatus = attempt.RunStatus.ToString(),

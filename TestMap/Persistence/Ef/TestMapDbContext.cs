@@ -43,6 +43,8 @@ public class TestMapDbContext : DbContext
     public DbSet<TestRunEntity> TestRuns => Set<TestRunEntity>();
     public DbSet<TestSmellEntity> TestSmells => Set<TestSmellEntity>();
     public DbSet<ExperimentRunEntity> ExperimentRuns => Set<ExperimentRunEntity>();
+    public DbSet<CandidateCohortEntity> CandidateCohorts => Set<CandidateCohortEntity>();
+    public DbSet<CandidateCohortMemberEntity> CandidateCohortMembers => Set<CandidateCohortMemberEntity>();
     public DbSet<ExperimentMatrixWorkItemEntity> ExperimentMatrixWorkItems => Set<ExperimentMatrixWorkItemEntity>();
     public DbSet<CandidateInventoryEntity> CandidateInventory => Set<CandidateInventoryEntity>();
     public DbSet<SourceTestMappingEntity> SourceTestMappings => Set<SourceTestMappingEntity>();

@@ -11,6 +11,7 @@ public static class CandidateMethodMappingExtensions
         {
             Id = entity.Id,
             ExperimentRunId = entity.ExperimentRunId,
+            CandidateCohortMemberId = entity.CandidateCohortMemberId,
             CandidateInventoryId = entity.CandidateInventoryId,
             MemberId = entity.SourceMemberId,
             ExistingTestMemberId = entity.ExistingTestMemberId,
@@ -48,6 +49,7 @@ public static class CandidateMethodMappingExtensions
         {
             Id = candidateMethod.Id,
             ExperimentRunId = candidateMethod.ExperimentRunId,
+            CandidateCohortMemberId = candidateMethod.CandidateCohortMemberId,
             CandidateInventoryId = candidateMethod.CandidateInventoryId,
             SourceMemberId = candidateMethod.MemberId,
             ExistingTestMemberId = candidateMethod.ExistingTestMemberId,

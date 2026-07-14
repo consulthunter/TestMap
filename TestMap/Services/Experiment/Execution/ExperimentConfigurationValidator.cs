@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Services.TestGeneration;
 
@@ -30,6 +31,16 @@ public static class ExperimentConfigurationValidator
         if (config.Resume.Enabled && config.Resume.RewriteResultsFileOnResume)
             throw new InvalidOperationException(
                 "Experiment resume uses append-only results. Set ExperimentConfig.Resume.RewriteResultsFileOnResume to false.");
+
+        if (config.CandidateCohort.Mode != CandidateCohortMode.Disabled &&
+            string.IsNullOrWhiteSpace(config.CandidateCohort.Id))
+            throw new InvalidOperationException(
+                "ExperimentConfig.CandidateCohort.Id is required when candidate cohort mode is create or reuse.");
+
+        if (config.CandidateCohort.Mode == CandidateCohortMode.Reuse &&
+            config.CandidateCohort.RandomSeed.HasValue)
+            throw new InvalidOperationException(
+                "ExperimentConfig.CandidateCohort.RandomSeed is defined by the stored cohort and must be omitted in reuse mode.");
     }
 
     public static void ValidateGenerationConfig(

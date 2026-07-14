@@ -242,6 +242,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddExperimentRepositories(this IServiceCollection services)
     {
         services.AddScoped<ExperimentRunRepository>();
+        services.AddScoped<CandidateCohortRepository>();
         services.AddScoped<ExperimentMatrixWorkItemRepository>();
         services.AddScoped<CandidateInventoryRepository>();
         services.AddScoped<SourceTestMappingRefreshService>();
@@ -267,6 +268,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICandidateMethodMetadataService, CandidateMethodMetadataService>();
         services.AddScoped<IMethodSelectionService, MethodSelectionService>();
         services.AddScoped<IExperimentOrchestrationService, ExperimentOrchestrationService>();
+        services.AddScoped<CandidateCohortService>();
         services.AddScoped<IExperimentAnalysisService, ExperimentAnalysisService>();
         services.AddScoped<IExperimentResultsWriter, ExperimentResultsWriter>();
         services.AddScoped<IStepAblationVariantGenerator, StepAblationVariantGenerator>();

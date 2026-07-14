@@ -68,6 +68,42 @@ public sealed class ExperimentResumeServiceTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void BuildStableKey_CohortMemberIdentitySurvivesChangedSourceMemberId()
+    {
+        var service = new ExperimentResumeService();
+        var matrixItem = new GenerationExperimentMatrixItem
+        {
+            VariantId = "cohort-baseline",
+            Provider = AiProvider.CustomOpenAi,
+            Approach = TestGenerationApproach.MetricsDriven,
+            MetricsPath = MetricsDrivenPath.Coverage,
+            ContextMode = GenerationContextMode.NoHistory,
+            BudgetMode = GenerationBudgetMode.PassAt1,
+            Steps = new GenerationStepConfig { VariantId = "baseline" },
+            Temperature = 0
+        };
+
+        var first = service.BuildStableKey(
+            "series",
+            "owner/repo",
+            "abc",
+            TestGenerationObjective.TestSuiteExpansion,
+            new CandidateMethod { MemberId = 10, CandidateCohortMemberId = 7 },
+            matrixItem);
+        var second = service.BuildStableKey(
+            "series",
+            "owner/repo",
+            "abc",
+            TestGenerationObjective.TestSuiteExpansion,
+            new CandidateMethod { MemberId = 99, CandidateCohortMemberId = 7 },
+            matrixItem);
+
+        Assert.Equal(first, second);
+        Assert.Contains("cohort-member:7", first, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void Evaluate_ResetsStaleRunningWorkItem()
     {
         var service = new ExperimentResumeService();

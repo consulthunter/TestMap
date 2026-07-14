@@ -16,6 +16,8 @@ public class ExperimentRun
     public string ResultsFilePath { get; set; } = string.Empty;
     public int CandidateLimit { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string ExperimentSeriesId { get; set; } = string.Empty;
+    public int? CandidateCohortId { get; set; }
 
     public virtual ICollection<CandidateMethod> CandidateMethods { get; set; } = new List<CandidateMethod>();
 }

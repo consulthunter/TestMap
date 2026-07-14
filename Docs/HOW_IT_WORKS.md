@@ -52,6 +52,16 @@ Candidate methods are selected from stored analysis data. Strategies can focus o
 tests, low coverage, mutation weakness, or metric-driven improvement. Candidate selection is
 intentionally data-driven so experiment rows can be traced back to the same method and evidence.
 
+For experiments split across multiple invocations, candidate cohorts separate sampling from
+execution. A `create` run performs a seeded random ordering after eligibility and context resolution,
+then persists the exact candidate snapshots and stable source identities. A `reuse` run clones those
+snapshots into new run-local candidate rows. This keeps attempt ownership and reporting isolated per
+run while ensuring every compared model receives the same methods in the same order.
+
+An experiment series groups those execution runs and provides their default resume namespace.
+Compatibility checks bind a cohort to its repository, commit, objective, selection settings,
+candidate limit, and coverage thresholds.
+
 ## 6. Built-In LLM Generation Lane
 
 The TestMap lane uses the configured provider and generation profile to produce tests. The recommended

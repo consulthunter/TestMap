@@ -22,10 +22,20 @@ public class ExperimentRunEntityConfiguration : IEntityTypeConfiguration<Experim
         builder.Property(x => x.ResultsFilePath).HasColumnName("results_file_path").IsRequired();
         builder.Property(x => x.CandidateLimit).HasColumnName("candidate_limit").IsRequired();
         builder.Property(x => x.Status).HasColumnName("status").IsRequired();
+        builder.Property(x => x.ExperimentSeriesId).HasColumnName("experiment_series_id").IsRequired();
+        builder.Property(x => x.CandidateCohortId).HasColumnName("candidate_cohort_id");
 
         builder.HasMany(x => x.CandidateMethods)
             .WithOne(x => x.ExperimentRun)
             .HasForeignKey(x => x.ExperimentRunId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(x => x.CandidateCohort)
+            .WithMany(x => x.ExperimentRuns)
+            .HasForeignKey(x => x.CandidateCohortId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(x => x.ExperimentSeriesId);
+        builder.HasIndex(x => x.CandidateCohortId);
     }
 }

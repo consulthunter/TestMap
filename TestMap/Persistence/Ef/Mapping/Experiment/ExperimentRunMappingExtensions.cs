@@ -19,7 +19,9 @@ public static class ExperimentRunMappingExtensions
             ConfigurationJson = entity.Configuration,
             ResultsFilePath = entity.ResultsFilePath,
             CandidateLimit = entity.CandidateLimit,
-            Status = entity.Status
+            Status = entity.Status,
+            ExperimentSeriesId = entity.ExperimentSeriesId,
+            CandidateCohortId = entity.CandidateCohortId
         };
     }
 
@@ -36,7 +38,9 @@ public static class ExperimentRunMappingExtensions
             Configuration = run.ConfigurationJson,
             ResultsFilePath = run.ResultsFilePath,
             CandidateLimit = run.CandidateLimit,
-            Status = string.IsNullOrWhiteSpace(run.Status) ? "Completed" : run.Status
+            Status = string.IsNullOrWhiteSpace(run.Status) ? "Completed" : run.Status,
+            ExperimentSeriesId = run.ExperimentSeriesId,
+            CandidateCohortId = run.CandidateCohortId
         };
     }
 }

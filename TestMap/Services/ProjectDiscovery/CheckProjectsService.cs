@@ -57,21 +57,31 @@ public class CheckProjectsService : ICheckProjectsService
 
     private async Task<bool> RepoLikelyHasTests(string owner, string repo)
     {
-        // 1. First try to check top-level structure
+        // 1. Cheap check: does the top-level listing contain a test indicator?
         IReadOnlyList<RepositoryContent> topLevel;
         try
         {
             topLevel = await _client.Repository.Content.GetAllContents(owner, repo);
         }
-        catch
+        catch (NotFoundException)
         {
-            return false;
+            // Empty repo or no default-branch content. Not an error — fall through to the
+            // recursive tree scan below, which resolves the definitive answer.
+            _context.Project.Logger?.Debug(
+                "Top-level contents not found for {Owner}/{Repo}; falling back to tree scan.", owner, repo);
+            topLevel = Array.Empty<RepositoryContent>();
+        }
+        catch (Exception ex)
+        {
+            // Auth, rate limit, or any other API failure here means we cannot determine test
+            // presence — fail fast instead of silently reporting "no tests".
+            throw DescribeGitHubFailure(owner, repo, ex);
         }
 
         if (ContainsTestIndicators(topLevel.Select(c => c.Name)))
             return true;
 
-        // 2. Check repo tree recursively (lightweight)
+        // 2. Thorough check: scan the recursive tree for any test-related path.
         try
         {
             var repoInfo = await _client.Repository.Get(owner, repo);
@@ -84,13 +94,45 @@ public class CheckProjectsService : ICheckProjectsService
         }
         catch (NotFoundException)
         {
+            // Repo, default branch, or tree is genuinely inaccessible (missing repo, empty repo
+            // with no commits, or a private repo the token cannot see). Definitive negative, but
+            // logged so a mis-scoped token is not silently mistaken for "no tests".
+            _context.Project.Logger?.Warning(
+                "GitHub returned not-found while scanning {Owner}/{Repo}; treating as no tests. " +
+                "If this repository is private, ensure GITHUB_TOKEN has access to it.", owner, repo);
             return false;
         }
-        catch (ApiException apiEx)
+        catch (Exception ex)
         {
-            _context.Project.Logger?.Warning("GitHub API check failed: {Message}", apiEx.Message);
-            return false;
+            throw DescribeGitHubFailure(owner, repo, ex);
         }
+    }
+
+    /// <summary>
+    /// Logs an explicit, human-readable reason for a GitHub API failure and returns an exception
+    /// to throw so the run fails fast rather than misclassifying the repository as having no tests.
+    /// </summary>
+    private InvalidOperationException DescribeGitHubFailure(string owner, string repo, Exception ex)
+    {
+        var reason = ex switch
+        {
+            RateLimitExceededException rate =>
+                $"GitHub API rate limit exceeded (resets at {rate.Reset.UtcDateTime:u} UTC). " +
+                "Provide a GITHUB_TOKEN with sufficient quota, or wait for the reset.",
+            AuthorizationException =>
+                "GitHub rejected the credentials (HTTP 401). GITHUB_TOKEN is missing, invalid, " +
+                "expired, or lacks the required scope (classic: repo or public_repo; " +
+                "fine-grained: Contents read). Set a valid token in TestMap/.env and retry.",
+            ApiException api =>
+                $"GitHub API request failed (HTTP {(int)api.StatusCode}): {api.Message}",
+            _ =>
+                $"Unexpected error querying the GitHub API: {ex.Message}"
+        };
+
+        var message =
+            $"check-projects could not determine test presence for {owner}/{repo}. {reason}";
+        _context.Project.Logger?.Error(ex, "{Message}", message);
+        return new InvalidOperationException(message, ex);
     }
 
     private bool ContainsTestIndicators(IEnumerable<string> names)

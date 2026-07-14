@@ -14,6 +14,7 @@ public class CandidateMethodEntityConfiguration : IEntityTypeConfiguration<Candi
 
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.ExperimentRunId).HasColumnName("experiment_run_id").IsRequired();
+        builder.Property(x => x.CandidateCohortMemberId).HasColumnName("candidate_cohort_member_id");
         builder.Property(x => x.CandidateInventoryId).HasColumnName("candidate_inventory_id");
         builder.Property(x => x.SourceMemberId).HasColumnName("source_member_id").IsRequired();
         builder.Property(x => x.ExistingTestMemberId).HasColumnName("existing_test_member_id");
@@ -50,6 +51,12 @@ public class CandidateMethodEntityConfiguration : IEntityTypeConfiguration<Candi
             .HasForeignKey(x => x.CandidateInventoryId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.HasOne(x => x.CandidateCohortMember)
+            .WithMany(x => x.CandidateMethods)
+            .HasForeignKey(x => x.CandidateCohortMemberId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(x => x.CandidateInventoryId);
+        builder.HasIndex(x => x.CandidateCohortMemberId);
     }
 }

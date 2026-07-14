@@ -202,6 +202,72 @@ public sealed class ToolAttemptGeneratedTestServiceTests
         Assert.Equal("TestFoo", linkedMember.Name);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task LinkAsync_TestMemberHasMultipleMappings_UsesHighestConfidenceMappingOnce()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var (experimentRunId, candidateId) = await SeedExperimentGraphAsync(db);
+        var attemptId = await SeedAttemptAsync(db, experimentRunId, candidateId);
+        var workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "testmap-unit", "MappedRepo"));
+        var testFilePath = Path.GetFullPath(Path.Combine(workspace, "Tests", "FooTests.cs"));
+        await SeedCodeGraphAsync(db, testFilePath, isTestMember: true, startLine: 1);
+        var testMemberId = await db.Members
+            .Where(x => x.IsTestMember)
+            .Select(x => x.Id)
+            .SingleAsync();
+        var lowerConfidence = new SourceTestMappingEntity
+        {
+            ProjectId = 1,
+            SourceMemberId = 100,
+            TestMemberId = testMemberId,
+            EvidenceKind = "Heuristic",
+            Confidence = 0.4,
+            ResolverVersion = "test",
+            CreatedAt = DateTime.UtcNow
+        };
+        var higherConfidence = new SourceTestMappingEntity
+        {
+            ProjectId = 1,
+            SourceMemberId = 101,
+            TestMemberId = testMemberId,
+            EvidenceKind = "DirectInvocation",
+            Confidence = 0.9,
+            ResolverVersion = "test",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.SourceTestMappings.AddRange(lowerConfidence, higherConfidence);
+        await db.SaveChangesAsync();
+        var artifactPath = CreatePatchArtifact(
+            workspace,
+            "Tests/FooTests.cs",
+            """
+             existing
+            +[Fact]
+            +public void TestFoo()
+             trailing
+            """);
+        var service = new ToolAttemptGeneratedTestService(
+            db, new ToolAttemptGeneratedTestRepository(db));
+
+        var result = await service.LinkAsync(
+            new ToolAttempt
+            {
+                Id = attemptId,
+                WorkspacePath = workspace,
+                ArtifactPath = artifactPath
+            },
+            ["Tests/FooTests.cs"],
+            projectId: 1);
+
+        Assert.Equal(1, result.LinkedCount);
+        var link = await db.ToolAttemptGeneratedTests.SingleAsync();
+        Assert.Equal(testMemberId, link.MemberId);
+        Assert.Equal(higherConfidence.Id, link.MappingId);
+    }
+
     /// <summary>
     /// Non-test members in changed files are not linked.
     /// </summary>

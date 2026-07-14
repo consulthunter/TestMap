@@ -81,6 +81,8 @@ public class ExperimentRunRepository
         trackedEntity.ResultsFilePath = run.ResultsFilePath;
         trackedEntity.CandidateLimit = run.CandidateLimit;
         trackedEntity.Status = string.IsNullOrWhiteSpace(run.Status) ? "Completed" : run.Status;
+        trackedEntity.ExperimentSeriesId = run.ExperimentSeriesId;
+        trackedEntity.CandidateCohortId = run.CandidateCohortId;
 
         await _context.SaveChangesAsync(cancellationToken);
     }

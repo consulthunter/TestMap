@@ -7,6 +7,9 @@ namespace TestMap.Services.Experiment.Reporting;
 public sealed class ExperimentResultFileRow
 {
     public int ExperimentRunId { get; init; }
+    public string ExperimentSeriesId { get; init; } = string.Empty;
+    public int? CandidateCohortId { get; init; }
+    public int? CandidateCohortMemberId { get; init; }
     public string ProducerLane { get; init; } = "testmap";
     public string ToolId { get; init; } = string.Empty;
     public string ToolRunStatus { get; init; } = string.Empty;

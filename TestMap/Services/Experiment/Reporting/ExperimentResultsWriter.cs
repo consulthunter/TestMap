@@ -12,6 +12,9 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
     private static readonly string[] Headers =
     [
         "experiment_run_id",
+        "experiment_series_id",
+        "candidate_cohort_id",
+        "candidate_cohort_member_id",
         "producer_lane",
         "tool_id",
         "tool_run_status",
@@ -169,6 +172,9 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         return string.Join(
             ",",
             Escape(row.ExperimentRunId.ToString()),
+            Escape(row.ExperimentSeriesId),
+            Escape(row.CandidateCohortId?.ToString() ?? string.Empty),
+            Escape(row.CandidateCohortMemberId?.ToString() ?? string.Empty),
             Escape(row.ProducerLane),
             Escape(row.ToolId),
             Escape(row.ToolRunStatus),

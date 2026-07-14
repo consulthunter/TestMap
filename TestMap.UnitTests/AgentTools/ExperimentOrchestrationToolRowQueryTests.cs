@@ -520,6 +520,7 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             experimentRunRepo: null!,
             workItemRepo: null!,
             candidateMethodRepo: null!,
+            candidateCohortService: null!,
             attemptRepo: null!,
             stepRepo: null!,
             executionRepo: null!,

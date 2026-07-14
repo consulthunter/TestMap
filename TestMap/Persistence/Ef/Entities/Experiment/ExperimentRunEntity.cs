@@ -15,6 +15,10 @@ public class ExperimentRunEntity
     public string ResultsFilePath { get; set; } = string.Empty;
     public int CandidateLimit { get; set; }
     [MaxLength(50)] public string Status { get; set; } = string.Empty;
+    [MaxLength(200)] public string ExperimentSeriesId { get; set; } = string.Empty;
+    public int? CandidateCohortId { get; set; }
+
+    public virtual CandidateCohortEntity? CandidateCohort { get; set; }
 
     public virtual ICollection<CandidateMethodEntity> CandidateMethods { get; set; } =
         new List<CandidateMethodEntity>();

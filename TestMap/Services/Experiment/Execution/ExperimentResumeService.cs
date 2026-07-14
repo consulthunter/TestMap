@@ -24,7 +24,7 @@ public sealed class ExperimentResumeService : IExperimentResumeService
             Normalize(repositoryIdentity),
             Normalize(commitHash),
             objective,
-            candidateMethod.MemberId.ToString(),
+            BuildCandidateIdentity(candidateMethod),
             matrixItem.Provider,
             Normalize(matrixItem.ModelName),
             matrixItem.Approach,
@@ -162,5 +162,12 @@ public sealed class ExperimentResumeService : IExperimentResumeService
     private static string Normalize(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? "none" : value.Trim();
+    }
+
+    internal static string BuildCandidateIdentity(CandidateMethod candidateMethod)
+    {
+        return candidateMethod.CandidateCohortMemberId.HasValue
+            ? $"cohort-member:{candidateMethod.CandidateCohortMemberId.Value}"
+            : $"source-member:{candidateMethod.MemberId}";
     }
 }

@@ -117,6 +117,27 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void PrepareConfiguration_CreateCohort_PreservesExplicitSeriesId()
+    {
+        var config = new ExperimentConfig
+        {
+            ExperimentSeriesId = "model-study",
+            CandidateCohort = new CandidateCohortConfig
+            {
+                Id = "cohort-a",
+                Mode = CandidateCohortMode.Create,
+                RandomSeed = 42
+            }
+        };
+
+        CandidateCohortService.PrepareConfiguration(config);
+
+        Assert.Equal("model-study", config.ExperimentSeriesId);
+        Assert.Equal(42, config.CandidateCohort.RandomSeed);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public async Task PrecomputeTargetedBaselinesAsync_RollsBackBaselineArtifactsBeforeLanes()
     {
         var repoPath = CreateRepository();
@@ -197,6 +218,7 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
             experimentRunRepo: null!,
             workItemRepo: null!,
             candidateMethodRepo: null!,
+            candidateCohortService: null!,
             attemptRepo: null!,
             stepRepo: null!,
             executionRepo: null!,

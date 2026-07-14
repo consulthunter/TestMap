@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Cryptography;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
@@ -102,13 +103,35 @@ public class MethodSelectionService : IMethodSelectionService
                 enrichedCandidate.Candidate.CandidateInventoryId = inventoryId;
 
         var selectionLimit = ResolveFinalSelectionLimit(config);
-        return enrichedCandidates
-            .Where(x => !requirePassingExistingTest || x.InventoryItem.IsExperimentEligible)
-            .OrderBy(x => GetContextSelectionPriority(x.ContextEvidenceKind, x.HasGroundedTestContext))
-            .ThenBy(x => x.StrategyRank)
+        var eligibleCandidates = enrichedCandidates
+            .Where(x => !requirePassingExistingTest || x.InventoryItem.IsExperimentEligible);
+        var orderedCandidates = ShouldRandomizeCohort(config)
+            ? eligibleCandidates
+                .OrderBy(x => BuildRandomOrderKey(config, x.Candidate))
+                .ThenBy(x => x.Candidate.MemberId)
+            : eligibleCandidates
+                .OrderBy(x => GetContextSelectionPriority(x.ContextEvidenceKind, x.HasGroundedTestContext))
+                .ThenBy(x => x.StrategyRank);
+
+        return orderedCandidates
             .Take(selectionLimit)
             .Select(x => x.Candidate)
             .ToList();
+    }
+
+    internal static string BuildRandomOrderKey(ExperimentConfig config, CandidateMethod candidate)
+    {
+        var seed = config.CandidateCohort.RandomSeed ??
+                   throw new InvalidOperationException(
+                       "A random seed must be prepared before creating a randomized candidate cohort.");
+        var input = $"{seed}|{candidate.MemberId}|{candidate.Signature}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
+    }
+
+    private static bool ShouldRandomizeCohort(ExperimentConfig config)
+    {
+        return config.CandidateCohort.Mode == TestMap.Models.Configuration.Experiment.CandidateCohortMode.Create &&
+               config.CandidateCohort.Randomize;
     }
 
     private static int ResolveFinalSelectionLimit(ExperimentConfig config)

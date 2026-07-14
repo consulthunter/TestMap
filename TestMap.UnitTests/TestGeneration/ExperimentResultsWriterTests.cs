@@ -55,6 +55,9 @@ public sealed class ExperimentResultsWriterTests
                     new ExperimentResultFileRow
                     {
                         ExperimentRunId = 42,
+                        ExperimentSeriesId = "model-study",
+                        CandidateCohortId = 5,
+                        CandidateCohortMemberId = 9,
                         RepoOwner = "owner",
                         RepoName = "repo",
                         SourceMethodName = "Method,WithComma",
@@ -84,7 +87,8 @@ public sealed class ExperimentResultsWriterTests
 
             var text = await File.ReadAllTextAsync(path);
 
-            Assert.Contains("experiment_run_id,producer_lane,tool_id,tool_run_status,tool_validation_outcome,tool_artifact_path,tool_changed_files_count,tool_production_files_changed,tool_test_files_changed,tool_project_files_changed,tool_deleted_files_count,tool_attempt_id,tool_attempt_targeted_baseline_id,tool_post_attempt_test_run_id,repo_url", text);
+            Assert.Contains("experiment_run_id,experiment_series_id,candidate_cohort_id,candidate_cohort_member_id,producer_lane,tool_id,tool_run_status,tool_validation_outcome,tool_artifact_path,tool_changed_files_count,tool_production_files_changed,tool_test_files_changed,tool_project_files_changed,tool_deleted_files_count,tool_attempt_id,tool_attempt_targeted_baseline_id,tool_post_attempt_test_run_id,repo_url", text);
+            Assert.Contains("42,model-study,5,9,testmap", text);
             Assert.DoesNotContain("metrics_path", text);
             Assert.Contains("source_method_mi,source_method_cc,source_method_coupling,source_method_dit,source_method_sloc,source_method_eloc", text);
             Assert.Contains("baseline_test_mi,baseline_test_cc,baseline_test_coupling,baseline_test_dit,baseline_test_sloc,baseline_test_eloc", text);
