@@ -58,11 +58,11 @@ public class MapCoverageService(
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var objectsByQualifiedName = objects
             .Where(x => x.Id > 0)
-            .GroupBy(BuildQualifiedObjectName, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(x => CoverageTypeName.Normalize(BuildQualifiedObjectName(x)), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(x => x.Key, x => x.ToList(), StringComparer.OrdinalIgnoreCase);
         var objectsBySimpleName = objects
             .Where(x => x.Id > 0)
-            .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(x => CoverageTypeName.SimpleName(x.Name), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(x => x.Key, x => x.ToList(), StringComparer.OrdinalIgnoreCase);
         var objectsByFileName = objects
             .Where(x => x.FileId > 0 && filePathById.ContainsKey(x.FileId))
@@ -78,7 +78,7 @@ public class MapCoverageService(
         foreach (var package in report.Packages)
         foreach (var objectCoverage in package.Classes)
         {
-            var normalizedCoverageName = NormalizeTypeName(objectCoverage.Name);
+            var normalizedCoverageName = CoverageTypeName.Normalize(objectCoverage.Name);
             var normalizedCoverageFilename = NormalizePath(objectCoverage.Filename);
             if (!IsProjectCoverageObject(normalizedCoverageFilename, normalizedProjectFiles)) continue;
 
@@ -121,6 +121,7 @@ public class MapCoverageService(
                 var memberModel = FindMember(
                     normalizedMemberName,
                     memberCoverage.Name,
+                    memberCoverage,
                     objectMembers,
                     objectMembersByName);
 
@@ -271,11 +272,6 @@ public class MapCoverageService(
             normalizedCoverageFilename.EndsWith(Path.GetFileName(projectFile), StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string NormalizeTypeName(string value)
-    {
-        return value.Replace('/', '.').Replace('+', '.').Trim();
-    }
-
     private static string NormalizeMemberName(string value)
     {
         var trimmedValue = value.Trim();
@@ -374,10 +370,11 @@ public class MapCoverageService(
     {
         var score = 0;
 
-        if (BuildQualifiedObjectName(candidate)
+        if (CoverageTypeName.Normalize(BuildQualifiedObjectName(candidate))
             .Equals(normalizedCoverageName, StringComparison.OrdinalIgnoreCase)) score += 100;
 
-        if (candidate.Name.Equals(normalizedCoverageName, StringComparison.OrdinalIgnoreCase)) score += 60;
+        if (CoverageTypeName.SimpleName(candidate.Name)
+            .Equals(CoverageTypeName.SimpleName(normalizedCoverageName), StringComparison.OrdinalIgnoreCase)) score += 60;
 
         if (TryMatchByFilePath(candidate, normalizedCoverageFilename, filePathById)) score += 40;
 
@@ -399,7 +396,7 @@ public class MapCoverageService(
         var candidates = new Dictionary<int, Models.Code.ObjectModel>();
 
         AddCandidates(candidates, objectsByQualifiedName, normalizedCoverageName);
-        AddCandidates(candidates, objectsBySimpleName, normalizedCoverageName);
+        AddCandidates(candidates, objectsBySimpleName, CoverageTypeName.SimpleName(normalizedCoverageName));
 
         if (!string.IsNullOrWhiteSpace(normalizedCoverageFilename))
             AddCandidates(candidates, objectsByFileName, NormalizePath(Path.GetFileName(normalizedCoverageFilename)));
@@ -420,16 +417,58 @@ public class MapCoverageService(
     private static Models.Code.MemberModel? FindMember(
         string normalizedMemberName,
         string coverageMemberName,
+        MemberCoverageModel coverage,
         IReadOnlyCollection<Models.Code.MemberModel> objectMembers,
         IReadOnlyDictionary<string, List<Models.Code.MemberModel>>? objectMembersByName)
     {
-        if (objectMembersByName != null &&
-            objectMembersByName.TryGetValue(normalizedMemberName, out var namedMatches))
-            return namedMatches.FirstOrDefault(x => IsCoverageCompatible(x, coverageMemberName));
-
-        return objectMembers.FirstOrDefault(x =>
+        var matches = objectMembersByName != null &&
+                      objectMembersByName.TryGetValue(normalizedMemberName, out var namedMatches)
+            ? namedMatches.Where(x => IsCoverageCompatible(x, coverageMemberName)).ToList()
+            : objectMembers.Where(x =>
             x.Name.Equals(normalizedMemberName, StringComparison.OrdinalIgnoreCase) &&
-            IsCoverageCompatible(x, coverageMemberName));
+            IsCoverageCompatible(x, coverageMemberName)).ToList();
+
+        if (matches.Count <= 1) return matches.SingleOrDefault();
+
+        var byLine = matches.Where(member => CoverageLinesOverlapMember(coverage, member)).ToList();
+        if (byLine.Count == 1) return byLine[0];
+
+        var coverageParameterCount = CountParameters(coverage.Signature);
+        var bySignature = matches.Where(member =>
+            CountParameters(member.FullString) == coverageParameterCount).ToList();
+        return bySignature.Count == 1 ? bySignature[0] : null;
+    }
+
+    internal static bool CoverageLinesOverlapMember(
+        MemberCoverageModel coverage,
+        Models.Code.MemberModel member)
+    {
+        var coverageStartLine = member.Location.StartLineNumber + 1;
+        var coverageEndLine = member.Location.EndLineNumber + 1;
+        return coverage.Lines.Any(line =>
+            line.Number >= coverageStartLine &&
+            line.Number <= coverageEndLine);
+    }
+
+    private static int CountParameters(string signature)
+    {
+        var start = signature.IndexOf('(');
+        var end = signature.LastIndexOf(')');
+        if (start < 0 || end <= start + 1) return 0;
+
+        var content = signature[(start + 1)..end].Trim();
+        if (content.Length == 0) return 0;
+
+        var depth = 0;
+        var count = 1;
+        foreach (var character in content)
+        {
+            if (character is '<' or '[' or '(') depth++;
+            else if (character is '>' or ']' or ')') depth--;
+            else if (character == ',' && depth == 0) count++;
+        }
+
+        return count;
     }
 
     private static void UpsertObjectCoverage(

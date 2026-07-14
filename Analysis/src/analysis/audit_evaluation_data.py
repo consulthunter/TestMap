@@ -16,8 +16,8 @@ from typing import Optional
 
 import pandas as pd
 
-from analysis.files import ensure_output_dir, find_databases, read_results_csvs
-from analysis.normalize import normalize_attempts
+from analysis.files import ensure_output_dir, find_databases, read_result_grains
+from analysis.build_evaluation_dataset import build_attempts_dataset
 
 
 # ---------------------------------------------------------------------------
@@ -254,8 +254,8 @@ def run(
     """Entry point for the ``audit`` CLI command."""
     out = ensure_output_dir(output_dir)
 
-    raw = read_results_csvs(list(results))
-    df = normalize_attempts(raw)
+    raw, generated, _ = read_result_grains(list(results))
+    df = build_attempts_dataset(raw, generated)
 
     findings: list[dict] = []
     findings += audit_lane_labels(df)

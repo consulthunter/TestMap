@@ -49,13 +49,16 @@ public sealed class ToolPostAttemptMeasurementService : IToolPostAttemptMeasurem
 {
     private readonly IBuildTestService _buildTestService;
     private readonly ToolAttemptRepository _attemptRepo;
+    private readonly IAttemptMetricComparisonService _metricComparisonService;
 
     public ToolPostAttemptMeasurementService(
         IBuildTestService buildTestService,
-        ToolAttemptRepository attemptRepo)
+        ToolAttemptRepository attemptRepo,
+        IAttemptMetricComparisonService metricComparisonService)
     {
         _buildTestService = buildTestService;
         _attemptRepo = attemptRepo;
+        _metricComparisonService = metricComparisonService;
     }
 
     public async Task<ToolPostAttemptMeasurementResult> MeasureAsync(
@@ -79,15 +82,31 @@ public sealed class ToolPostAttemptMeasurementService : IToolPostAttemptMeasurem
             BuildTestRunRequest.CreateIteration(
                 methodContext.TestProjectPath,
                 methodContext.TargetBuildFramework,
-                candidate.MethodName,
+                methodContext.ToTargetMemberDescriptor(candidate),
                 methodContext.SourceProjectPath,
                 attempt.ExperimentRunId,
                 isMutationBaseline: false));
 
         int? testRunId = run.DbId > 0 ? run.DbId : null;
-        var (validationOutcome, observedOutcome) = Classify(run);
+        var comparison = await _metricComparisonService.CompareAsync(
+            candidate.MemberId,
+            attempt.TargetedBaselineId,
+            testRunId,
+            cancellationToken);
+        var (validationOutcome, observedOutcome) = Classify(run, comparison);
 
         attempt.PostAttemptTestRunId = testRunId;
+        attempt.CoverageBefore = comparison.CoverageBefore;
+        attempt.CoverageAfter = comparison.CoverageAfter;
+        attempt.CoverageDelta = comparison.CoverageDelta;
+        attempt.CoverageMeasurementStatus = comparison.CoverageStatus;
+        attempt.MutationScoreBefore = comparison.MutationScoreBefore;
+        attempt.MutationScoreAfter = comparison.MutationScoreAfter;
+        attempt.MutationScoreDelta = comparison.MutationScoreDelta;
+        attempt.MutationMeasurementStatus = comparison.MutationStatus;
+        attempt.ImpactMeasurementStatus = comparison.ImpactStatus;
+        attempt.MeasurementFailureReason = comparison.FailureReason;
+        attempt.MeasurementPolicyVersion = EvaluationImpactPolicy.Version;
         attempt.ValidationOutcome = validationOutcome;
         attempt.ObservedOutcome = observedOutcome;
         await _attemptRepo.UpdateAsync(attempt, cancellationToken);
@@ -105,8 +124,15 @@ public sealed class ToolPostAttemptMeasurementService : IToolPostAttemptMeasurem
     /// Classifies the measurement result into validation and observed outcomes.
     /// </summary>
     internal static (ToolValidationOutcome Validation, ToolObservedOutcome Observed)
-        Classify(TestMap.Models.Testing.TestRunModel run)
+        Classify(
+            TestMap.Models.Testing.TestRunModel run,
+            AttemptMetricComparison comparison)
     {
+        var impact = EvaluationImpactPolicy.Evaluate(
+            run.Success,
+            comparison.CoverageDelta,
+            comparison.MutationScoreDelta);
+
         if (!run.Success)
         {
             // Tests failed or build failed — determine which.
@@ -114,17 +140,16 @@ public sealed class ToolPostAttemptMeasurementService : IToolPostAttemptMeasurem
                     !string.Equals(r.Outcome, "Passed", StringComparison.OrdinalIgnoreCase))
                 ? ToolValidationOutcome.TestsFailed
                 : ToolValidationOutcome.BuildFailed;
-            return (validationOutcome, ToolObservedOutcome.ValidationFailed);
+            return (validationOutcome, impact.MetricImproved
+                ? ToolObservedOutcome.FailedEvidencePositive
+                : ToolObservedOutcome.ValidationFailed);
         }
 
-        // Tests passed. Determine evidence quality.
-        var mutationImproved = run.MutationScore is > 0.0;
-        var coverageImproved = run.Coverage > 0;
-
-        if (mutationImproved || coverageImproved)
+        if (impact.ValidatedEvidencePositive)
             return (ToolValidationOutcome.Passed, ToolObservedOutcome.ValidatedEvidencePositive);
-
-        return (ToolValidationOutcome.Passed, ToolObservedOutcome.ValidatedLowImpact);
+        if (impact.ValidatedLowImpact)
+            return (ToolValidationOutcome.Passed, ToolObservedOutcome.ValidatedLowImpact);
+        return (ToolValidationOutcome.Passed, ToolObservedOutcome.ValidatedImpactUnknown);
     }
 
     private static ToolPostAttemptMeasurementResult Skip(string reason) =>

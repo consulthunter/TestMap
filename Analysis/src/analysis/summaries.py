@@ -19,6 +19,7 @@ from analysis.schema import LANE_AGENTIC, LANE_LLM
 OUTCOME_CATEGORIES = [
     "ValidatedEvidencePositive",
     "ValidatedLowImpact",
+    "ValidatedImpactUnknown",
     "FailedEvidencePositive",
     "ValidationFailed",
     "NoChange",

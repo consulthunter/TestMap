@@ -118,18 +118,7 @@ public static class TestExecutionMappingExtensions
 
     private static TestClassification ResolveClassification(TestExecution execution)
     {
-        if (execution.Classification != TestClassification.ValidationFailed ||
-            execution.FailureKind == TestFailureKind.None && !execution.TestPassed)
-            return execution.Classification;
-
-        if (execution.TestPassed)
-            return execution.CoverageImprovement > 0
-                ? TestClassification.ValidatedEvidencePositive
-                : TestClassification.ValidatedLowImpact;
-
-        return execution.CoverageImprovement > 0
-            ? TestClassification.FailedEvidencePositive
-            : TestClassification.ValidationFailed;
+        return execution.Classification;
     }
 
     private static TestFailureKind InferFailureKind(GeneratedTestExecutionEntity entity)

@@ -92,7 +92,9 @@ public class TestExecutionRepository
             CompilationErrors = compilationErrors,
             RuntimeErrors = runtimeErrors,
             CoverageImprovements = coverageImprovements,
-            AverageCoverage = executions.Any() ? executions.Average(e => e.CoverageAfter) : 0,
+            AverageCoverage = executions.Any(e => e.CoverageAfter.HasValue)
+                ? executions.Where(e => e.CoverageAfter.HasValue).Average(e => e.CoverageAfter!.Value)
+                : 0,
             AverageExecutionTimeMs = executions.Any() ? executions.Average(e => e.ExecutionTimeMs ?? 0) : 0,
             PassRate = total > 0 ? (double)passed / total : 0
         };

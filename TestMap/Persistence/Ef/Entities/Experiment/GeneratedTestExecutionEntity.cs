@@ -18,10 +18,10 @@ public class GeneratedTestExecutionEntity
     public string RuntimeErrors { get; set; } = string.Empty;
     public string AssertionErrors { get; set; } = string.Empty;
     public long ExecutionTimeMs { get; set; }
-    public double FinalCoverage { get; set; }
+    public double? FinalCoverage { get; set; }
     public int FinalCoveredLines { get; set; }
     public int FinalTotalLines { get; set; }
-    public double CoverageDelta { get; set; }
+    public double? CoverageDelta { get; set; }
     public double? BaselineMutationScore { get; set; }
     public double? MutationScoreAfter { get; set; }
     public double? MutationScoreDelta { get; set; }

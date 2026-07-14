@@ -9,8 +9,20 @@ public class ToolAttemptEntity
     public int ExperimentRunId { get; set; }
     public int? MatrixWorkItemId { get; set; }
     public int CandidateMethodId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
     public int? TargetedBaselineId { get; set; }
     public int? PostAttemptTestRunId { get; set; }
+    public double? CoverageBefore { get; set; }
+    public double? CoverageAfter { get; set; }
+    public double? CoverageDelta { get; set; }
+    [MaxLength(50)] public string CoverageMeasurementStatus { get; set; } = "NotMeasured";
+    public double? MutationScoreBefore { get; set; }
+    public double? MutationScoreAfter { get; set; }
+    public double? MutationScoreDelta { get; set; }
+    [MaxLength(50)] public string MutationMeasurementStatus { get; set; } = "NotMeasured";
+    [MaxLength(50)] public string ImpactMeasurementStatus { get; set; } = "NotMeasured";
+    public string MeasurementFailureReason { get; set; } = string.Empty;
+    [MaxLength(20)] public string MeasurementPolicyVersion { get; set; } = string.Empty;
     [MaxLength(64)]  public string EffectiveProfileHash { get; set; } = string.Empty;
     [MaxLength(100)] public string ToolId { get; set; } = string.Empty;
     [MaxLength(50)]  public string RunStatus { get; set; } = string.Empty;

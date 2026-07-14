@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.files import ensure_output_dir, read_results_csvs
+from analysis.files import ensure_output_dir, read_result_grains
 from analysis.normalize import (
     build_candidate_summary,
     build_generated_tests_dataset,
@@ -36,17 +36,31 @@ def load_raw_attempts(
     SQLite join queries are deferred to a future pass when the column
     mapping between CSVs and the DB schema is finalized.
     """
-    df = read_results_csvs(list(results))
+    df, _, _ = read_result_grains(list(results))
     if df.empty:
         print("[warn] No result CSVs found.")
     return df
 
 
-def build_attempts_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
+def build_attempts_dataset(
+    raw_df: pd.DataFrame,
+    generated_test_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Normalize raw attempt rows into the shared attempt-level schema."""
     if raw_df.empty:
         return pd.DataFrame()
-    return normalize_attempts(raw_df)
+    attempts = normalize_attempts(raw_df)
+    if generated_test_df is None or generated_test_df.empty:
+        attempts["generated_test_count"] = 0
+        return attempts
+
+    if "attempt_id" not in generated_test_df.columns:
+        raise ValueError("Generated-test rows require attempt_id for parent aggregation.")
+    counts = generated_test_df.groupby("attempt_id").size().rename("generated_test_count")
+    attempts = attempts.drop(columns=["generated_test_count"], errors="ignore")
+    return attempts.merge(counts, on="attempt_id", how="left").assign(
+        generated_test_count=lambda x: x["generated_test_count"].fillna(0).astype("Int64")
+    )
 
 
 def build_generated_tests_dataset_from_raw(
@@ -55,16 +69,13 @@ def build_generated_tests_dataset_from_raw(
 ) -> pd.DataFrame:
     """Build a per-generated-test dataset.
 
-    The primary source is the raw CSV rows (both lanes are at per-test grain
-    before the agentic collapse step).  SQLite databases are an optional
+    The primary source is the canonical generated-test CSV. SQLite databases are an optional
     secondary source for additional metadata; they are queried when provided.
 
     Parameters
     ----------
     raw_df:
-        The raw DataFrame as loaded from result CSVs, *before*
-        ``normalize_attempts`` is called (so agentic rows have not been
-        collapsed yet).
+        The raw ``row_kind='generated_test'`` DataFrame.
     db_paths:
         Optional glob patterns for SQLite databases.
     """
@@ -115,21 +126,6 @@ def _count_assertions(code: object) -> int:
     return len(_ASSERT_RE.findall(code))
 
 
-def _repo_qualifier(projects: pd.DataFrame) -> str:
-    """``owner|repo_name`` for a single-repo analysis DB.
-
-    Used to make LLM attempt ids globally unique (``generation_attempt_id`` is only
-    unique within a repo). Matches the ``repo_owner|repo_name`` qualifier that
-    ``normalize._assign_attempt_ids`` builds from the result CSV.
-    """
-    if projects is None or projects.empty:
-        return ""
-    row = projects.iloc[0]
-    owner = str(row.get("owner", "") or "").strip()
-    repo = str(row.get("repo_name", "") or "").strip()
-    return f"{owner}|{repo}" if (owner or repo) else ""
-
-
 def build_assertion_counts(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
@@ -151,11 +147,10 @@ def build_assertion_counts(
 
     from analysis.db import (
         connect,
+        get_canonical_attempt_identities,
         get_generated_test_executions,
         get_invocations,
-        get_projects,
         get_tool_attempt_generated_tests,
-        get_tool_attempts,
     )
     from analysis.files import find_databases
 
@@ -164,9 +159,17 @@ def build_assertion_counts(
         with connect(db_path) as conn:
             execs = get_generated_test_executions(conn)
             links = get_tool_attempt_generated_tests(conn)
-            tool_attempts = get_tool_attempts(conn)
             invocations = get_invocations(conn)
-            repo_qual = _repo_qualifier(get_projects(conn))
+            identities = get_canonical_attempt_identities(conn)
+
+        llm_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "llm"].itertuples()
+        }
+        agentic_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "agentic"].itertuples()
+        }
 
         # Per-member assertion/invocation counts (real Roslyn detection).
         per_member = pd.DataFrame()
@@ -181,7 +184,9 @@ def build_assertion_counts(
         if not execs.empty and "generation_attempt_id" in execs.columns:
             has_member = "member_id" in execs.columns
             for gaid, grp in execs.groupby("generation_attempt_id"):
-                aid = f"llm:{repo_qual}:{int(gaid)}" if repo_qual else f"llm:{int(gaid)}"
+                aid = llm_keys.get(int(gaid))
+                if aid is None:
+                    continue
                 mids = ([int(m) for m in grp["member_id"].dropna()]
                         if has_member and not per_member.empty else [])
                 mids = [m for m in mids if m in per_member.index]
@@ -201,17 +206,15 @@ def build_assertion_counts(
 
         # Agentic: real assertion detection from invocations on the test members.
         if (not links.empty and "tool_attempt_id" in links.columns and not per_member.empty):
-            artifact = (tool_attempts.set_index("id")["artifact_path"]
-                        if (not tool_attempts.empty and "artifact_path" in tool_attempts.columns)
-                        else pd.Series(dtype=str))
             links = links.drop_duplicates(["tool_attempt_id", "member_id"])
             for taid, grp in links.groupby("tool_attempt_id"):
+                aid = agentic_keys.get(int(taid))
+                if aid is None:
+                    continue
                 mids = [m for m in grp["member_id"] if m in per_member.index]
                 asserts = int(per_member.loc[mids, "assertions"].sum()) if mids else 0
                 ninv = int(per_member.loc[mids, "invs"].sum()) if mids else 0
-                key = artifact.get(taid)
-                key = str(taid) if key is None or pd.isna(key) or key == "" else str(key)
-                rows.append({"attempt_id": f"agentic:{key}",
+                rows.append({"attempt_id": aid,
                              "assertion_count": asserts,
                              "invocation_count": ninv,
                              "generated_test_n": len(grp),
@@ -292,6 +295,7 @@ def build_metric_diffs(
 
     from analysis.db import (
         connect,
+        get_canonical_attempt_identities,
         get_candidate_methods,
         get_coverage_gaps,
         get_coverage_reports,
@@ -299,7 +303,6 @@ def build_metric_diffs(
         get_generation_attempts,
         get_mutants,
         get_mutation_reports,
-        get_projects,
         get_tool_attempts,
     )
     from analysis.files import find_databases
@@ -315,7 +318,16 @@ def build_metric_diffs(
             cand_methods = get_candidate_methods(conn)
             execs = get_generated_test_executions(conn)
             gen_attempts = get_generation_attempts(conn)
-            repo_qual = _repo_qualifier(get_projects(conn))
+            identities = get_canonical_attempt_identities(conn)
+
+        llm_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "llm"].itertuples()
+        }
+        agentic_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "agentic"].itertuples()
+        }
 
         # Gap-line sets keyed by (test_run_id, source member_id).
         gap_set: dict = {}
@@ -348,14 +360,17 @@ def build_metric_diffs(
                      if not cand_methods.empty else pd.Series(dtype="float64"))
 
         # Tool lane.
-        if not tool_attempts.empty and "artifact_path" in tool_attempts.columns:
+        if not tool_attempts.empty:
             for ta in tool_attempts.itertuples():
                 member = cm_member.get(getattr(ta, "candidate_method_id", None))
                 d = diff(getattr(ta, "targeted_baseline_id", None),
                          getattr(ta, "post_attempt_test_run_id", None), member)
                 if d is None:
                     continue
-                rows.append({"attempt_id": f"agentic:{ta.artifact_path}", "lane": "agentic",
+                aid = agentic_keys.get(int(ta.id))
+                if aid is None:
+                    continue
+                rows.append({"attempt_id": aid, "lane": "agentic",
                              "lines_closed": d[0], "mutants_newly_killed": d[1]})
 
         # LLM lane (auto-activates once baseline_test_run_id/test_run_id are populated).
@@ -371,7 +386,9 @@ def build_metric_diffs(
                 if d is None:
                     continue
                 gaid = int(ex.generation_attempt_id)
-                aid = f"llm:{repo_qual}:{gaid}" if repo_qual else f"llm:{gaid}"
+                aid = llm_keys.get(gaid)
+                if aid is None:
+                    continue
                 rows.append({"attempt_id": aid, "lane": "llm",
                              "lines_closed": d[0], "mutants_newly_killed": d[1]})
 
@@ -426,14 +443,14 @@ def run(
     out = ensure_output_dir(output_dir)
 
     print("Loading raw attempts...")
-    raw = load_raw_attempts(results, db_paths)
+    raw, raw_generated_tests, _ = read_result_grains(list(results))
     print(f"  {len(raw)} raw rows loaded.")
 
-    # Build generated-test dataset BEFORE agentic rows are collapsed
-    generated_tests = build_generated_tests_dataset_from_raw(raw, db_paths)
+    # Normalize child rows separately so attempt counts cannot be inflated.
+    generated_tests = build_generated_tests_dataset_from_raw(raw_generated_tests, db_paths)
     tool_generated_test_links = build_tool_generated_test_links(db_paths)
 
-    attempts = build_attempts_dataset(raw)
+    attempts = build_attempts_dataset(raw, raw_generated_tests)
 
     # RQ3 assertion guard: attach generated-test assertion counts from the DB.
     assertion_counts = build_assertion_counts(db_paths)

@@ -78,7 +78,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 GeneratedTestMethodName = testMethodName,
                 CodeExtracted = !string.IsNullOrWhiteSpace(generatedTest),
                 MethodNameExtracted = !string.IsNullOrWhiteSpace(testMethodName),
-                BaselineCoverage = context.Method.BaselineCoverage,
+                BaselineCoverage = null,
                 FailureKind = TestFailureKind.Generation,
                 FailureStage = "generation",
                 FailureCategory = "generated_test_missing",
@@ -96,7 +96,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 context,
                 experimentRunId,
                 isMutationBaseline: true);
-            if (!IsUsableScopedMetricRun(baselineRun))
+            if (!IsUsableValidationRun(baselineRun))
             {
                 return new GeneratedTestExecutionResult
                 {
@@ -116,6 +116,13 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                                      "Targeted pre-integration coverage/mutation validation failed before applying the generated test."
                 };
             }
+
+            if (baselineRun is GeneratedTestRunModel { MethodCoverage: null } generatedBaselineRun)
+                _context.Project.Logger?.Warning(
+                    "Target method coverage was unavailable for the pre-integration run. Status={CoverageStatus}; Reason={CoverageReason}. " +
+                    "Validation will continue and coverage deltas will remain unavailable unless both paired measurements resolve.",
+                    generatedBaselineRun.MethodCoverageStatus,
+                    generatedBaselineRun.MethodCoverageReason);
 
             var actionResult = await _applicationService.ApplyAsync(
                 context,
@@ -307,7 +314,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 GeneratedTestMethodName = testMethodName,
                 CodeExtracted = true,
                 MethodNameExtracted = true,
-                BaselineCoverage = context.Method.BaselineCoverage,
+                BaselineCoverage = null,
                 FailureKind = TestFailureKind.Infrastructure,
                 RuntimeErrors = ex.Message,
                 ErrorLogs = ex.ToString(),
@@ -326,7 +333,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         TestRunModel buildResult,
         RoslynGeneratedTestValidationResult roslynValidation,
         RoslynPreBuildDecision preBuildDecision,
-        double baselineCoverage,
+        double? baselineCoverage,
         double? baselineMutationScore,
         TestRunModel baselineRun,
         int? generatedTestMemberId)
@@ -335,10 +342,12 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         var failedTests = buildResult.Results.Where(x => x.Outcome != "Passed").ToList();
         var testsExecuted = buildResult.Results.Count > 0;
         var allTestsPassed = compilationSucceeded && testsExecuted && failedTests.Count == 0;
-        var coverageAfter = buildResult is GeneratedTestRunModel generatedRun
+        double? coverageAfter = buildResult is GeneratedTestRunModel generatedRun
             ? generatedRun.MethodCoverage
-            : buildResult.Coverage / 100.0;
-        var coverageImprovement = coverageAfter - baselineCoverage;
+            : null;
+        double? coverageImprovement = coverageAfter.HasValue && baselineCoverage.HasValue
+            ? coverageAfter.Value - baselineCoverage.Value
+            : null;
         var mutationScoreImprovement = CalculateMutationScoreImprovement(
             baselineMutationScore,
             buildResult.MutationScore);
@@ -460,20 +469,20 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             BuildTestRunRequest.CreateIteration(
                 context.TestProjectPath,
                 context.TargetBuildFramework,
-                context.Method.MethodName,
+                context.ToTargetMemberDescriptor(),
                 string.IsNullOrWhiteSpace(context.SourceProjectPath) ? null : context.SourceProjectPath,
                 experimentRunId,
                 isMutationBaseline));
     }
 
-    private static double ResolveScopedMethodCoverage(TestRunModel run)
+    private static double? ResolveScopedMethodCoverage(TestRunModel run)
     {
         return run is GeneratedTestRunModel generatedRun
             ? generatedRun.MethodCoverage
-            : run.Coverage / 100.0;
+            : null;
     }
 
-    private static bool IsUsableScopedMetricRun(TestRunModel run)
+    internal static bool IsUsableValidationRun(TestRunModel run)
     {
         return DidCompilationSucceed(run) &&
                run.Results.Count > 0 &&

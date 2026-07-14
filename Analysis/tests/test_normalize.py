@@ -28,6 +28,9 @@ from analysis.schema import LANE_AGENTIC, LANE_LLM
 def _llm_row(**kwargs) -> dict:
     """Minimal LLM attempt row matching pilot CSV structure."""
     defaults = {
+        "results_schema_version": "2.0",
+        "row_kind": "attempt",
+        "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
         "producer_lane": "testmap",
         "tool_id": "",
@@ -53,12 +56,16 @@ def _llm_row(**kwargs) -> dict:
         "attempt_number": "1",
     }
     defaults.update(kwargs)
+    defaults.setdefault("attempt_id", f"llm-{defaults['generation_attempt_id']}")
     return defaults
 
 
 def _agentic_row(**kwargs) -> dict:
     """Minimal agentic generated-test row matching pilot CSV structure."""
     defaults = {
+        "results_schema_version": "2.0",
+        "row_kind": "attempt",
+        "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
         "producer_lane": "agent-tool",
         "tool_id": "codex",
@@ -87,6 +94,7 @@ def _agentic_row(**kwargs) -> dict:
     }
     defaults.update(kwargs)
     defaults.setdefault("tool_attempt_id", f"{defaults['tool_id']}-{defaults['source_member_id']}")
+    defaults.setdefault("attempt_id", f"agent-{defaults['tool_attempt_id']}")
     return defaults
 
 
@@ -353,11 +361,13 @@ class TestCollapseAgenticToAttempts:
                          outcome: str = "Passed", tool_attempt_id: str | None = None) -> pd.DataFrame:
         """Build *n_tests* generated-test rows for one agentic attempt."""
         rows = []
-        attempt_id = tool_attempt_id or f"{tool_id}-{source_member_id}"
+        tool_attempt_id = tool_attempt_id or f"{tool_id}-{source_member_id}"
+        attempt_id = f"agent-{tool_attempt_id}"
         for i in range(n_tests):
             rows.append({
                 "experiment_run_id": "1",
-                "tool_attempt_id": attempt_id,
+                "tool_attempt_id": tool_attempt_id,
+                "attempt_id": attempt_id,
                 "tool_id": tool_id,
                 "repo_owner": "owner",
                 "repo_name": "repo",
@@ -381,7 +391,7 @@ class TestCollapseAgenticToAttempts:
         result = collapse_agentic_to_attempts(df)
         assert result["generated_test_count"].iloc[0] == 5
 
-    def test_distinct_tool_attempt_ids_produce_two_rows(self):
+    def test_distinct_attempt_ids_produce_two_rows(self):
         df_codex = self._agentic_attempt("codex", "2", n_tests=5)
         df2 = self._agentic_attempt("codex", "2", n_tests=6, tool_attempt_id="codex-2-repeat")
         combined = pd.concat([df_codex, df2], ignore_index=True)
@@ -421,9 +431,9 @@ class TestCollapseAgenticToAttempts:
         assert counts["codex"] == 5
         assert counts["gemini"] == 6
 
-    def test_missing_tool_attempt_id_raises(self):
-        df = self._agentic_attempt("codex", "2", n_tests=1).drop(columns=["tool_attempt_id"])
-        with pytest.raises(ValueError, match="tool_attempt_id"):
+    def test_missing_attempt_id_raises(self):
+        df = self._agentic_attempt("codex", "2", n_tests=1).drop(columns=["attempt_id"])
+        with pytest.raises(ValueError, match="attempt_id"):
             collapse_agentic_to_attempts(df)
 
 
@@ -444,9 +454,6 @@ class TestNormalizeAttempts:
             _agentic_row(tool_id="codex", source_member_id="2",
                          generated_test_method_name="TestA",
                          tool_attempt_id="101"),
-            _agentic_row(tool_id="codex", source_member_id="2",
-                         generated_test_method_name="TestB",
-                         tool_attempt_id="101"),
             _agentic_row(tool_id="gemini", source_member_id="2",
                          tool_validation_outcome="TestsFailed",
                          generated_test_method_name="TestC",
@@ -462,7 +469,7 @@ class TestNormalizeAttempts:
     def test_agentic_rows_collapsed(self):
         df = self._pilot_df()
         result = normalize_attempts(df)
-        # 2 LLM rows + 2 agentic attempts (codex/2 and gemini/2)
+        # Current attempt files already contain one row per attempt.
         agentic = result[result["lane"] == LANE_AGENTIC]
         assert len(agentic) == 2
 
@@ -514,17 +521,17 @@ class TestNormalizeAttempts:
         result = normalize_attempts(df)
         assert "changed_files_count" in result.columns
 
-    def test_llm_generated_test_count_is_one(self):
+    def test_generated_test_count_defaults_to_zero_without_child_dataset(self):
         df = self._pilot_df()
         result = normalize_attempts(df)
         llm = result[result["lane"] == LANE_LLM]
-        assert (llm["generated_test_count"] == 1).all()
+        assert (llm["generated_test_count"] == 0).all()
 
-    def test_agentic_generated_test_count_reflects_collapse(self):
+    def test_agentic_generated_test_count_defaults_to_zero(self):
         df = self._pilot_df()
         result = normalize_attempts(df)
         codex = result[(result["lane"] == LANE_AGENTIC) & (result["tool_id"] == "codex")]
-        assert codex["generated_test_count"].iloc[0] == 2  # 2 codex rows
+        assert codex["generated_test_count"].iloc[0] == 0
 
     def test_empty_df_returns_empty(self):
         result = normalize_attempts(pd.DataFrame())
@@ -539,14 +546,13 @@ class TestNormalizeAttemptsCurrentFixture:
     """Structural invariants for the current result CSV contract."""
 
     @pytest.fixture(scope="class")
-    def normalized(self):
+    @staticmethod
+    def normalized():
         raw = pd.DataFrame([
             _llm_row(failure_kind="Runtime", generation_attempt_id="1"),
             _llm_row(failure_kind="None", generation_attempt_id="2", source_member_id="478"),
             _agentic_row(tool_attempt_id="101", tool_id="codex", source_member_id="2",
                          generated_test_method_name="TestA"),
-            _agentic_row(tool_attempt_id="101", tool_id="codex", source_member_id="2",
-                         generated_test_method_name="TestB"),
             _agentic_row(tool_attempt_id="102", tool_id="codex", source_member_id="2",
                          generated_test_method_name="TestC"),
         ])
@@ -577,9 +583,9 @@ class TestNormalizeAttemptsCurrentFixture:
     def test_validated_success_column_present(self, normalized):
         assert "validated_success" in normalized.columns
 
-    def test_llm_generated_test_count_one(self, normalized):
+    def test_generated_test_count_zero_without_child_rows(self, normalized):
         llm = normalized[normalized["lane"] == LANE_LLM]
-        assert (llm["generated_test_count"] == 1).all()
+        assert (llm["generated_test_count"] == 0).all()
 
     def test_agentic_unique_per_tool_attempt_id(self, normalized):
         agentic = normalized[normalized["lane"] == LANE_AGENTIC]

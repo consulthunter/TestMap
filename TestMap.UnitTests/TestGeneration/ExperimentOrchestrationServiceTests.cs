@@ -71,12 +71,29 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
 
     [Fact]
     [Trait("Category", "Unit")]
-    public void ShouldRequirePassingExistingTest_ForTestSuiteExpansion_ReturnsFalse()
+    public void ShouldRequirePassingExistingTest_ForTestSuiteExpansion_ReturnsTrue()
     {
         var result = ExperimentOrchestrationService.ShouldRequirePassingExistingTest(
             TestGenerationObjective.TestSuiteExpansion);
 
-        Assert.False(result);
+        Assert.True(result);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ResolveReportedAccessStrategy_WithoutResolvedPath_ReturnsUnknown()
+    {
+        var result = ExperimentOrchestrationService.ResolveReportedAccessStrategy(new SourceMemberTestability
+        {
+            SourceMemberId = 1,
+            Visibility = MemberVisibility.Public,
+            TestMappings = [],
+            AccessPaths = [],
+            EvidenceStatuses = [],
+            SetupBindings = []
+        });
+
+        Assert.Equal(TestAccessStrategy.Unknown, result);
     }
 
     [Fact]
@@ -113,6 +130,20 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
         var result = ExperimentOrchestrationService.GetAgentToolAttemptCount(budgetMode);
 
         Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [Trait("Category", "Unit")]
+    [InlineData(TestClassification.ValidatedEvidencePositive, true)]
+    [InlineData(TestClassification.ValidatedLowImpact, true)]
+    [InlineData(TestClassification.ValidatedImpactUnknown, true)]
+    [InlineData(TestClassification.FailedEvidencePositive, false)]
+    [InlineData(TestClassification.ValidationFailed, false)]
+    public void IsValidatedClassification_OnlyAcceptsValidatedOutcomes(
+        TestClassification classification,
+        bool expected)
+    {
+        Assert.Equal(expected, ExperimentOrchestrationService.IsValidatedClassification(classification));
     }
 
     [Fact]

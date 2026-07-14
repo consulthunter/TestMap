@@ -28,10 +28,10 @@ from analysis.files import (
     ensure_output_dir,
     find_artifact_dir,
     read_log_excerpt,
-    read_results_csvs,
+    read_result_grains,
     read_text_artifact,
 )
-from analysis.normalize import normalize_attempts
+from analysis.build_evaluation_dataset import build_attempts_dataset
 from analysis.schema import FAILURE_CASE_FIELDS, LANE_AGENTIC, PRELIMINARY_FAILURE_LABELS
 
 
@@ -421,8 +421,8 @@ def run(
     """Entry point for the ``export-failures`` CLI command."""
     out = ensure_output_dir(output_dir)
 
-    raw = read_results_csvs(list(results))
-    attempts = normalize_attempts(raw)
+    raw, generated, _ = read_result_grains(list(results))
+    attempts = build_attempts_dataset(raw, generated)
     cases = build_failure_cases(attempts, db_paths, artifacts_root)
     sampled = sample_cases(cases, strategy=sample, top_n=top_n)
 

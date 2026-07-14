@@ -5,11 +5,11 @@ the standardized tables that notebooks consume.
 
 Key design constraints
 ----------------------
-- The raw CSV has **one row per generated test** for the agentic lane and
-  **one row per attempt** (= one generated test) for the LLM lane.
+- Result schema v2 separates attempt and generated-test rows into canonical files.
 - ``normalize_attempts`` handles the full pipeline and returns a DataFrame
   with one row per *attempt* for both lanes.
-- ``build_generated_tests_dataset`` returns the un-collapsed per-test grain.
+- ``build_generated_tests_dataset`` normalizes the generated-test grain without
+  attributing attempt-level deltas to individual tests.
 """
 
 from __future__ import annotations
@@ -78,65 +78,25 @@ def make_repository_key(row: pd.Series) -> str:
 
 
 def _assign_attempt_ids(df: pd.DataFrame) -> None:
-    """Assign canonical attempt IDs in-place.
-
-    LLM rows use ``generation_attempt_id``. Agentic rows require
-    ``tool_attempt_id``; no legacy fallback is supported.
-    """
+    """Validate the canonical attempt IDs emitted by result schema v2."""
     if "attempt_id" not in df.columns:
-        df["attempt_id"] = pd.NA
+        raise ValueError("Current result rows require attempt_id.")
+    missing = df["attempt_id"].isna() | df["attempt_id"].astype(str).str.strip().eq("")
+    if missing.any():
+        raise ValueError("Current result rows require non-empty attempt_id values.")
+    df["attempt_id"] = df["attempt_id"].astype(str).str.strip()
 
     lane = df.get("lane", pd.Series("", index=df.index, dtype=str))
-    llm_mask = lane == LANE_LLM
     agentic_mask = lane == LANE_AGENTIC
-
-    if llm_mask.any():
-        if "generation_attempt_id" not in df.columns:
-            raise ValueError("LLM rows require generation_attempt_id.")
-        gaid = df.loc[llm_mask, "generation_attempt_id"].astype(str).str.strip()
-        # generation_attempt_id is only unique within a repository, so qualify the LLM
-        # attempt_id with owner|repo to make it globally unique (avoids cross-repo collisions
-        # on any attempt_id join). owner/repo match the DB ``projects`` table used by the
-        # DB-side builders (build_assertion_counts / build_metric_diffs).
-        if "repo_owner" in df.columns and "repo_name" in df.columns:
-            repo_qual = (df.loc[llm_mask, "repo_owner"].astype(str).str.strip() + "|"
-                         + df.loc[llm_mask, "repo_name"].astype(str).str.strip())
-            df.loc[llm_mask, "attempt_id"] = "llm:" + repo_qual + ":" + gaid
-        else:
-            df.loc[llm_mask, "attempt_id"] = "llm:" + gaid
-
     if agentic_mask.any():
-        # Derive tool_attempt_id from tool_artifact_path when the column is absent.
-        # tool_artifact_path is unique per attempt in the current CSV format.
         if "tool_attempt_id" not in df.columns:
-            if "tool_artifact_path" in df.columns:
-                df["tool_attempt_id"] = df["tool_artifact_path"].astype(str).str.strip()
-            else:
-                raise ValueError(
-                    "Agentic rows require tool_attempt_id (or tool_artifact_path as fallback)."
-                )
-        missing = df.loc[agentic_mask, "tool_attempt_id"].isna() | (
-            df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip() == ""
+            raise ValueError("Agentic rows require tool_attempt_id.")
+        missing_tool_id = (
+            df.loc[agentic_mask, "tool_attempt_id"].isna()
+            | df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip().eq("")
         )
-        if missing.any():
-            # Fill remaining blanks from tool_artifact_path if available
-            if "tool_artifact_path" in df.columns:
-                fill = df.loc[agentic_mask & missing, "tool_artifact_path"].astype(str).str.strip()
-                df.loc[agentic_mask & missing, "tool_attempt_id"] = fill
-                missing = df.loc[agentic_mask, "tool_attempt_id"].isna() | (
-                    df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip() == ""
-                )
-            if missing.any():
-                raise ValueError("Agentic rows require non-empty tool_attempt_id values.")
-        # Build attempt_id from the globally-unique tool_artifact_path; the numeric
-        # tool_attempt_id is only unique within a repo (and is float-formatted in the CSV).
-        # This matches the artifact-path key used by the DB-side builders
-        # (build_assertion_counts / build_metric_diffs).
-        ag_attempt = df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip()
-        if "tool_artifact_path" in df.columns:
-            path = df.loc[agentic_mask, "tool_artifact_path"].astype(str).str.strip()
-            ag_attempt = path.where(path != "", ag_attempt)
-        df.loc[agentic_mask, "attempt_id"] = "agentic:" + ag_attempt
+        if missing_tool_id.any():
+            raise ValueError("Agentic rows require non-empty tool_attempt_id values.")
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +105,7 @@ def _assign_attempt_ids(df: pd.DataFrame) -> None:
 
 OUTCOME_VALIDATED_EVIDENCE_POSITIVE = "ValidatedEvidencePositive"
 OUTCOME_VALIDATED_LOW_IMPACT = "ValidatedLowImpact"
+OUTCOME_VALIDATED_IMPACT_UNKNOWN = "ValidatedImpactUnknown"
 OUTCOME_FAILED_EVIDENCE_POSITIVE = "FailedEvidencePositive"
 OUTCOME_VALIDATION_FAILED = "ValidationFailed"
 OUTCOME_NO_CHANGE = "NoChange"
@@ -159,6 +120,7 @@ OUTCOME_NOT_EVALUATED = "NotEvaluated"
 VALIDATED_OUTCOMES = {
     OUTCOME_VALIDATED_EVIDENCE_POSITIVE,
     OUTCOME_VALIDATED_LOW_IMPACT,
+    OUTCOME_VALIDATED_IMPACT_UNKNOWN,
 }
 
 # positive_impact is VEP only: test passed AND metrics improved above the noise floor.
@@ -289,6 +251,7 @@ def _compute_positive_impact(df: pd.DataFrame) -> pd.Series:
     else:
         oc = df["outcome_classification"]
     result = oc.isin(POSITIVE_IMPACT_OUTCOMES)
+    result = result.mask(oc.eq(OUTCOME_VALIDATED_IMPACT_UNKNOWN), pd.NA)
     return result.where(oc.notna(), other=pd.NA).astype("boolean")
 
 
@@ -392,21 +355,9 @@ def collapse_agentic_to_attempts(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.copy()
 
-    # Derive tool_attempt_id from tool_artifact_path when the column is absent.
-    if "tool_attempt_id" not in df.columns:
-        if "tool_artifact_path" in df.columns:
-            df = df.copy()
-            df["tool_attempt_id"] = df["tool_artifact_path"].astype(str).str.strip()
-        else:
-            raise ValueError(
-                "Agentic rows require tool_attempt_id (or tool_artifact_path as fallback)."
-            )
-
     key_cols = [c for c in AGENTIC_ATTEMPT_KEY_FIELDS if c in df.columns]
-    if "tool_attempt_id" not in key_cols:
-        raise ValueError("Agentic rows require tool_attempt_id for attempt-level collapse.")
-    if df["tool_attempt_id"].isna().any() or df["tool_attempt_id"].astype(str).str.strip().eq("").any():
-        raise ValueError("Agentic rows require non-empty tool_attempt_id values.")
+    if "attempt_id" not in key_cols:
+        raise ValueError("Agentic rows require attempt_id for attempt-level collapse.")
 
     first_rows = df.groupby(key_cols, sort=False).first().reset_index()
 
@@ -432,25 +383,22 @@ def collapse_agentic_to_attempts(df: pd.DataFrame) -> pd.DataFrame:
 def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
     """Full normalization pipeline producing one row per attempt.
 
-    Handles both lanes:
-    - **LLM** rows are already one-row-per-attempt; ``generated_test_count``
-      is set to 1.
-    - **Agentic** rows are collapsed from per-generated-test to per-attempt
-      via :func:`collapse_agentic_to_attempts`.
+    Input must contain current-format ``row_kind='attempt'`` rows only.
 
     Steps applied in order:
 
     1. Rename raw CSV column names (``producer_lane`` → ``lane``, etc.).
     2. Normalize lane values to canonical ``llm`` / ``agentic``.
     3. Compute ``validated_success`` and ``produced_change``.
-    4. Stamp ``generated_test_count = 1`` for LLM rows.
-    5. Collapse agentic rows to attempt level.
-    6. Concatenate LLM + collapsed agentic.
-    7. Add ``candidate_key`` and ``repository_key``.
-    8. Coerce numeric and boolean columns.
+    4. Validate one globally unique row per ``attempt_id``.
+    5. Add ``candidate_key`` and ``repository_key``.
+    6. Coerce numeric and boolean columns.
     """
     if df.empty:
         return df.copy()
+
+    if "row_kind" not in df.columns or not df["row_kind"].eq("attempt").all():
+        raise ValueError("normalize_attempts requires only row_kind='attempt' rows.")
 
     out = rename_raw_columns(df)
 
@@ -465,25 +413,11 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
     out["produced_change"] = _compute_produced_change(out)
     out["impact_attribution"] = "attempt_level"
 
-    # 4. LLM: one generated test per attempt
-    llm_mask = out["lane"] == LANE_LLM
-    agentic_mask = out["lane"] == LANE_AGENTIC
-
     if "generated_test_count" not in out.columns:
-        out["generated_test_count"] = pd.NA
-    out.loc[llm_mask, "generated_test_count"] = 1
-
-    # 5 & 6. Collapse agentic, then concat
-    llm_df = out[llm_mask].copy()
-    agentic_df = out[agentic_mask].copy()
-
-    if not agentic_df.empty:
-        agentic_df = collapse_agentic_to_attempts(agentic_df)
-
-    out = pd.concat([llm_df, agentic_df], ignore_index=True)
-
-    # Collapse preserves first row values; re-apply flags to keep types stable.
-    _add_outcome_flags(out)
+        out["generated_test_count"] = 0
+    if out["attempt_id"].duplicated().any():
+        duplicates = sorted(out.loc[out["attempt_id"].duplicated(False), "attempt_id"].unique())
+        raise ValueError(f"Attempt CSV contains duplicate attempt_id values: {duplicates[:5]}.")
 
     # 7. Keys
     out["candidate_key"] = out.apply(make_candidate_key, axis=1)
@@ -641,21 +575,22 @@ def _coerce_bool(df: pd.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Generated-test-level dataset (pre-collapse grain)
+# Generated-test-level dataset
 # ---------------------------------------------------------------------------
 
 def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     """Return a per-generated-test dataset from the raw CSV DataFrame.
 
-    This preserves the full row-per-test grain for both lanes:
-    - LLM: each row is already one test.
-    - Agentic: each row is already one test (no collapsing).
+    This preserves the canonical row-per-generated-test grain for both lanes.
 
     Applies column renames, lane normalization, and key columns, but does
     **not** collapse agentic rows.
     """
     if raw_df.empty:
         return raw_df.copy()
+
+    if "row_kind" not in raw_df.columns or not raw_df["row_kind"].eq("generated_test").all():
+        raise ValueError("Generated-test normalization requires row_kind='generated_test' rows.")
 
     out = rename_raw_columns(raw_df)
 

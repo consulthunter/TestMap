@@ -6,7 +6,11 @@ namespace TestMap.Services.Experiment.Reporting;
 
 public sealed class ExperimentResultFileRow
 {
+    public string ResultsSchemaVersion { get; init; } = "2.0";
+    public string RowKind { get; init; } = "attempt";
+    public string AttemptId { get; init; } = string.Empty;
     public int ExperimentRunId { get; init; }
+    public string ExperimentRunUid { get; init; } = string.Empty;
     public string ExperimentSeriesId { get; init; } = string.Empty;
     public int? CandidateCohortId { get; init; }
     public int? CandidateCohortMemberId { get; init; }
@@ -79,15 +83,27 @@ public sealed class ExperimentResultFileRow
     public bool GeneratedTestCompiled { get; init; }
     public bool GeneratedTestExecuted { get; init; }
     public bool GeneratedTestPassed { get; init; }
-    public double CoverageBefore { get; init; }
-    public double CoverageAfter { get; init; }
-    public double CoverageDelta { get; init; }
+    public double? CoverageBefore { get; init; }
+    public double? CoverageAfter { get; init; }
+    public double? CoverageDelta { get; init; }
     public double? MutationScoreBefore { get; init; }
     public double? MutationScoreAfter { get; init; }
     public double? MutationScoreDelta { get; init; }
     public bool? MutantKilled { get; init; }
+    public string OutcomeClassification { get; init; } = string.Empty;
+    public bool ValidatedSuccess { get; init; }
+    public bool ValidatedEvidencePositive { get; init; }
+    public bool ValidatedLowImpact { get; init; }
+    public bool ImpactEvaluable { get; init; }
+    public bool MetricImproved { get; init; }
+    public bool? PositiveImpact { get; init; }
+    public bool ProducedChange { get; init; }
+    public string CoverageMeasurementStatus { get; init; } = string.Empty;
+    public string MutationMeasurementStatus { get; init; } = string.Empty;
+    public string ImpactMeasurementStatus { get; init; } = string.Empty;
+    public string ImpactAttribution { get; init; } = "attempt_level";
+    public string MeasurementPolicyVersion { get; init; } = EvaluationImpactPolicy.Version;
     public string ToolObservedOutcome { get; init; } = string.Empty;
-    public bool? AcceptedByNormalPolicy { get; init; }
     public string FailureKind { get; init; } = string.Empty;
     public string FailureStage { get; init; } = string.Empty;
     public string FailureCategory { get; init; } = string.Empty;
@@ -98,8 +114,14 @@ public sealed class ExperimentResultFileRow
     public int RoslynDiagnosticsAfterCount { get; init; }
     public int NewRoslynDiagnosticsCount { get; init; }
     public string NewRoslynDiagnostics { get; init; } = string.Empty;
-    public int TotalTokens { get; init; }
-    public int CumulativeTokens { get; init; }
+    public bool UsageAvailable { get; init; }
+    public string UsageStatus { get; init; } = "missing";
+    public string UsageSource { get; init; } = string.Empty;
+    public int? InputTokens { get; init; }
+    public int? OutputTokens { get; init; }
+    public int? EstimatedPromptTokens { get; init; }
+    public int? TotalTokens { get; init; }
+    public int? CumulativeTokens { get; init; }
     public double GenerationDurationSeconds { get; init; }
     public double ValidationDurationSeconds { get; init; }
     public double TotalAttemptDurationSeconds { get; init; }
@@ -108,5 +130,7 @@ public sealed class ExperimentResultFileRow
     public string PromptVersion { get; init; } = string.Empty;
     public int GenerationAttemptId { get; init; }
     public int? TestExecutionId { get; init; }
+    public int? GeneratedTestMemberId { get; init; }
+    public int? TestResultId { get; init; }
     public string ResumeStableKey { get; init; } = string.Empty;
 }

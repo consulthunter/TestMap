@@ -35,7 +35,8 @@ public static class GenerationAcceptanceDecisionEngine
 
         if (config.RequireCoverageImprovement)
         {
-            var minSatisfied = validation.CoverageImprovement > config.MinCoverageImprovement;
+            var minSatisfied = validation.CoverageImprovement.HasValue &&
+                               validation.CoverageImprovement.Value > config.MinCoverageImprovement;
             decisions.Add(Decision(
                 minSatisfied
                     ? GenerationAcceptanceRuleDefinitions.MinCoverageSatisfied
@@ -44,7 +45,7 @@ public static class GenerationAcceptanceDecisionEngine
                 minSatisfied
                     ? "Minimum coverage improvement was satisfied."
                     : "Coverage did not improve enough.",
-                RuleDecisionFactory.CreateEvidence("Coverage", "Delta", validation.CoverageImprovement.ToString("R")),
+                RuleDecisionFactory.CreateEvidence("Coverage", "Delta", validation.CoverageImprovement?.ToString("R") ?? string.Empty),
                 RuleDecisionFactory.CreateEvidence("Coverage", "MinimumDelta", config.MinCoverageImprovement.ToString("R"))));
         }
 

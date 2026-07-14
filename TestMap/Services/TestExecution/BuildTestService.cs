@@ -168,7 +168,10 @@ public class BuildTestService : IBuildTestService
             if (result is GeneratedTestRunModel generated)
             {
                 generated.CoveredMethod = request.CoveredMethodName ?? string.Empty;
-                generated.MethodCoverage = ResolveMethodCoverage(request.CoveredMethodName);
+                var resolution = CoverageTargetResolver.Resolve(LatestCoverageReport, request.TargetMember);
+                generated.MethodCoverage = resolution.LineRate;
+                generated.MethodCoverageStatus = resolution.Status;
+                generated.MethodCoverageReason = resolution.Reason;
             }
 
             var testRunId = await _testRunRepository.InsertOrUpdateAsync(result, _context.Project.DbId);
@@ -607,23 +610,6 @@ public class BuildTestService : IBuildTestService
             logs = await File.ReadAllTextAsync(LatestLogPath);
 
         return _callFailureService.Analyze(logs, processDiagnostics);
-    }
-
-    private double ResolveMethodCoverage(string? methodName)
-    {
-        if (string.IsNullOrWhiteSpace(methodName)) return 0;
-
-        var coverageLookup = LatestCoverageReport?.Packages?
-            .SelectMany(p => p.Classes)
-            .SelectMany(c => c.Methods)
-            .Where(m =>
-                m.Name != ".ctor" &&
-                !m.Name.StartsWith("get_") &&
-                !m.Name.StartsWith("set_"))
-            .GroupBy(m => m.Name)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-
-        return coverageLookup?.GetValueOrDefault(methodName)?.LineRate ?? 0;
     }
 
     private async Task TryCaptureContainerLogsAsync()

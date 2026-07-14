@@ -72,3 +72,10 @@ anything you intend to measure or report.
 
 For Basic Extension generation, keep `EnableSpeculativePlanning` disabled unless you are deliberately
 running an ablation. The one-shot structured patch path is the recommended default.
+
+## Why?
+
+Originally, this started a an MSR (mining software repositories) tool. I wanted to get source <-> test pairs for fine-tuning an LLM for software testing in C#.
+Then, I wondered about how would I know the quality of such tests, possibly for RL (reinforcement learning driven by acutal test performance). A friend suggested running the projects in a Docker environment, so I would have actual data.
+Then, I figured now that I was collecting all of this data I could use it to generate tests for projects.
+Finally, I was asked what about a comparison between a generic LLM approach (ChatUniTest) versus an actual Agent (mini-swe-agent) which is how this tool ended up the way it is today.

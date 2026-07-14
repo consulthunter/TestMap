@@ -476,6 +476,39 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                 var response = await provider.GenerateAsync(prompt, temperature, cancellationToken);
                 stopwatch.Stop();
 
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    var errorMessage = $"Provider returned an empty response for step {stepType}.";
+                    if (attempt < maxAttempts)
+                    {
+                        _context.Project.Logger?.Warning(
+                            "{ErrorMessage} Retrying step ({Attempt}/{MaxAttempts}).",
+                            errorMessage,
+                            attempt + 1,
+                            maxAttempts);
+
+                        if (stepRetryDelayMs > 0) await Task.Delay(stepRetryDelayMs, cancellationToken);
+                        continue;
+                    }
+
+                    _context.Project.Logger?.Warning(errorMessage);
+                    return new GenerationStepMetadata
+                    {
+                        StepType = stepType,
+                        Prompt = prompt,
+                        Response = string.Empty,
+                        ResponseFormat = GetResponseFormat(stepType),
+                        PromptVersion = PromptVersion,
+                        ValidationStatus = "empty",
+                        TokenCount = tokenCount,
+                        DurationSeconds = stopwatch.Elapsed.TotalSeconds,
+                        StartedAt = startedAt,
+                        CompletedAt = DateTime.UtcNow,
+                        Success = false,
+                        ErrorMessage = errorMessage
+                    };
+                }
+
                 _context.Project.Logger?.Information(
                     $"Step {stepType} completed in {stopwatch.Elapsed.TotalSeconds:F2}s, {tokenCount} tokens");
 
@@ -486,12 +519,12 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                     Response = response,
                     ResponseFormat = GetResponseFormat(stepType),
                     PromptVersion = PromptVersion,
-                    ValidationStatus = GetValidationStatus(stepType, !string.IsNullOrWhiteSpace(response)),
+                    ValidationStatus = GetValidationStatus(stepType, true),
                     TokenCount = tokenCount,
                     DurationSeconds = stopwatch.Elapsed.TotalSeconds,
                     StartedAt = startedAt,
                     CompletedAt = DateTime.UtcNow,
-                    Success = !string.IsNullOrWhiteSpace(response)
+                    Success = true
                 };
             }
             catch (Exception ex)

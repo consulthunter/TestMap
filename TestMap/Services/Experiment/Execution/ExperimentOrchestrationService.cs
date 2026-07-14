@@ -411,7 +411,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 BuildTestRunRequest.CreateIteration(
                     key.TestProjectPath,
                     key.TargetFramework,
-                    coveredMethodName: null,
+                    targetMember: null,
                     key.SourceProjectPath,
                     experimentRunId,
                     isMutationBaseline: true));
@@ -846,6 +846,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                         {
                             if (result?.ToolAttempt != null)
                             {
+                                result.ToolAttempt.AttemptNumber = attemptNumber;
                                 validationStopwatch?.Stop();
                                 result.ToolAttempt.GenerationDurationSeconds = result.ToolAttempt.ElapsedSeconds;
                                 result.ToolAttempt.ValidationDurationSeconds =
@@ -925,6 +926,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ExperimentRunId = experimentRun.Id,
             MatrixWorkItemId = workItem.Id,
             CandidateMethodId = candidateMethod.Id,
+            AttemptNumber = 1,
             TargetedBaselineId = targetedBaselineId,
             ToolId = decision.Tool.Id,
             ImageName = decision.Availability.ImageName ?? string.Empty,
@@ -1028,10 +1030,33 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             candidateMethod.ExistingTestMemberId,
             cancellationToken);
         var accessReport = ResolveAccessPathReport(attempt.RuleDecisionSnapshotJson);
+        var classificationValidated = IsValidatedClassification(execution?.Classification);
+        var impact = EvaluationImpactPolicy.Evaluate(
+            generatedTestPassed && classificationValidated,
+            execution?.CoverageImprovement,
+            execution?.MutationScoreImprovement);
+        var hasUsageSteps = attempt.GenerationSteps.Count > 0;
+        var inputUsageComplete = hasUsageSteps && attempt.GenerationSteps.All(x => x.InputTokens.HasValue);
+        var outputUsageComplete = hasUsageSteps && attempt.GenerationSteps.All(x => x.OutputTokens.HasValue);
+        var usageComplete = inputUsageComplete && outputUsageComplete;
+        var usagePartial = attempt.GenerationSteps.Any(x => x.InputTokens.HasValue || x.OutputTokens.HasValue);
+        var outcomeClassification = execution?.Classification.ToString() ?? TestClassification.ValidationFailed.ToString();
+        var failureKind = execution?.FailureKind ?? attempt.FailureKind;
+        var failureStage = execution?.FailureStage ?? attempt.FailureStage ?? string.Empty;
+        var producedChange = failureKind != TestFailureKind.Generation &&
+                             !failureStage.Equals("application", StringComparison.OrdinalIgnoreCase);
 
         return new ExperimentResultFileRow
         {
+            AttemptId = AttemptKeyFactory.Create(
+                $"{_context.Project.Owner}/{_context.Project.RepoName}",
+                experimentRun.ExperimentSeriesId,
+                experimentRun.RunUid,
+                "testmap",
+                stableKey,
+                attempt.AttemptNumber),
             ExperimentRunId = experimentRun.Id,
+            ExperimentRunUid = experimentRun.RunUid,
             ExperimentSeriesId = experimentRun.ExperimentSeriesId,
             CandidateCohortId = experimentRun.CandidateCohortId,
             CandidateCohortMemberId = candidateMethod.CandidateCohortMemberId,
@@ -1097,29 +1122,48 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             GeneratedTestCompiled = generatedTestCompiled,
             GeneratedTestExecuted = generatedTestExecuted,
             GeneratedTestPassed = generatedTestPassed,
-            CoverageBefore = candidateMethod.BaselineCoverage,
-            CoverageAfter = execution?.CoverageAfter ?? 0,
-            CoverageDelta = execution?.CoverageImprovement ?? 0,
+            CoverageBefore = execution == null || !execution.CoverageAfter.HasValue || !execution.CoverageImprovement.HasValue
+                ? null
+                : execution.CoverageAfter.Value - execution.CoverageImprovement.Value,
+            CoverageAfter = execution?.CoverageAfter,
+            CoverageDelta = execution?.CoverageImprovement,
             MutationScoreBefore = execution?.BaselineMutationScore,
             MutationScoreAfter = execution?.MutationScoreAfter,
             MutationScoreDelta = execution?.MutationScoreImprovement,
-            MutantKilled = execution?.MutationScoreImprovement is > 0,
-            ToolObservedOutcome = execution?.Classification.ToString() ?? TestClassification.ValidationFailed.ToString(),
-            AcceptedByNormalPolicy = execution?.Accepted,
-            FailureKind = execution?.FailureKind.ToString() ?? string.Empty,
-            FailureStage = execution?.FailureStage ?? string.Empty,
-            FailureCategory = execution?.FailureCategory ?? string.Empty,
-            FailureSummary = execution?.FailureSummary ?? string.Empty,
+            MutantKilled = null,
+            OutcomeClassification = outcomeClassification,
+            ValidatedSuccess = impact.ValidatedSuccess,
+            ValidatedEvidencePositive = impact.ValidatedEvidencePositive,
+            ValidatedLowImpact = impact.ValidatedLowImpact,
+            ImpactEvaluable = impact.ImpactEvaluable,
+            MetricImproved = impact.MetricImproved,
+            PositiveImpact = impact.PositiveImpact,
+            ProducedChange = producedChange,
+            CoverageMeasurementStatus = impact.CoverageEvaluable ? "Paired" : "Missing",
+            MutationMeasurementStatus = impact.MutationEvaluable ? "Paired" : "Missing",
+            ImpactMeasurementStatus = impact.CoverageEvaluable && impact.MutationEvaluable
+                ? "Complete"
+                : impact.ImpactEvaluable ? "Partial" : "Missing",
+            ToolObservedOutcome = outcomeClassification,
+            FailureKind = failureKind == TestFailureKind.None ? string.Empty : failureKind.ToString(),
+            FailureStage = failureStage,
+            FailureCategory = execution?.FailureCategory ?? attempt.FailureCategory ?? string.Empty,
+            FailureSummary = execution?.FailureSummary ?? attempt.ErrorMessage ?? string.Empty,
             RoslynValidationSucceeded = execution?.RoslynValidationSucceeded ?? true,
             RoslynValidationSkipped = execution?.RoslynValidationSkipped ?? false,
             RoslynDiagnosticsBeforeCount = execution?.RoslynDiagnosticsBeforeCount ?? 0,
             RoslynDiagnosticsAfterCount = execution?.RoslynDiagnosticsAfterCount ?? 0,
             NewRoslynDiagnosticsCount = execution?.NewRoslynDiagnosticsCount ?? 0,
             NewRoslynDiagnostics = execution?.NewRoslynDiagnostics ?? string.Empty,
-            TotalTokens = attempt.TotalTokensUsed,
-            CumulativeTokens = attempt.ChainCumulativeTokensUsed > 0
+            UsageAvailable = usageComplete,
+            UsageStatus = usageComplete ? "complete" : usagePartial ? "partial" : "missing",
+            UsageSource = usagePartial ? "generation_steps" : string.Empty,
+            InputTokens = inputUsageComplete ? attempt.GenerationSteps.Sum(x => x.InputTokens!.Value) : null,
+            OutputTokens = outputUsageComplete ? attempt.GenerationSteps.Sum(x => x.OutputTokens!.Value) : null,
+            TotalTokens = usageComplete ? attempt.TotalTokensUsed : null,
+            CumulativeTokens = usageComplete && attempt.ChainCumulativeTokensUsed > 0
                 ? attempt.ChainCumulativeTokensUsed
-                : attempt.TotalTokensUsed,
+                : usageComplete ? attempt.TotalTokensUsed : null,
             GenerationDurationSeconds = attempt.GenerationDurationSeconds,
             ValidationDurationSeconds = attempt.ValidationDurationSeconds,
             TotalAttemptDurationSeconds = attempt.TotalDurationSeconds,
@@ -1128,15 +1172,22 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             PromptVersion = attempt.GenerationSteps.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.PromptVersion))?.PromptVersion ?? string.Empty,
             GenerationAttemptId = attempt.Id,
             TestExecutionId = execution?.Id,
+            GeneratedTestMemberId = generatedTestMemberId,
             ResumeStableKey = stableKey
         };
     }
 
+    internal static bool IsValidatedClassification(TestClassification? classification)
+    {
+        return classification is
+            TestClassification.ValidatedEvidencePositive or
+            TestClassification.ValidatedLowImpact or
+            TestClassification.ValidatedImpactUnknown;
+    }
+
     /// <summary>
-    /// Builds one CSV row per test result from the post-attempt measurement run.
-    /// Falls back to one row per linked test member, then to a single summary row.
-    /// Coverage and mutation data are loaded from the targeted-baseline and post-attempt
-    /// test runs so those columns are populated even when the attempt spans multiple tests.
+    /// Builds separate attempt-, generated-test-, and test-result-grain rows. Attempt-level
+    /// coverage and mutation deltas are repeated on child rows with explicit attribution.
     /// </summary>
     private async Task<IReadOnlyList<ExperimentResultFileRow>> CreateToolResultFileRowsAsync(
         ExperimentRun experimentRun,
@@ -1156,24 +1207,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         var testability = methodContext.Testability;
         var selectedAccessPath = testability?.AccessPaths.FirstOrDefault();
 
-        // Load mutation from the targeted baseline and post-measurement runs. Coverage columns
-        // are method-scoped, so use the candidate baseline and the measured member coverage
-        // instead of aggregate test-project coverage.
-        var (_, baselineMutation) =
-            await GetTestRunMetricsAsync(attempt.TargetedBaselineId, cancellationToken);
-        var (postCoverage, postMutation) =
-            await GetTestRunMetricsAsync(attempt.PostAttemptTestRunId, cancellationToken);
-        var postMethodCoverage = await GetMemberCoverageForTestRunAsync(
-            attempt.PostAttemptTestRunId,
-            candidateMethod.MemberId,
-            cancellationToken);
-
-        var coverageBefore = candidateMethod.BaselineCoverage;
-        var coverageAfter = postMethodCoverage ?? postCoverage ?? 0.0;
-        var coverageDelta = coverageAfter - coverageBefore;
-        double? mutationDelta = (postMutation.HasValue && baselineMutation.HasValue)
-            ? postMutation.Value - baselineMutation.Value
-            : null;
+        var impact = EvaluationImpactPolicy.Evaluate(
+            attempt.ValidationOutcome == ToolValidationOutcome.Passed,
+            attempt.CoverageDelta,
+            attempt.MutationScoreDelta);
 
         // Whether the tests compiled/ran is derived from the validation outcome.
         // Tests failing still means the code compiled and the tests executed.
@@ -1209,14 +1246,26 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             bool testCompiled,
             bool testExecuted,
             bool testPassed,
-            double? executionTimeMs = null)
+            double? executionTimeMs = null,
+            string rowKind = "generated_test",
+            int? memberIdOverride = null,
+            int? testResultId = null)
         {
-            var memberId = FindMemberId(testName);
+            var memberId = memberIdOverride ?? FindMemberId(testName);
             var generatedMetrics = memberId.HasValue && metricsByMemberId.TryGetValue(memberId.Value, out var gm) ? gm : null;
             var generatedSmells = memberId.HasValue && smellsByMemberId.TryGetValue(memberId.Value, out var gs) ? gs : string.Empty;
             return new()
             {
+                RowKind = rowKind,
+                AttemptId = AttemptKeyFactory.Create(
+                    $"{_context.Project.Owner}/{_context.Project.RepoName}",
+                    experimentRun.ExperimentSeriesId,
+                    experimentRun.RunUid,
+                    "agent-tool",
+                    workItem.StableKey,
+                    attemptNumber),
                 ExperimentRunId = experimentRun.Id,
+                ExperimentRunUid = experimentRun.RunUid,
                 ExperimentSeriesId = experimentRun.ExperimentSeriesId,
                 CandidateCohortId = experimentRun.CandidateCohortId,
                 CandidateCohortMemberId = candidateMethod.CandidateCohortMemberId,
@@ -1290,15 +1339,26 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 GeneratedTestCompiled = testCompiled,
                 GeneratedTestExecuted = testExecuted,
                 GeneratedTestPassed = testPassed,
-                CoverageBefore = coverageBefore,
-                CoverageAfter = coverageAfter,
-                CoverageDelta = coverageDelta,
-                MutationScoreBefore = baselineMutation,
-                MutationScoreAfter = postMutation,
-                MutationScoreDelta = mutationDelta,
-                MutantKilled = mutationDelta is > 0,
+                CoverageBefore = attempt.CoverageBefore,
+                CoverageAfter = attempt.CoverageAfter,
+                CoverageDelta = attempt.CoverageDelta,
+                MutationScoreBefore = attempt.MutationScoreBefore,
+                MutationScoreAfter = attempt.MutationScoreAfter,
+                MutationScoreDelta = attempt.MutationScoreDelta,
+                MutantKilled = null,
+                OutcomeClassification = attempt.ObservedOutcome.ToString(),
+                ValidatedSuccess = impact.ValidatedSuccess,
+                ValidatedEvidencePositive = impact.ValidatedEvidencePositive,
+                ValidatedLowImpact = impact.ValidatedLowImpact,
+                ImpactEvaluable = impact.ImpactEvaluable,
+                MetricImproved = impact.MetricImproved,
+                PositiveImpact = impact.PositiveImpact,
+                ProducedChange = attempt.ChangedFilesCount > 0,
+                CoverageMeasurementStatus = attempt.CoverageMeasurementStatus,
+                MutationMeasurementStatus = attempt.MutationMeasurementStatus,
+                ImpactMeasurementStatus = attempt.ImpactMeasurementStatus,
+                MeasurementPolicyVersion = attempt.MeasurementPolicyVersion,
                 ToolObservedOutcome = attempt.ObservedOutcome.ToString(),
-                AcceptedByNormalPolicy = null,
                 FailureKind = attempt.RunStatus is ToolRunStatus.Completed or ToolRunStatus.CompletedNoChange or ToolRunStatus.Skipped
                     ? string.Empty
                     : "ToolExecution",
@@ -1309,7 +1369,20 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 FailureSummary = attempt.Notes,
                 RoslynValidationSucceeded = false,
                 RoslynValidationSkipped = true,
-                TotalTokens = (attempt.InputTokens ?? 0) + (attempt.OutputTokens ?? 0),
+                UsageAvailable = attempt.UsageAvailable && attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue,
+                UsageStatus = attempt.UsageAvailable && attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue
+                    ? "complete"
+                    : attempt.InputTokens.HasValue || attempt.OutputTokens.HasValue ? "partial" : "missing",
+                UsageSource = attempt.UsageSource,
+                InputTokens = attempt.InputTokens,
+                OutputTokens = attempt.OutputTokens,
+                EstimatedPromptTokens = attempt.EstimatedPromptTokens,
+                TotalTokens = attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue
+                    ? attempt.InputTokens.Value + attempt.OutputTokens.Value
+                    : null,
+                CumulativeTokens = attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue
+                    ? attempt.InputTokens.Value + attempt.OutputTokens.Value
+                    : null,
                 GenerationDurationSeconds = attempt.GenerationDurationSeconds,
                 ValidationDurationSeconds = attempt.ValidationDurationSeconds,
                 TotalAttemptDurationSeconds = attempt.TotalAttemptDurationSeconds,
@@ -1317,35 +1390,57 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 PromptVersion = "agent-tool-task-card",
                 GenerationAttemptId = 0,
                 TestExecutionId = null,
+                GeneratedTestMemberId = memberId,
+                TestResultId = testResultId,
                 ResumeStableKey = workItem.StableKey
             };
         }
 
-        // Primary: one row per individual test result for per-test pass/fail granularity.
-        if (attempt.PostAttemptTestRunId.HasValue)
+        var rows = new List<ExperimentResultFileRow>
         {
-            var testResults = await GetPostAttemptTestResultsAsync(
-                attempt.PostAttemptTestRunId.Value, cancellationToken);
-            var testDurations = await GetPostAttemptTestDurationsAsync(
-                attempt.PostAttemptTestRunId.Value, cancellationToken);
-            var generatedTestResults = SelectGeneratedPostAttemptTestResults(testResults, linkedMembers);
-            if (generatedTestResults.Count > 0)
-                return generatedTestResults
-                    .Select(tr => MakeRow(
-                        tr.TestName,
-                        compiled,
-                        true,
-                        string.Equals(tr.Outcome, "Passed", StringComparison.OrdinalIgnoreCase),
-                        testDurations.GetValueOrDefault(tr.TestName)))
-                    .ToList();
+            MakeRow(string.Empty, compiled, ran, allPassed, rowKind: "attempt")
+        };
+
+        var testResultDetails = attempt.PostAttemptTestRunId.HasValue
+            ? await GetPostAttemptTestResultDetailsAsync(attempt.PostAttemptTestRunId.Value, cancellationToken)
+            : [];
+
+        foreach (var (memberId, memberName) in linkedMembers)
+        {
+            var memberResults = testResultDetails
+                .Where(x => ResolveLinkedMemberId(x.TestName, [(memberId, memberName)]).HasValue)
+                .ToList();
+            rows.Add(MakeRow(
+                memberName,
+                compiled,
+                memberResults.Count > 0,
+                memberResults.Count > 0 &&
+                memberResults.All(x => string.Equals(x.Outcome, "Passed", StringComparison.OrdinalIgnoreCase)),
+                memberResults.Count > 0 ? memberResults.Sum(x => x.DurationMs) : null,
+                "generated_test",
+                memberId));
         }
 
-        // Fallback: one row per linked test member (analysis-time names).
-        if (linkedMembers.Count > 0)
-            return linkedMembers.Select(m => MakeRow(m.Name, compiled, ran, allPassed)).ToList();
+        // Test-case rows are diagnostic only and are written to a separate export.
+        if (attempt.PostAttemptTestRunId.HasValue)
+        {
+            foreach (var testResult in testResultDetails)
+            {
+                var memberId = FindMemberId(testResult.TestName);
+                if (!memberId.HasValue) continue;
+                rows.Add(MakeRow(
+                    testResult.TestName,
+                    compiled,
+                    true,
+                    string.Equals(testResult.Outcome, "Passed", StringComparison.OrdinalIgnoreCase),
+                    testResult.DurationMs,
+                    "test_result",
+                    memberId,
+                    testResult.Id));
+            }
+        }
 
-        // Final fallback: single summary row with no per-test name.
-        return [MakeRow(string.Empty, compiled, ran, allPassed)];
+        return rows;
     }
 
     internal static List<(string TestName, string Outcome)> SelectGeneratedPostAttemptTestResults(
@@ -1430,6 +1525,21 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             .Select(x => new { x.TestName, x.Outcome })
             .ToListAsync(cancellationToken);
         return rows.Select(x => (x.TestName, x.Outcome)).ToList();
+    }
+
+    private async Task<List<PostAttemptTestResultDetail>> GetPostAttemptTestResultDetailsAsync(
+        int testRunId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.TestResults
+            .Where(x => x.TestRunId == testRunId)
+            .OrderBy(x => x.TestName)
+            .Select(x => new PostAttemptTestResultDetail(
+                x.Id,
+                x.TestName,
+                x.Outcome,
+                x.Duration.TotalMilliseconds))
+            .ToListAsync(cancellationToken);
     }
 
     internal async Task<Dictionary<string, double>> GetPostAttemptTestDurationsAsync(
@@ -1527,6 +1637,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     {
         public static AccessPathReport Empty { get; } = new(string.Empty, string.Empty, string.Empty, 0, 0);
     }
+
+    private sealed record PostAttemptTestResultDetail(
+        int Id,
+        string TestName,
+        string Outcome,
+        double DurationMs);
 
     private async Task<int?> ResolveLatestTestMemberIdAsync(
         string? testName,
@@ -1731,7 +1847,16 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     return attempt;
                 },
                 ShouldStopRepair = attempt =>
-                    attempt.TestExecution is { TestPassed: true, CoverageImprovement: > 0 },
+                {
+                    if (attempt.TestExecution is not { TestPassed: true } execution)
+                        return false;
+
+                    return EvaluationImpactPolicy.Evaluate(
+                            validatedSuccess: true,
+                            execution.CoverageImprovement,
+                            execution.MutationScoreImprovement)
+                        .ValidatedEvidencePositive;
+                },
                 RollbackAsync = token => _workspace.RollbackChangesAsync(token)
             },
             cancellationToken);
@@ -2144,6 +2269,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             GeneratedTestClassification.ValidatedEvidencePositive => TestClassification.ValidatedEvidencePositive,
             GeneratedTestClassification.FailedEvidencePositive => TestClassification.FailedEvidencePositive,
             GeneratedTestClassification.ValidatedLowImpact => TestClassification.ValidatedLowImpact,
+            GeneratedTestClassification.ValidatedImpactUnknown => TestClassification.ValidatedImpactUnknown,
             _ => TestClassification.ValidationFailed
         };
     }
@@ -2513,7 +2639,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
         var decision = RuleDecisionFactory.CreateDecision(
             "ContextAccessPath",
-            selectedAccessPath?.Strategy.ToString() ?? TestAccessStrategy.NotReasonablyTestable.ToString(),
+            ResolveReportedAccessStrategy(testability).ToString(),
             GenerationExperimentRuleDefinitions.ContextAccessPathSelected,
             selectedAccessPath == null ? RuleConfidence.Low : RuleConfidence.High,
             evidence,
@@ -2617,11 +2743,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     internal static bool ShouldRequirePassingExistingTest(
         TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective objective)
     {
-        return objective switch
-        {
-            TestMap.Models.Configuration.Testing.Generation.TestGenerationObjective.TestSuiteExpansion => false,
-            _ => true
-        };
+        return true;
+    }
+
+    internal static TestAccessStrategy ResolveReportedAccessStrategy(SourceMemberTestability testability)
+    {
+        return testability.AccessPaths.FirstOrDefault()?.Strategy ?? TestAccessStrategy.Unknown;
     }
 
     private sealed record MemberCodeMetricColumns(

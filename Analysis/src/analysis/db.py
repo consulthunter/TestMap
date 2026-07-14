@@ -7,6 +7,7 @@ opening and closing connections.
 from __future__ import annotations
 
 import sqlite3
+import hashlib
 from pathlib import Path
 
 import pandas as pd
@@ -107,6 +108,60 @@ def get_candidate_methods(conn: sqlite3.Connection) -> pd.DataFrame:
 def get_projects(conn: sqlite3.Connection) -> pd.DataFrame:
     """Repository/project rows (owner, repo_name) for building repo-qualified keys."""
     return _query(conn, "SELECT id, owner, repo_name FROM projects")
+
+
+def get_canonical_attempt_identities(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Return local-to-canonical attempt IDs for both evaluation lanes."""
+    rows = _query(conn, """
+        SELECT
+            'llm' AS lane,
+            ga.id AS local_attempt_id,
+            p.owner,
+            p.repo_name,
+            er.experiment_series_id,
+            er.run_uid,
+            w.stable_key,
+            ga.attempt_number
+        FROM generation_attempts ga
+        JOIN candidate_methods cm ON cm.id = ga.candidate_method_id
+        JOIN experiment_runs er ON er.id = cm.experiment_run_id
+        JOIN projects p ON p.id = er.project_id
+        JOIN experiment_matrix_work_items w ON w.id = ga.experiment_matrix_work_item_id
+
+        UNION ALL
+
+        SELECT
+            'agentic' AS lane,
+            ta.id AS local_attempt_id,
+            p.owner,
+            p.repo_name,
+            er.experiment_series_id,
+            er.run_uid,
+            w.stable_key,
+            ta.attempt_number
+        FROM tool_attempts ta
+        JOIN experiment_runs er ON er.id = ta.experiment_run_id
+        JOIN projects p ON p.id = er.project_id
+        JOIN experiment_matrix_work_items w ON w.id = ta.matrix_work_item_id
+    """)
+    if rows.empty:
+        rows["attempt_id"] = pd.Series(dtype=str)
+        return rows
+
+    def make_id(row: pd.Series) -> str:
+        lane = "testmap" if row["lane"] == "llm" else "agent-tool"
+        material = "|".join([
+            f"{row['owner']}/{row['repo_name']}".strip().lower(),
+            str(row.get("experiment_series_id", "") or "").strip(),
+            str(row["run_uid"]).strip(),
+            lane,
+            str(row["stable_key"]).strip(),
+            str(int(row["attempt_number"])),
+        ])
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    rows["attempt_id"] = rows.apply(make_id, axis=1)
+    return rows
 
 
 def get_tool_attempt_post_logs(conn: sqlite3.Connection) -> pd.DataFrame:

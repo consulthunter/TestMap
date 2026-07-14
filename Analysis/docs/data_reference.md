@@ -5,24 +5,27 @@ Column and semantics reference for the datasets in `data/`. For the operational 
 
 ## Lanes and grain
 
-- `lane`: `llm` (direct LLM generation — one CSV row per attempt) or `agentic` (external tool — the
-  raw CSV has one row per generated test; `normalize` collapses these to one row per tool attempt).
-- `attempt_id` is globally unique: `llm:{owner}|{repo}:{generation_attempt_id}` or
-  `agentic:{tool_artifact_path}`. (Per-repo numeric ids are *not* unique across repos, hence the
-  qualifier.)
+- `lane`: `llm` (direct LLM generation) or `agentic` (external tool).
+- Result schema v2 writes separate attempt, generated-test, and test-result CSVs. Agentic attempts
+  remain one row at attempt grain even when one tool invocation creates several tests.
+- `attempt_id` is a deterministic SHA-256 key over repository, experiment series/run, lane, stable
+  work-item key, and attempt number. Local `generation_attempt_id` and `tool_attempt_id` values are
+  retained for database joins but are not globally unique.
 - `candidate_key` = `owner|repo|commit|source_member_id` (lane-independent, so the two lanes pair on
   it). `repository_key` = `owner|repo|commit`.
 
 ## Outcome columns
 
 - `outcome_classification` — authoritative label: `ValidatedEvidencePositive` (VEP),
-  `ValidatedLowImpact` (VLI), `FailedEvidencePositive`, `ValidationFailed`, `BuildFailed`,
+  `ValidatedLowImpact` (VLI), `ValidatedImpactUnknown`, `FailedEvidencePositive`, `ValidationFailed`, `BuildFailed`,
   `TestsFailed`, `TimedOut`, `ToolFailed`, `ConstraintViolation`, `NoChange`, `NotEvaluated`.
-- `validated_success` — VEP **or** VLI (broad success).
+- `validated_success` — VEP, VLI, or `ValidatedImpactUnknown` (validation passed).
 - `validated_evidence_positive` / `positive_impact` — VEP only (passed **and** metrics improved
   above the noise floor). This is the primary practical-impact measure.
 - `metric_improved` — `coverage_delta` ≥ 0.01 (1pp on the 0–1 scale) **or** `mutation_score_delta`
   ≥ 1.0 (1pp on the 0–100 scale).
+- `ValidatedImpactUnknown` means validation passed but no comparable before/after metric was
+  available. `positive_impact` remains missing for these attempts rather than becoming false.
 - `produced_change` — the attempt applied a change (LLM: a test was written; agentic:
   `changed_files_count > 0`).
 

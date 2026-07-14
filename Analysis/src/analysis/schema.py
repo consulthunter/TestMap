@@ -33,12 +33,11 @@ RAW_COLUMN_RENAMES: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Agentic attempt key fields
-# The raw CSV has one row per generated test for agentic attempts.
-# These fields identify one logical tool invocation (one attempt).
+# These fields identify one logical tool invocation across result files.
 # ---------------------------------------------------------------------------
 
 AGENTIC_ATTEMPT_KEY_FIELDS: list[str] = [
-    "tool_attempt_id",
+    "attempt_id",
 ]
 
 # ---------------------------------------------------------------------------

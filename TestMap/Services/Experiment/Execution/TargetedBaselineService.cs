@@ -31,7 +31,7 @@ public sealed class TargetedBaselineService : ITargetedBaselineService
             BuildTestRunRequest.CreateIteration(
                 methodContext.TestProjectPath,
                 methodContext.TargetBuildFramework,
-                candidate.MethodName,
+                methodContext.ToTargetMemberDescriptor(candidate),
                 methodContext.SourceProjectPath,
                 experimentRunId,
                 isMutationBaseline: true));

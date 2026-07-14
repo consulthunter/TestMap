@@ -276,6 +276,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IGenerationBudgetExecutor, GenerationBudgetExecutor>();
         services.AddScoped<IExperimentResumeService, ExperimentResumeService>();
         services.AddScoped<ITargetedBaselineService, TargetedBaselineService>();
+        services.AddScoped<IAttemptMetricComparisonService, AttemptMetricComparisonService>();
         services.AddScoped<IToolPostAttemptRefreshService, ToolPostAttemptRefreshService>();
         services.AddScoped<IToolPostAttemptAnalysisService, ToolPostAttemptAnalysisService>();
         services.AddScoped<IToolAttemptGeneratedTestService, ToolAttemptGeneratedTestService>();

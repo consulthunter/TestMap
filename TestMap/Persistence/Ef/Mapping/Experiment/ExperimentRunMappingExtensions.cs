@@ -10,6 +10,7 @@ public static class ExperimentRunMappingExtensions
         return new ExperimentRun
         {
             Id = entity.Id,
+            RunUid = entity.RunUid,
             Name = $"Experiment_{entity.Id}",
             StartedAt = entity.StartTime,
             CompletedAt = entity.EndTime,
@@ -30,6 +31,7 @@ public static class ExperimentRunMappingExtensions
         return new ExperimentRunEntity
         {
             Id = run.Id,
+            RunUid = string.IsNullOrWhiteSpace(run.RunUid) ? Guid.NewGuid().ToString("N") : run.RunUid,
             StartTime = run.StartedAt,
             EndTime = run.CompletedAt,
             ProjectId = run.ProjectId,

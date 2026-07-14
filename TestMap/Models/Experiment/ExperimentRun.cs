@@ -6,6 +6,7 @@ namespace TestMap.Models.Experiment;
 public class ExperimentRun
 {
     public int Id { get; set; }
+    public string RunUid { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }

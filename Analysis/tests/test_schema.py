@@ -60,8 +60,8 @@ class TestRawColumnRenames:
 
 
 class TestAgenticAttemptKeyFields:
-    def test_uses_tool_attempt_id_only(self):
-        assert AGENTIC_ATTEMPT_KEY_FIELDS == ["tool_attempt_id"]
+    def test_uses_canonical_attempt_id_only(self):
+        assert AGENTIC_ATTEMPT_KEY_FIELDS == ["attempt_id"]
 
     def test_no_duplicates(self):
         assert len(AGENTIC_ATTEMPT_KEY_FIELDS) == len(set(AGENTIC_ATTEMPT_KEY_FIELDS))

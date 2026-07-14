@@ -6,6 +6,7 @@ public sealed class ToolAttempt
     public int ExperimentRunId { get; set; }
     public int? MatrixWorkItemId { get; set; }
     public int CandidateMethodId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
     public int? TargetedBaselineId { get; set; }
 
     /// <summary>
@@ -13,6 +14,17 @@ public sealed class ToolAttempt
     /// Null when measurement was not performed or was skipped.
     /// </summary>
     public int? PostAttemptTestRunId { get; set; }
+    public double? CoverageBefore { get; set; }
+    public double? CoverageAfter { get; set; }
+    public double? CoverageDelta { get; set; }
+    public string CoverageMeasurementStatus { get; set; } = "NotMeasured";
+    public double? MutationScoreBefore { get; set; }
+    public double? MutationScoreAfter { get; set; }
+    public double? MutationScoreDelta { get; set; }
+    public string MutationMeasurementStatus { get; set; } = "NotMeasured";
+    public string ImpactMeasurementStatus { get; set; } = "NotMeasured";
+    public string MeasurementFailureReason { get; set; } = string.Empty;
+    public string MeasurementPolicyVersion { get; set; } = string.Empty;
     public string EffectiveProfileHash { get; set; } = string.Empty;
     public string ToolId { get; set; } = string.Empty;
     public ToolRunStatus RunStatus { get; set; } = ToolRunStatus.Planned;

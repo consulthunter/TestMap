@@ -1,5 +1,6 @@
 using TestMap.Models.Results;
 using TestMap.Models.MutationTesting;
+using TestMap.Models.Testing;
 
 namespace TestMap.Services.TestExecution;
 
@@ -23,7 +24,9 @@ public sealed class BuildTestRunRequest
     public int? ExperimentRunId { get; init; }
     public bool IsMutationBaseline { get; init; }
     public string? TargetFramework { get; init; }
-    public string? CoveredMethodName { get; init; }
+    public TargetMemberDescriptor? TargetMember { get; init; }
+
+    public string? CoveredMethodName => TargetMember?.MethodName;
 
     public bool IsBaseline => Mode == BuildTestRunMode.Baseline;
 
@@ -42,7 +45,7 @@ public sealed class BuildTestRunRequest
     public static BuildTestRunRequest CreateIteration(
         string targetProjectPath,
         string? targetFramework,
-        string? coveredMethodName,
+        TargetMemberDescriptor? targetMember,
         string? mutationSourceProjectPath = null,
         int? experimentRunId = null,
         bool isMutationBaseline = false)
@@ -56,7 +59,7 @@ public sealed class BuildTestRunRequest
             ExperimentRunId = experimentRunId,
             IsMutationBaseline = isMutationBaseline,
             TargetFramework = string.IsNullOrWhiteSpace(targetFramework) ? null : targetFramework,
-            CoveredMethodName = coveredMethodName
+            TargetMember = targetMember
         };
     }
 

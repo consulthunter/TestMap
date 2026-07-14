@@ -46,6 +46,7 @@ public class CandidateMethodContext
     public int? SourceTestMappingId { get; init; }
     public required string MethodSignature { get; init; }
     public required string ContainingClass { get; init; }
+    public string ContainingType { get; init; } = string.Empty;
     public required string TestNamespace { get; init; }
     public required string TestClassName { get; init; }
     public required string TestFilePath { get; init; }

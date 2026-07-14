@@ -83,6 +83,8 @@ public sealed class CandidateCohortService
             throw new InvalidOperationException(
                 $"Candidate cohort '{cohortKey}' cannot be created because candidate selection returned no methods.");
 
+        EnsureCandidatesHaveMappedBaselineTests(cohortKey, candidates);
+
         var identities = await LoadSourceIdentitiesAsync(
             candidates.Select(x => x.MemberId),
             cancellationToken);
@@ -164,6 +166,7 @@ public sealed class CandidateCohortService
                                 SnapshotJsonOptions)
                             ?? throw new InvalidOperationException(
                                 $"Candidate cohort '{cohortKey}' contains an invalid snapshot for member #{member.Ordinal}.");
+            EnsureCandidateHasMappedBaselineTest(cohortKey, member.Ordinal, candidate);
             candidate.Id = 0;
             candidate.ExperimentRunId = 0;
             candidate.CandidateInventoryId = null;
@@ -175,6 +178,27 @@ public sealed class CandidateCohortService
         }
 
         return new CandidateCohortResolution(cohort, candidates);
+    }
+
+    private static void EnsureCandidatesHaveMappedBaselineTests(
+        string cohortKey,
+        IReadOnlyList<CandidateMethod> candidates)
+    {
+        for (var index = 0; index < candidates.Count; index++)
+            EnsureCandidateHasMappedBaselineTest(cohortKey, index + 1, candidates[index]);
+    }
+
+    private static void EnsureCandidateHasMappedBaselineTest(
+        string cohortKey,
+        int ordinal,
+        CandidateMethod candidate)
+    {
+        if (candidate.ExistingTestMemberId.HasValue) return;
+
+        throw new InvalidOperationException(
+            $"Candidate cohort '{cohortKey}' cannot include member #{ordinal} " +
+            $"'{candidate.MethodName}' because it has no grounded source-to-test mapping. " +
+            "Evaluation candidates require a paired existing test for baseline comparison.");
     }
 
     private static void ValidateCompatibility(

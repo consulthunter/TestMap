@@ -16,6 +16,11 @@ public enum TestClassification
     ValidatedLowImpact,
 
     /// <summary>
+    /// Validation passed, but no comparable before/after metric was available.
+    /// </summary>
+    ValidatedImpactUnknown,
+
+    /// <summary>
     /// Validation failed, but partial evidence indicates the artifact may still be useful.
     /// </summary>
     FailedEvidencePositive,

@@ -1,4 +1,5 @@
 using TestMap.Models.Code;
+using TestMap.Models.Testing;
 using TestMap.Rules.TestExecution;
 using TestMap.Services.TestExecution;
 
@@ -15,7 +16,7 @@ public sealed class BuildTestDockerCommandFactoryTests
         var request = BuildTestRunRequest.CreateIteration(
             "tests/Sample.Tests/Sample.Tests.csproj",
             "net10.0",
-            "DoWork",
+            new TargetMemberDescriptor(1, "DoWork", "void DoWork()", "Sample", "Sample.cs", 1, 2),
             "src/Sample/Sample.csproj",
             experimentRunId: 42,
             isMutationBaseline);
@@ -37,7 +38,7 @@ public sealed class BuildTestDockerCommandFactoryTests
         var request = BuildTestRunRequest.CreateIteration(
             "tests/Sample.Tests/Sample.Tests.csproj",
             "net10.0",
-            "DoWork");
+            new TargetMemberDescriptor(1, "DoWork", "void DoWork()", "Sample", "Sample.cs", 1, 2));
 
         var scope = request.CreateMutationReportScope();
 

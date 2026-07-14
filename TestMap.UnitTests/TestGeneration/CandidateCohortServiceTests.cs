@@ -55,6 +55,7 @@ public sealed class CandidateCohortServiceTests
         var candidate = new CandidateMethod
         {
             MemberId = 10,
+            ExistingTestMemberId = 20,
             CandidateInventoryId = 77,
             MethodName = "Run",
             SourceCode = "public void Run() {}",
@@ -150,6 +151,31 @@ public sealed class CandidateCohortServiceTests
         Assert.Contains("different", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task CreateAsync_UnmappedCandidate_IsRejected()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        await SeedSourceMemberAsync(db, memberId: 10);
+        var service = new CandidateCohortService(db, new CandidateCohortRepository(db));
+        var candidate = Candidate(memberId: 10);
+        candidate.ExistingTestMemberId = null;
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(
+                CreateConfig(CandidateCohortMode.Create),
+                new TestMapConfig(),
+                1,
+                "owner/repo",
+                "abc123",
+                [candidate]));
+
+        Assert.Contains("no grounded source-to-test mapping", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await db.CandidateCohorts.ToListAsync());
+    }
+
     private static ExperimentConfig CreateConfig(CandidateCohortMode mode)
     {
         return new ExperimentConfig
@@ -168,6 +194,7 @@ public sealed class CandidateCohortServiceTests
         return new CandidateMethod
         {
             MemberId = memberId,
+            ExistingTestMemberId = 20,
             MethodName = "Run",
             SourceCode = "public void Run() {}",
             Signature = "public void Run()",

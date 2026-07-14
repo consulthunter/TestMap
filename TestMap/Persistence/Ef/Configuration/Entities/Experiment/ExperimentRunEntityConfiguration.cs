@@ -13,6 +13,7 @@ public class ExperimentRunEntityConfiguration : IEntityTypeConfiguration<Experim
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.Id).HasColumnName("id");
+        builder.Property(x => x.RunUid).HasColumnName("run_uid").IsRequired();
         builder.Property(x => x.StartTime).HasColumnName("start_time").IsRequired();
         builder.Property(x => x.EndTime).HasColumnName("end_time");
         builder.Property(x => x.ProjectId).HasColumnName("project_id").IsRequired();
@@ -36,6 +37,7 @@ public class ExperimentRunEntityConfiguration : IEntityTypeConfiguration<Experim
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(x => x.ExperimentSeriesId);
+        builder.HasIndex(x => x.RunUid).IsUnique();
         builder.HasIndex(x => x.CandidateCohortId);
     }
 }

@@ -170,7 +170,7 @@ public sealed class GenerationDecisionServicesTests
 
     [Fact]
     [Trait("Category", "Unit")]
-    public void Validation_ClassifiesDirectNonPublicCallAsAccessStrategyViolation()
+    public void Validation_DoesNotTreatSelectedAccessPathAsExecutionConstraint()
     {
         var service = new GenerationValidationService();
 
@@ -192,43 +192,12 @@ public sealed class GenerationDecisionServicesTests
                 MetricsPath = MetricsDrivenPath.Coverage
             });
 
-        Assert.Equal(GenerationValidationOutcome.Failed, result.Outcome);
-        Assert.Equal(GenerationValidationConfidence.High, result.Confidence);
-        Assert.Equal(GenerationValidationFailureClass.AccessStrategyViolation, result.FailureClass);
-        Assert.Contains(result.RuleDecisions, x =>
-            x.RuleId == GenerationValidationRuleDefinitions.AccessStrategyViolated.Id &&
-            x.Value == "AccessStrategyViolated");
-    }
-
-    [Fact]
-    [Trait("Category", "Unit")]
-    public void Validation_AllowsEntrypointCallForNonPublicTarget()
-    {
-        var service = new GenerationValidationService();
-
-        var result = service.Validate(
-            new GeneratedTestExecutionResult
-            {
-                GeneratedTestCode = "public void Generated() { var sut = new TargetService(); sut.PublicTarget(); }",
-                CodeExtracted = true,
-                MethodNameExtracted = true,
-                SyntaxValid = true,
-                CompilationSucceeded = true,
-                TestsExecuted = true,
-                AllTestsPassed = true,
-                CoverageImprovement = 0.12
-            },
-            CreateContextWithAccessPath(MemberVisibility.Private, TestAccessStrategy.PublicCallerPath),
-            new GenerationEvidencePackage
-            {
-                MetricsPath = MetricsDrivenPath.Coverage
-            });
-
         Assert.Equal(GenerationValidationOutcome.Passed, result.Outcome);
+        Assert.Equal(GenerationValidationConfidence.High, result.Confidence);
         Assert.Null(result.FailureClass);
-        Assert.Contains(result.RuleDecisions, x =>
-            x.RuleId == GenerationValidationRuleDefinitions.AccessStrategyRespected.Id &&
-            x.Value == "AccessStrategyRespected");
+
+        var classification = new GenerationClassificationService().Classify(result);
+        Assert.Equal(GeneratedTestClassification.ValidatedEvidencePositive, classification.Classification);
     }
 
     [Fact]
@@ -373,10 +342,26 @@ public sealed class GenerationDecisionServicesTests
             CompilationSucceeded = compiled,
             TestsExecuted = testsExecuted,
             AllTestsPassed = passed,
-            HasUsefulMetricSignal = metricSignal
+            HasUsefulMetricSignal = metricSignal,
+            ImpactEvaluable = true
         });
 
         Assert.Equal(expected, result.Classification);
         Assert.Single(result.RuleDecisions);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Classification_PassingWithoutComparableMetrics_IsImpactUnknown()
+    {
+        var result = new GenerationClassificationService().Classify(new GenerationValidationResult
+        {
+            CompilationSucceeded = true,
+            TestsExecuted = true,
+            AllTestsPassed = true,
+            ImpactEvaluable = false
+        });
+
+        Assert.Equal(GeneratedTestClassification.ValidatedImpactUnknown, result.Classification);
     }
 }

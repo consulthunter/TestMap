@@ -6,6 +6,7 @@ namespace TestMap.Persistence.Ef.Entities.Experiment;
 public class ExperimentRunEntity
 {
     public int Id { get; set; }
+    [MaxLength(32)] public string RunUid { get; set; } = Guid.NewGuid().ToString("N");
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public int ProjectId { get; set; }

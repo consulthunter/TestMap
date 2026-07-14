@@ -25,10 +25,10 @@ public class GeneratedTestExecutionEntityConfiguration : IEntityTypeConfiguratio
         builder.Property(x => x.RuntimeErrors).HasColumnName("runtime_errors");
         builder.Property(x => x.AssertionErrors).HasColumnName("assertion_errors");
         builder.Property(x => x.ExecutionTimeMs).HasColumnName("execution_time_ms").IsRequired();
-        builder.Property(x => x.FinalCoverage).HasColumnName("final_coverage").IsRequired();
+        builder.Property(x => x.FinalCoverage).HasColumnName("final_coverage");
         builder.Property(x => x.FinalCoveredLines).HasColumnName("final_covered_lines").IsRequired();
         builder.Property(x => x.FinalTotalLines).HasColumnName("final_total_lines").IsRequired();
-        builder.Property(x => x.CoverageDelta).HasColumnName("coverage_delta").IsRequired();
+        builder.Property(x => x.CoverageDelta).HasColumnName("coverage_delta");
         builder.Property(x => x.BaselineMutationScore).HasColumnName("baseline_mutation_score");
         builder.Property(x => x.MutationScoreAfter).HasColumnName("mutation_score_after");
         builder.Property(x => x.MutationScoreDelta).HasColumnName("mutation_score_delta");

@@ -546,6 +546,50 @@ public sealed class MethodSelectionServiceContextMappingTests
         Assert.Empty(await db.SourceTestMappingTraceSteps.ToListAsync());
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task SelectCandidateMethodsAsync_RequiredBaselineExcludesWeakHeuristicContext()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDatabaseAsync(connection);
+        await SeedProjectAsync(db, includeDirectInvocation: false);
+        db.CoverageReports.Add(new CoverageReportEntity
+        {
+            Id = 1,
+            ProjectId = 1,
+            LineRate = 0.0,
+            BranchRate = 0.0,
+            Complexity = 1,
+            Version = "test",
+            Timestamp = 1,
+            LinesValid = 1
+        });
+        db.MemberCoverages.Add(new MemberCoverageEntity
+        {
+            Id = 1,
+            MemberId = 10,
+            CoverageReportId = 1,
+            LineRate = 0.0,
+            LinesValid = 1,
+            Complexity = 1
+        });
+        await db.SaveChangesAsync();
+        var service = CreateService(db, TestContextMappingMode.HeuristicWithGroundedPreference);
+
+        var selected = await service.SelectCandidateMethodsAsync(new ExperimentConfig
+        {
+            CandidateLimit = 1,
+            MaxCoverageThreshold = 1.0,
+            ContextMappingMode = TestContextMappingMode.HeuristicWithGroundedPreference
+        }, requirePassingExistingTest: true);
+
+        Assert.Empty(selected);
+        var inventoryItem = await db.CandidateInventory.SingleAsync();
+        Assert.False(inventoryItem.IsExperimentEligible);
+        Assert.Contains("No paired existing test", inventoryItem.IneligibilityReason);
+    }
+
     private static async Task<TestMapDbContext> CreateDatabaseAsync(SqliteConnection connection)
     {
         var options = new DbContextOptionsBuilder<TestMapDbContext>()

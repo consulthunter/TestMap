@@ -16,10 +16,15 @@ from analysis.normalize import (
     build_repository_summary,
 )
 from analysis.schema import LANE_AGENTIC, LANE_LLM
+from analysis.files import read_result_grains
 
 
 def _llm_row(**kwargs) -> dict:
     row = {
+        "results_schema_version": "2.0",
+        "row_kind": "attempt",
+        "attempt_id": "llm-1",
+        "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
         "producer_lane": "testmap",
         "tool_id": "",
@@ -51,6 +56,10 @@ def _llm_row(**kwargs) -> dict:
 
 def _agentic_row(**kwargs) -> dict:
     row = {
+        "results_schema_version": "2.0",
+        "row_kind": "attempt",
+        "attempt_id": "agent-101",
+        "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
         "producer_lane": "agent-tool",
         "tool_attempt_id": "101",
@@ -89,20 +98,18 @@ def _agentic_row(**kwargs) -> dict:
 @pytest.fixture(scope="module")
 def raw_df() -> pd.DataFrame:
     return pd.DataFrame([
-        _llm_row(generation_attempt_id="1", source_member_id="1"),
-        _llm_row(generation_attempt_id="2", source_member_id="2",
+        _llm_row(attempt_id="llm-1", generation_attempt_id="1", source_member_id="1"),
+        _llm_row(attempt_id="llm-2", generation_attempt_id="2", source_member_id="2",
                  failure_kind="Runtime", generated_test_passed="False",
                  coverage_delta="0", mutation_score_delta="0"),
-        _llm_row(generation_attempt_id="3", repo_name="repo-b", commit_hash="def",
+        _llm_row(attempt_id="llm-3", generation_attempt_id="3", repo_name="repo-b", commit_hash="def",
                  source_member_id="3", coverage_delta="0", mutation_score_delta="0"),
-        _agentic_row(tool_attempt_id="101", source_member_id="1",
-                     generated_test_method_name="TestA"),
-        _agentic_row(tool_attempt_id="101", source_member_id="1",
-                     generated_test_method_name="TestB"),
-        _agentic_row(tool_attempt_id="102", source_member_id="2",
+        _agentic_row(attempt_id="agent-101", tool_attempt_id="101", source_member_id="1",
+                     generated_test_method_name=""),
+        _agentic_row(attempt_id="agent-102", tool_attempt_id="102", source_member_id="2",
                      generated_test_method_name="TestLowImpact",
                      coverage_delta="0", mutation_score_delta="0"),
-        _agentic_row(tool_attempt_id="201", repo_name="repo-b", commit_hash="def",
+        _agentic_row(attempt_id="agent-201", tool_attempt_id="201", repo_name="repo-b", commit_hash="def",
                      source_member_id="3", tool_run_status="TimedOut",
                      tool_validation_outcome="TimedOut", tool_changed_files_count="0",
                      generated_test_method_name="", coverage_delta="0",
@@ -111,8 +118,23 @@ def raw_df() -> pd.DataFrame:
 
 
 @pytest.fixture(scope="module")
-def attempts(raw_df):
-    return build_attempts_dataset(raw_df)
+def raw_generated_tests() -> pd.DataFrame:
+    return pd.DataFrame([
+        _llm_row(row_kind="generated_test", attempt_id="llm-1", generation_attempt_id="1",
+                 generated_test_method_name="DoWork_Generated"),
+        _agentic_row(row_kind="generated_test", attempt_id="agent-101", tool_attempt_id="101",
+                     generated_test_method_name="TestA"),
+        _agentic_row(row_kind="generated_test", attempt_id="agent-101", tool_attempt_id="101",
+                     generated_test_method_name="TestB"),
+        _agentic_row(row_kind="generated_test", attempt_id="agent-102", tool_attempt_id="102",
+                     source_member_id="2", generated_test_method_name="TestLowImpact",
+                     coverage_delta="0", mutation_score_delta="0"),
+    ])
+
+
+@pytest.fixture(scope="module")
+def attempts(raw_df, raw_generated_tests):
+    return build_attempts_dataset(raw_df, raw_generated_tests)
 
 
 @pytest.fixture(scope="module")
@@ -131,8 +153,8 @@ def paired(candidates):
 
 
 @pytest.fixture(scope="module")
-def gen_tests(raw_df):
-    return build_generated_tests_dataset_from_raw(raw_df)
+def gen_tests(raw_generated_tests):
+    return build_generated_tests_dataset_from_raw(raw_generated_tests)
 
 
 def test_attempt_dataset_has_both_lanes(attempts):
@@ -145,8 +167,8 @@ def test_agentic_multi_test_attempt_collapses_once(attempts):
     assert agentic["generated_test_count"].iloc[0] == 2
 
 
-def test_generated_tests_preserve_raw_grain(gen_tests, raw_df):
-    assert len(gen_tests) == len(raw_df)
+def test_generated_tests_preserve_raw_grain(gen_tests, raw_generated_tests):
+    assert len(gen_tests) == len(raw_generated_tests)
     rows = gen_tests[gen_tests["tool_attempt_id"] == 101]
     assert len(rows) == 2
     assert set(rows["impact_attribution"]) == {"attempt_level"}
@@ -228,3 +250,18 @@ def test_attempts_csv_roundtrip(attempts, candidates, repositories, tmp_path):
     )
     reloaded = pd.read_csv(tmp_path / "evaluation_attempts.csv")
     assert len(reloaded) == len(attempts)
+
+
+def test_read_result_grains_discovers_siblings_from_attempt_path(tmp_path):
+    attempt_path = tmp_path / "experiment-results.csv"
+    generated_path = tmp_path / "experiment-results-generated-tests.csv"
+    pd.DataFrame([_llm_row(attempt_id="llm-1")]).to_csv(attempt_path, index=False)
+    pd.DataFrame([
+        _llm_row(row_kind="generated_test", attempt_id="llm-1", generated_test_member_id="7")
+    ]).to_csv(generated_path, index=False)
+
+    attempts, generated, test_results = read_result_grains([str(attempt_path)])
+
+    assert len(attempts) == 1
+    assert len(generated) == 1
+    assert test_results.empty

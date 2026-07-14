@@ -54,4 +54,26 @@ public sealed class GeneratedTestExecutionTimingTests
 
         Assert.Null(duration);
     }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void IsUsableValidationRun_AllowsMissingMethodCoverageOnHealthyRun()
+    {
+        var run = new GeneratedTestRunModel
+        {
+            Coverage = 85,
+            MethodCoverage = null,
+            MethodCoverageStatus = "TargetTypeNotFound",
+            Results =
+            [
+                new TestResultModel
+                {
+                    TestName = "DemoTests.ExistingTest",
+                    Outcome = "Passed"
+                }
+            ]
+        };
+
+        Assert.True(GeneratedTestExecutionService.IsUsableValidationRun(run));
+    }
 }

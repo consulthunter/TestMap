@@ -506,6 +506,7 @@ public class MethodSelectionService : IMethodSelectionService
             SourceTestMappingId = testContext?.SourceTestMappingId,
             MethodSignature = methodSignature,
             ContainingClass = sourceObject.FullString,
+            ContainingType = ContainingTypeIdentity.Resolve(sourceObject, sourceFile.FilePath),
             TestNamespace = ResolveTestNamespace(testContext, sourceObject.Namespace, project),
             TestClassName = ResolveTestClassName(testContext, sourceObject.Name),
             TestFilePath = ResolveTestFilePath(testContext, sourceFile.FilePath, sourceObject.Name, project),

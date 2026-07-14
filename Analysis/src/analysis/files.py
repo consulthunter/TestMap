@@ -44,6 +44,56 @@ def read_results_csvs(patterns: list[str] | tuple[str, ...]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def read_result_grains(
+    patterns: list[str] | tuple[str, ...],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Read schema-v2 result CSVs and partition them by declared row grain.
+
+    When an attempt file is selected directly, its generated-test and test-result
+    siblings are discovered automatically. Current-format files must declare
+    ``results_schema_version``, ``row_kind``, and a non-empty ``attempt_id``.
+    """
+    paths = glob_paths(patterns)
+    if not paths:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    discovered = set(paths)
+    for path in list(paths):
+        if path.suffix.lower() != ".csv" or path.name.endswith(("-generated-tests.csv", "-test-results.csv")):
+            continue
+        stem = path.stem
+        for suffix in ("generated-tests", "test-results"):
+            sibling = path.with_name(f"{stem}-{suffix}{path.suffix}")
+            if sibling.exists():
+                discovered.add(sibling)
+
+    frames: list[pd.DataFrame] = []
+    for path in sorted(discovered):
+        df = pd.read_csv(path, low_memory=False)
+        required = {"results_schema_version", "row_kind", "attempt_id"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"{path} is not a current result CSV; missing {sorted(missing)}.")
+        versions = df["results_schema_version"].dropna().astype(str).str.strip()
+        if not versions.empty and not versions.eq("2.0").all():
+            raise ValueError(f"{path} contains unsupported results_schema_version values.")
+        if df["attempt_id"].isna().any() or df["attempt_id"].astype(str).str.strip().eq("").any():
+            raise ValueError(f"{path} contains rows without canonical attempt_id values.")
+        df["_source_file"] = str(path)
+        frames.append(df)
+
+    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    known = {"attempt", "generated_test", "test_result"}
+    unknown = set(combined["row_kind"].dropna().astype(str)) - known
+    if unknown:
+        raise ValueError(f"Unknown result row_kind values: {sorted(unknown)}.")
+
+    def grain(kind: str) -> pd.DataFrame:
+        return combined[combined["row_kind"] == kind].copy().reset_index(drop=True)
+
+    return grain("attempt"), grain("generated_test"), grain("test_result")
+
+
 def find_databases(patterns: list[str] | tuple[str, ...]) -> list[Path]:
     """Return all SQLite database paths matching *patterns*."""
     return glob_paths(patterns)

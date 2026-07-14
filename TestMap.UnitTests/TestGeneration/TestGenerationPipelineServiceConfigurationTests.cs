@@ -211,6 +211,57 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
         Assert.DoesNotContain("EqualityOperator", provider.Prompts[0]);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task GenerateTestAsync_EmptyProviderResponse_RetriesWhenConfigured()
+    {
+        var provider = new RecordingProvider([
+            string.Empty,
+            "```csharp\n[Fact]\npublic void Add_GeneratedScenario_ExpectedBehavior()\n{\n}\n```"
+        ]);
+        var service = CreateService(provider);
+        var request = CreateRequest(
+            stepErrorRetries: 1,
+            steps: new GenerationStepConfig
+            {
+                EnableScenario = false,
+                EnableMethodName = false,
+                EnableArrangePlan = false,
+                EnableInputPlan = false,
+                EnableActionPlan = false,
+                EnableAssertionPlan = false
+            });
+
+        var result = await service.GenerateTestAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, provider.Prompts.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task GenerateTestAsync_EmptyProviderResponse_ReportsSpecificFailure()
+    {
+        var provider = new RecordingProvider([string.Empty]);
+        var service = CreateService(provider);
+        var request = CreateRequest(
+            steps: new GenerationStepConfig
+            {
+                EnableScenario = false,
+                EnableMethodName = false,
+                EnableArrangePlan = false,
+                EnableInputPlan = false,
+                EnableActionPlan = false,
+                EnableAssertionPlan = false
+            });
+
+        var result = await service.GenerateTestAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Equal("Provider returned an empty response for step FinalTest.", result.ErrorMessage);
+        Assert.Equal("empty", Assert.Single(result.Steps, x => x.StepType == GenerationStepType.FinalTest).ValidationStatus);
+    }
+
     private static TestGenerationPipelineService CreateService(RecordingProvider provider)
     {
         var config = new TestMapConfig();
@@ -226,6 +277,7 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
         MetricsDrivenPath? metricsPath = null,
         string mutationSummary = "",
         bool useStructuredPatchOutput = false,
+        int stepErrorRetries = 0,
         GenerationStepConfig? steps = null)
     {
         return new TestGenerationRequest
@@ -248,6 +300,7 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
             UseStructuredPatchOutput = useStructuredPatchOutput,
             Provider = AiProvider.OpenAi,
             ContextMode = contextMode,
+            StepErrorRetries = stepErrorRetries,
             Steps = steps ?? new GenerationStepConfig()
         };
     }

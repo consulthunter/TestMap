@@ -50,11 +50,13 @@ public sealed class ExperimentResultsWriterTests
         try
         {
             await writer.WriteAsync(
-                new ExperimentRun { Id = 42, ResultsFilePath = path },
+                new ExperimentRun { Id = 42, RunUid = "run-42", ResultsFilePath = path },
                 [
                     new ExperimentResultFileRow
                     {
+                        AttemptId = "attempt-42",
                         ExperimentRunId = 42,
+                        ExperimentRunUid = "run-42",
                         ExperimentSeriesId = "model-study",
                         CandidateCohortId = 5,
                         CandidateCohortMemberId = 9,
@@ -87,8 +89,8 @@ public sealed class ExperimentResultsWriterTests
 
             var text = await File.ReadAllTextAsync(path);
 
-            Assert.Contains("experiment_run_id,experiment_series_id,candidate_cohort_id,candidate_cohort_member_id,producer_lane,tool_id,tool_run_status,tool_validation_outcome,tool_artifact_path,tool_changed_files_count,tool_production_files_changed,tool_test_files_changed,tool_project_files_changed,tool_deleted_files_count,tool_attempt_id,tool_attempt_targeted_baseline_id,tool_post_attempt_test_run_id,repo_url", text);
-            Assert.Contains("42,model-study,5,9,testmap", text);
+            Assert.Contains("results_schema_version,row_kind,attempt_id,experiment_run_id,experiment_run_uid,experiment_series_id,candidate_cohort_id,candidate_cohort_member_id,producer_lane", text);
+            Assert.Contains("2.0,attempt,attempt-42,42,run-42,model-study,5,9,testmap", text);
             Assert.DoesNotContain("metrics_path", text);
             Assert.Contains("source_method_mi,source_method_cc,source_method_coupling,source_method_dit,source_method_sloc,source_method_eloc", text);
             Assert.Contains("baseline_test_mi,baseline_test_cc,baseline_test_coupling,baseline_test_dit,baseline_test_sloc,baseline_test_eloc", text);
@@ -109,23 +111,25 @@ public sealed class ExperimentResultsWriterTests
         }
         finally
         {
-            if (File.Exists(path)) File.Delete(path);
+            DeleteResultFiles(path);
         }
     }
 
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task AppendAsync_AddsHeaderOnlyOnce()
+    public async Task AppendAsync_DoesNotDuplicateCanonicalAttempt()
     {
         var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
         var writer = new ExperimentResultsWriter();
 
         try
         {
-            var run = new ExperimentRun { Id = 7, ResultsFilePath = path };
+            var run = new ExperimentRun { Id = 7, RunUid = "run-7", ResultsFilePath = path };
             var row = new ExperimentResultFileRow
             {
+                AttemptId = "attempt-7",
                 ExperimentRunId = 7,
+                ExperimentRunUid = "run-7",
                 Provider = AiProvider.OpenAi,
                 GenerationApproach = TestGenerationApproach.Naive,
                 ContextMode = GenerationContextMode.ChainedHistory,
@@ -138,12 +142,201 @@ public sealed class ExperimentResultsWriterTests
 
             var lines = await File.ReadAllLinesAsync(path);
 
-            Assert.Equal(3, lines.Length);
-            Assert.Single(lines, x => x.StartsWith("experiment_run_id", StringComparison.Ordinal));
+            Assert.Equal(2, lines.Length);
+            Assert.Single(lines, x => x.StartsWith("results_schema_version", StringComparison.Ordinal));
         }
         finally
         {
-            if (File.Exists(path)) File.Delete(path);
+            DeleteResultFiles(path);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task AppendAsync_DoesNotDuplicateCanonicalGeneratedTest()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var writer = new ExperimentResultsWriter();
+
+        try
+        {
+            var run = new ExperimentRun { Id = 7, RunUid = "run-7", ResultsFilePath = path };
+            var row = new ExperimentResultFileRow
+            {
+                RowKind = "generated_test",
+                AttemptId = "attempt-7",
+                ExperimentRunId = 7,
+                ExperimentRunUid = "run-7",
+                GeneratedTestMemberId = 42,
+                GeneratedTestMethodName = "GeneratedTest",
+                Provider = AiProvider.OpenAi,
+                GenerationApproach = TestGenerationApproach.Naive,
+                ContextMode = GenerationContextMode.ChainedHistory,
+                BudgetMode = GenerationBudgetMode.PassAt1,
+                RunDate = DateTime.UtcNow
+            };
+
+            await writer.AppendAsync(run, row);
+            await writer.AppendAsync(run, row);
+
+            var generatedLines = await File.ReadAllLinesAsync(
+                ExperimentResultsWriter.ResolveGeneratedTestsPath(run));
+            Assert.Equal(2, generatedLines.Length);
+        }
+        finally
+        {
+            DeleteResultFiles(path);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task AppendAsync_ResumeScanHandlesQuotedMultilineFields()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var writer = new ExperimentResultsWriter();
+        var run = new ExperimentRun { Id = 7, RunUid = "run-7", ResultsFilePath = path };
+        var row = new ExperimentResultFileRow
+        {
+            RowKind = "generated_test",
+            AttemptId = "attempt-multiline",
+            ExperimentRunId = 7,
+            ExperimentRunUid = "run-7",
+            GeneratedTestMemberId = 42,
+            GeneratedTestMethodName = "GeneratedTest",
+            FailureSummary = "first line, with comma\nsecond line with \"quotes\"",
+            Provider = AiProvider.OpenAi,
+            GenerationApproach = TestGenerationApproach.Naive,
+            ContextMode = GenerationContextMode.ChainedHistory,
+            BudgetMode = GenerationBudgetMode.PassAt1,
+            RunDate = DateTime.UtcNow
+        };
+
+        try
+        {
+            await writer.AppendAsync(run, row);
+            var generatedPath = ExperimentResultsWriter.ResolveGeneratedTestsPath(run);
+            ExperimentResultsWriter.ResetAppendCache(generatedPath);
+            await writer.AppendAsync(run, row);
+
+            var text = await File.ReadAllTextAsync(generatedPath);
+            Assert.Equal(1, text.Split(",generated_test,attempt-multiline,").Length - 1);
+        }
+        finally
+        {
+            DeleteResultFiles(path);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task WriteAsync_SeparatesAttemptGeneratedTestAndTestResultGrains()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var writer = new ExperimentResultsWriter();
+        var run = new ExperimentRun { Id = 8, RunUid = "run-8", ResultsFilePath = path };
+
+        try
+        {
+            await writer.WriteAsync(
+                run,
+                [
+                    new ExperimentResultFileRow
+                    {
+                        RowKind = "attempt",
+                        AttemptId = "attempt-8",
+                        ExperimentRunId = 8,
+                        ExperimentRunUid = "run-8",
+                        GeneratedTestMemberId = 101
+                    },
+                    new ExperimentResultFileRow
+                    {
+                        RowKind = "generated_test",
+                        AttemptId = "attempt-8",
+                        ExperimentRunId = 8,
+                        ExperimentRunUid = "run-8",
+                        GeneratedTestMemberId = 102,
+                        ImpactAttribution = "attempt_level",
+                        CoverageDelta = 0.05
+                    },
+                    new ExperimentResultFileRow
+                    {
+                        RowKind = "test_result",
+                        AttemptId = "attempt-8",
+                        ExperimentRunId = 8,
+                        ExperimentRunUid = "run-8",
+                        GeneratedTestMemberId = 102,
+                        TestResultId = 501
+                    }
+                ]);
+
+            var attemptLines = await File.ReadAllLinesAsync(path);
+            var generatedLines = await File.ReadAllLinesAsync(ExperimentResultsWriter.ResolveGeneratedTestsPath(run));
+            var resultLines = await File.ReadAllLinesAsync(ExperimentResultsWriter.ResolveTestResultsPath(run));
+            var manifest = await File.ReadAllTextAsync(ExperimentResultsWriter.ResolveManifestPath(run));
+
+            Assert.Equal(2, attemptLines.Length);
+            Assert.Equal(3, generatedLines.Length);
+            Assert.Equal(2, resultLines.Length);
+            Assert.All(generatedLines.Skip(1), line => Assert.Contains(",generated_test,attempt-8,", line));
+            Assert.Contains(",test_result,attempt-8,", resultLines[1]);
+            Assert.Contains("\"coverage_unit\": \"fraction\"", manifest);
+            Assert.Contains("\"mutation_score_unit\": \"percentage_points\"", manifest);
+        }
+        finally
+        {
+            DeleteResultFiles(path);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task WriteAsync_RejectsRowsWithoutGlobalIdentity()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var writer = new ExperimentResultsWriter();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(
+            new ExperimentRun { Id = 9, RunUid = "run-9", ResultsFilePath = path },
+            [new ExperimentResultFileRow { ExperimentRunId = 9 }]));
+
+        Assert.Contains("attempt_id", error.Message);
+        DeleteResultFiles(path);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task WriteAsync_RejectsDuplicateAttemptRows()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var writer = new ExperimentResultsWriter();
+        var row = new ExperimentResultFileRow
+        {
+            AttemptId = "duplicate",
+            ExperimentRunId = 10,
+            ExperimentRunUid = "run-10"
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(
+            new ExperimentRun { Id = 10, RunUid = "run-10", ResultsFilePath = path },
+            [row, row]));
+
+        Assert.Contains("duplicate attempt_id", error.Message);
+        DeleteResultFiles(path);
+    }
+
+    private static void DeleteResultFiles(string path)
+    {
+        var run = new ExperimentRun { ResultsFilePath = path };
+        foreach (var candidate in new[]
+                 {
+                     path,
+                     ExperimentResultsWriter.ResolveGeneratedTestsPath(run),
+                     ExperimentResultsWriter.ResolveTestResultsPath(run),
+                     ExperimentResultsWriter.ResolveManifestPath(run)
+                 })
+        {
+            if (File.Exists(candidate)) File.Delete(candidate);
         }
     }
 }

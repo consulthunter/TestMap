@@ -32,9 +32,9 @@ public sealed class GeneratedTestExecutionResult
     public bool TestsExecuted { get; init; }
     public bool AllTestsPassed { get; init; }
     public int FailedTestCount { get; init; }
-    public double BaselineCoverage { get; init; }
-    public double CoverageAfter { get; init; }
-    public double CoverageImprovement { get; init; }
+    public double? BaselineCoverage { get; init; }
+    public double? CoverageAfter { get; init; }
+    public double? CoverageImprovement { get; init; }
     public double? BaselineMutationScore { get; init; }
     public double? MutationScoreAfter { get; init; }
     public double? MutationScoreImprovement { get; init; }

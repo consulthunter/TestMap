@@ -71,7 +71,8 @@ per repository database.
 
 ## Key semantics
 
-- Two lanes: `llm` (one row/attempt) and `agentic` (collapsed to one row per tool attempt).
+- Two lanes: `llm` and `agentic`, both canonicalized to one row per attempt; generated tests are
+  loaded from the separate schema-v2 child file.
 - `validated_success` = `ValidatedEvidencePositive` **or** `ValidatedLowImpact`; `positive_impact`
   (VEP) = test passed **and** metrics improved ≥ noise floor (coverage ≥ 1pp or mutation ≥ 1pp).
 - `effective_tokens` = lane-fair cost (LLM cumulative repair-chain total; agentic total run) — use

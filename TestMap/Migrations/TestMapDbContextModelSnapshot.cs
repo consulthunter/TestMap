@@ -29,6 +29,10 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("artifact_path");
 
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempt_number");
+
                     b.Property<string>("BaseCommit")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -51,6 +55,24 @@ namespace TestMap.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("constraint_violation_summary");
+
+                    b.Property<double?>("CoverageAfter")
+                        .HasColumnType("REAL")
+                        .HasColumnName("coverage_after");
+
+                    b.Property<double?>("CoverageBefore")
+                        .HasColumnType("REAL")
+                        .HasColumnName("coverage_before");
+
+                    b.Property<double?>("CoverageDelta")
+                        .HasColumnType("REAL")
+                        .HasColumnName("coverage_delta");
+
+                    b.Property<string>("CoverageMeasurementStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("coverage_measurement_status");
 
                     b.Property<int>("DeletedFilesCount")
                         .HasColumnType("INTEGER")
@@ -94,6 +116,12 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("image_name");
 
+                    b.Property<string>("ImpactMeasurementStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("impact_measurement_status");
+
                     b.Property<int?>("InputTokens")
                         .HasColumnType("INTEGER")
                         .HasColumnName("input_tokens");
@@ -111,11 +139,40 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("matrix_work_item_id");
 
+                    b.Property<string>("MeasurementFailureReason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("measurement_failure_reason");
+
+                    b.Property<string>("MeasurementPolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("measurement_policy_version");
+
                     b.Property<string>("Model")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("TEXT")
                         .HasColumnName("model");
+
+                    b.Property<string>("MutationMeasurementStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mutation_measurement_status");
+
+                    b.Property<double?>("MutationScoreAfter")
+                        .HasColumnType("REAL")
+                        .HasColumnName("mutation_score_after");
+
+                    b.Property<double?>("MutationScoreBefore")
+                        .HasColumnType("REAL")
+                        .HasColumnName("mutation_score_before");
+
+                    b.Property<double?>("MutationScoreDelta")
+                        .HasColumnType("REAL")
+                        .HasColumnName("mutation_score_delta");
 
                     b.Property<string>("Notes")
                         .IsRequired()
@@ -1531,6 +1588,12 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("results_file_path");
 
+                    b.Property<string>("RunUid")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("run_uid");
+
                     b.Property<DateTime>("StartTime")
                         .HasColumnType("TEXT")
                         .HasColumnName("start_time");
@@ -1546,6 +1609,9 @@ namespace TestMap.Migrations
                     b.HasIndex("CandidateCohortId");
 
                     b.HasIndex("ExperimentSeriesId");
+
+                    b.HasIndex("RunUid")
+                        .IsUnique();
 
                     b.ToTable("experiment_runs", (string)null);
                 });
@@ -1593,7 +1659,7 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("compilation_succeeded");
 
-                    b.Property<double>("CoverageDelta")
+                    b.Property<double?>("CoverageDelta")
                         .HasColumnType("REAL")
                         .HasColumnName("coverage_delta");
 
@@ -1605,7 +1671,7 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("execution_time_ms");
 
-                    b.Property<double>("FinalCoverage")
+                    b.Property<double?>("FinalCoverage")
                         .HasColumnType("REAL")
                         .HasColumnName("final_coverage");
 

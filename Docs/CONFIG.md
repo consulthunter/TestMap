@@ -100,6 +100,9 @@ Core fields:
 - `BudgetModes`: `pass-at1`, `pass-at5`, or `pass-at1-repair-at5`.
 - `ContextModes`: conversation history modes.
 - `CandidateLimit`: number of candidate methods.
+- `ExperimentSeriesId`: groups separately invoked runs into one logical experiment and becomes the
+  default resume group when `Resume.ResumeRunId` is not set.
+- `CandidateCohort`: freezes a randomly sampled candidate set for reuse by later runs.
 - `OutputPath`: CSV path or output directory.
 - `Evaluation.TestMap.Enabled`: built-in LLM lane.
 - `Evaluation.Tools.Enabled`: Docker agent-tool lanes.
@@ -109,6 +112,58 @@ Experiment mode uses `ExperimentConfig` for matrix dimensions, provider inclusio
 tool selection, and output. It uses `TestingConfig.GenerationConfig` for the generation profile
 details that are not matrix dimensions, including step toggles, executor behavior, target-selection
 defaults, and acceptance policy.
+
+### Candidate Cohorts And Chained Runs
+
+Use a candidate cohort when an experiment must be executed in separate CLI invocations, such as
+when only one custom model can be hosted at a time.
+
+First run:
+
+```json
+{
+  "ExperimentSeriesId": "custom-model-study-2026-07",
+  "CandidateLimit": 10,
+  "CandidateCohort": {
+    "Id": "custom-model-study-cohort-a",
+    "Mode": "create",
+    "Randomize": true
+  }
+}
+```
+
+`create` selects eligible candidates, randomly orders them after context and eligibility checks,
+takes `CandidateLimit`, and stores an immutable snapshot. When `RandomSeed` is omitted, TestMap
+generates one and stores it in the experiment configuration and cohort record. Set `RandomSeed`
+explicitly when you need a predetermined sample.
+
+Later runs:
+
+```json
+{
+  "ExperimentSeriesId": "custom-model-study-2026-07",
+  "CandidateLimit": 10,
+  "CandidateCohort": {
+    "Id": "custom-model-study-cohort-a",
+    "Mode": "reuse"
+  }
+}
+```
+
+`reuse` loads the exact stored candidate snapshots in their original order. Do not specify
+`RandomSeed` in reuse mode. TestMap rejects reuse when the repository, commit, objective, selection
+strategy, context mode, candidate limit, or coverage thresholds differ. Provider, model, budget,
+evaluation-lane, and tool settings may differ because they are the dimensions being compared.
+
+Modes:
+
+- `disabled`: existing behavior; select candidates independently for this invocation.
+- `create`: create a new immutable cohort; fail if that ID already exists for the project.
+- `reuse`: require and load an existing cohort; never silently choose replacement candidates.
+
+Candidate cohorts are stored in the project analysis database. Keep the same analysis database
+between chained runs. A stable source identity (file, containing type, method, and content hash) is
+stored so TestMap can resolve a changed database member ID after re-ingestion of the same commit.
 
 ## Provider And Model Overrides
 
@@ -186,6 +241,8 @@ Use these deliberately:
   Basic Extension.
 - Agent tool lanes: useful for comparison, but require Docker images and tool-specific credentials.
 - Large `CandidateLimit` values: expensive and harder to inspect.
+- Candidate cohort `create`/`reuse`: use for controlled multi-run studies; leave disabled for normal
+  one-off runs.
 
 Start with `CandidateLimit: 1`, one provider, one budget mode, and either the TestMap lane or one
 tool lane.

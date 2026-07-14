@@ -23,6 +23,10 @@ from analysis.summaries import build_overview
 def _raw_rows() -> pd.DataFrame:
     return pd.DataFrame([
         {
+            "results_schema_version": "2.0",
+            "row_kind": "attempt",
+            "attempt_id": "llm-10",
+            "experiment_run_uid": "run-1",
             "experiment_run_id": "1",
             "producer_lane": "testmap",
             "repo_owner": "owner",
@@ -36,6 +40,10 @@ def _raw_rows() -> pd.DataFrame:
             "total_duration_seconds": "5",
         },
         {
+            "results_schema_version": "2.0",
+            "row_kind": "attempt",
+            "attempt_id": "agent-20",
+            "experiment_run_uid": "run-1",
             "experiment_run_id": "1",
             "producer_lane": "agent-tool",
             "repo_owner": "owner",
@@ -54,6 +62,10 @@ def _raw_rows() -> pd.DataFrame:
             "total_duration_seconds": "30",
         },
         {
+            "results_schema_version": "2.0",
+            "row_kind": "attempt",
+            "attempt_id": "agent-21",
+            "experiment_run_uid": "run-1",
             "experiment_run_id": "1",
             "producer_lane": "agent-tool",
             "repo_owner": "owner",
@@ -97,6 +109,19 @@ def test_failure_case_export_contains_only_failures():
     assert "timeout" in labels
     # Low-impact passing attempts must NOT be included
     assert "low_impact" not in labels
+
+
+def test_validated_impact_unknown_preserves_positive_impact_missingness():
+    row = _raw_rows().iloc[[1]].copy()
+    row["attempt_id"] = "agent-unknown"
+    row["tool_observed_outcome"] = "ValidatedImpactUnknown"
+    row["coverage_delta"] = pd.NA
+    row["mutation_score_delta"] = pd.NA
+
+    normalized = normalize_attempts(row)
+
+    assert normalized["validated_success"].iloc[0] == True  # noqa: E712
+    assert pd.isna(normalized["positive_impact"].iloc[0])
 
 
 def test_audit_checks_agentic_contract_and_links():

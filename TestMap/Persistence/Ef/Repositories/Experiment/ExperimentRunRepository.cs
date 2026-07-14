@@ -73,6 +73,7 @@ public class ExperimentRunRepository
             throw new InvalidOperationException($"Experiment run '{run.Id}' was not found.");
 
         trackedEntity.StartTime = run.StartedAt;
+        trackedEntity.RunUid = run.RunUid;
         trackedEntity.EndTime = run.CompletedAt;
         trackedEntity.ProjectId = run.ProjectId;
         trackedEntity.Objective = run.Objective;
