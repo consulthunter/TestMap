@@ -25,4 +25,8 @@
     <ProjectReference Include="..\TestMap\TestMap.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\Targets\example-project.csv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

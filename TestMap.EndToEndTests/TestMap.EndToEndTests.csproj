@@ -25,4 +25,10 @@
     <ProjectReference Include="..\TestMap\TestMap.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="Fixtures\CollectTestsProject\**\*.cs" />
+    <None Remove="Fixtures\CollectTestsProject\**\*" />
+    <Content Include="Fixtures\CollectTestsProject\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
