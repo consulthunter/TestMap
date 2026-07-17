@@ -1,0 +1,24 @@
+# Contract example: stable pointer published only after all members exist and match their hashes.
+bundle_schema_version: 1
+generated_at_utc: 2026-07-16T18:30:00.0000000+00:00
+input:
+  file: pinned-targets-smoke.yaml
+  sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+policy:
+  name: project-test-presence
+  version: "1"
+complete: true
+classification_complete: false
+artifacts:
+  report:
+    file: pinned-targets-smoke-project-check-report-bbbbbbbbbbbb.yaml
+    sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    records: 2
+  tests_detected:
+    file: pinned-targets-smoke-tests-detected-cccccccccccc.yaml
+    sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    records: 1
+  no_tests_detected:
+    file: pinned-targets-smoke-no-tests-detected-dddddddddddd.yaml
+    sha256: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    records: 0

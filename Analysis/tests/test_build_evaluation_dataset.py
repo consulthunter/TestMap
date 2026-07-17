@@ -18,10 +18,13 @@ from analysis.normalize import (
 from analysis.schema import LANE_AGENTIC, LANE_LLM
 from analysis.files import read_result_grains
 
+COMMIT_A = "0123456789abcdef0123456789abcdef01234567"
+COMMIT_B = "89abcdef0123456789abcdef0123456789abcdef"
+
 
 def _llm_row(**kwargs) -> dict:
     row = {
-        "results_schema_version": "2.0",
+        "results_schema_version": "3.0",
         "row_kind": "attempt",
         "attempt_id": "llm-1",
         "experiment_run_uid": "run-1",
@@ -31,7 +34,15 @@ def _llm_row(**kwargs) -> dict:
         "repo_owner": "owner",
         "repo_name": "repo-a",
         "repo_url": "https://example.invalid/owner/repo-a",
-        "commit_hash": "abc",
+        "commit_hash": COMMIT_A,
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "owner/repo-a",
+        "requested_commit": COMMIT_A,
+        "resolved_commit": COMMIT_A,
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
         "source_member_id": "1",
         "source_method_name": "DoWork",
         "source_method_signature": "void DoWork()",
@@ -56,7 +67,7 @@ def _llm_row(**kwargs) -> dict:
 
 def _agentic_row(**kwargs) -> dict:
     row = {
-        "results_schema_version": "2.0",
+        "results_schema_version": "3.0",
         "row_kind": "attempt",
         "attempt_id": "agent-101",
         "experiment_run_uid": "run-1",
@@ -67,7 +78,15 @@ def _agentic_row(**kwargs) -> dict:
         "repo_owner": "owner",
         "repo_name": "repo-a",
         "repo_url": "https://example.invalid/owner/repo-a",
-        "commit_hash": "abc",
+        "commit_hash": COMMIT_A,
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "owner/repo-a",
+        "requested_commit": COMMIT_A,
+        "resolved_commit": COMMIT_A,
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
         "source_member_id": "1",
         "source_method_name": "DoWork",
         "source_method_signature": "void DoWork()",
@@ -102,14 +121,18 @@ def raw_df() -> pd.DataFrame:
         _llm_row(attempt_id="llm-2", generation_attempt_id="2", source_member_id="2",
                  failure_kind="Runtime", generated_test_passed="False",
                  coverage_delta="0", mutation_score_delta="0"),
-        _llm_row(attempt_id="llm-3", generation_attempt_id="3", repo_name="repo-b", commit_hash="def",
+        _llm_row(attempt_id="llm-3", generation_attempt_id="3", repo_name="repo-b", commit_hash=COMMIT_B,
+                 requested_commit=COMMIT_B, resolved_commit=COMMIT_B, repository_identity="owner/repo-b",
+                 target_id="dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                  source_member_id="3", coverage_delta="0", mutation_score_delta="0"),
         _agentic_row(attempt_id="agent-101", tool_attempt_id="101", source_member_id="1",
                      generated_test_method_name=""),
         _agentic_row(attempt_id="agent-102", tool_attempt_id="102", source_member_id="2",
                      generated_test_method_name="TestLowImpact",
                      coverage_delta="0", mutation_score_delta="0"),
-        _agentic_row(attempt_id="agent-201", tool_attempt_id="201", repo_name="repo-b", commit_hash="def",
+        _agentic_row(attempt_id="agent-201", tool_attempt_id="201", repo_name="repo-b", commit_hash=COMMIT_B,
+                     requested_commit=COMMIT_B, resolved_commit=COMMIT_B, repository_identity="owner/repo-b",
+                     target_id="dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                      source_member_id="3", tool_run_status="TimedOut",
                      tool_validation_outcome="TimedOut", tool_changed_files_count="0",
                      generated_test_method_name="", coverage_delta="0",

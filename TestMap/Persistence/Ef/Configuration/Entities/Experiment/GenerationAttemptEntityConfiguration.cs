@@ -43,6 +43,8 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
         builder.Property(x => x.FailureCategory).HasColumnName("failure_category").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message").IsRequired();
         builder.Property(x => x.RuleDecisionSnapshotJson).HasColumnName("rule_decision_snapshot_json").IsRequired();
+        builder.Property(x => x.BaseCommit).HasColumnName("base_commit").IsRequired();
+        builder.Property(x => x.WorkspaceIntegrityStatus).HasColumnName("workspace_integrity_status").IsRequired();
 
         // Basic Extension patch metadata — nullable so existing rows are unaffected
         builder.Property(x => x.PatchJson).HasColumnName("patch_json");

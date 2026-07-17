@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using TestMap.App;
 using TestMap.Models.Code;
 using TestMap.Models.Configuration;
@@ -11,6 +12,12 @@ namespace TestMap.Services.TestExecution.Collection;
 
 public class CollectTestsResultWriter
 {
+    internal const string CsvHeader =
+        "URL,Owner,Repo,Restores,Builds,TestsRun,TestsPass,HasCoverage,HasMutationScore,HasCandidateMethods,CandidateCount,ExperimentEligibleCandidateCount,DockerContext,DockerOs,ExecutionSupport,UnsupportedProjectCount,UnsupportedProjects,BaselineRunId,FailureCategory,FailureSummary";
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> CsvLocks =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly ProjectContext _context;
     private readonly TestMapDbContext _dbContext;
     private readonly TestMapConfig _config;
@@ -79,6 +86,25 @@ public class CollectTestsResultWriter
         await WriteCsvRowAsync(result, cancellationToken);
     }
 
+    public static async Task InitializeReportAsync(
+        TestMapConfig config,
+        ProjectContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var csvPath = ResolveCsvPath(config, context);
+        Directory.CreateDirectory(Path.GetDirectoryName(csvPath)!);
+        var gate = CsvLocks.GetOrAdd(csvPath, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await File.WriteAllTextAsync(csvPath, CsvHeader + Environment.NewLine, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     private ExperimentConfig CreateSelectionConfiguration()
     {
         var generationConfig = _config.TestingConfig.GenerationConfig;
@@ -136,23 +162,42 @@ public class CollectTestsResultWriter
 
     private async Task WriteCsvRowAsync(ProjectValidationResult result, CancellationToken cancellationToken)
     {
-        var outputRoot = Directory.GetParent(_context.Project.OutputPath ?? string.Empty)?.FullName
-                         ?? _context.Project.OutputPath
-                         ?? _context.Project.DirectoryPath;
-        var csvPath = Path.Combine(outputRoot, "project-validation.csv");
+        var csvPath = ResolveCsvPath(_config, _context);
+        Directory.CreateDirectory(Path.GetDirectoryName(csvPath)!);
+        var gate = CsvLocks.GetOrAdd(csvPath, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var fileExists = File.Exists(csvPath);
+            await using var writer = new StreamWriter(csvPath, true);
 
-        var fileExists = File.Exists(csvPath);
-        await using var writer = new StreamWriter(csvPath, true);
+            if (!fileExists)
+                await writer.WriteLineAsync(
+                    CsvHeader.AsMemory(),
+                    cancellationToken);
 
-        if (!fileExists)
             await writer.WriteLineAsync(
-                "URL,Owner,Repo,Restores,Builds,TestsRun,TestsPass,HasCoverage,HasMutationScore,HasCandidateMethods,CandidateCount,ExperimentEligibleCandidateCount,DockerContext,DockerOs,ExecutionSupport,UnsupportedProjectCount,UnsupportedProjects,BaselineRunId,FailureCategory,FailureSummary".AsMemory(),
+                $"{Escape(result.Url)},{Escape(result.Owner)},{Escape(result.Repo)},{result.Restores},{result.Builds},{result.TestsRun},{result.TestsPass},{result.HasCoverage},{result.HasMutationScore},{result.HasCandidateMethods},{result.CandidateCount},{result.ExperimentEligibleCandidateCount},{Escape(result.DockerContext)},{Escape(result.DockerOs)},{Escape(result.ExecutionSupport)},{result.UnsupportedProjectCount},{Escape(result.UnsupportedProjects)},{Escape(result.BaselineRunId)},{Escape(result.FailureCategory)},{Escape(result.FailureSummary)}"
+                    .AsMemory(),
                 cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
-        await writer.WriteLineAsync(
-            $"{Escape(result.Url)},{Escape(result.Owner)},{Escape(result.Repo)},{result.Restores},{result.Builds},{result.TestsRun},{result.TestsPass},{result.HasCoverage},{result.HasMutationScore},{result.HasCandidateMethods},{result.CandidateCount},{result.ExperimentEligibleCandidateCount},{Escape(result.DockerContext)},{Escape(result.DockerOs)},{Escape(result.ExecutionSupport)},{result.UnsupportedProjectCount},{Escape(result.UnsupportedProjects)},{Escape(result.BaselineRunId)},{Escape(result.FailureCategory)},{Escape(result.FailureSummary)}"
-                .AsMemory(),
-            cancellationToken);
+    internal static string ResolveCsvPath(TestMapConfig config, ProjectContext context)
+    {
+        var configuredOutputRoot = config.RuntimeConfig.FilePaths.OutputDirPath;
+        var outputRoot = !string.IsNullOrWhiteSpace(configuredOutputRoot)
+            ? configuredOutputRoot
+            : Directory.GetParent(context.Project.OutputPath ?? string.Empty)?.FullName
+              ?? context.Project.OutputPath
+              ?? context.Project.DirectoryPath;
+        if (string.IsNullOrWhiteSpace(outputRoot))
+            throw new InvalidOperationException("Project validation output requires a configured output directory.");
+        return Path.GetFullPath(Path.Combine(outputRoot, "project-validation.csv"));
     }
 
     private static string Escape(string value)

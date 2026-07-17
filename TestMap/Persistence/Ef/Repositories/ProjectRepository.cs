@@ -49,6 +49,14 @@ public class ProjectRepository
                 existing.Branch = model.Branch ?? existing.Branch;
                 existing.LastAnalyzedCommit = model.LastAnalyzedCommit ?? existing.LastAnalyzedCommit;
                 existing.DatabasePath = model.DatabasePath ?? existing.DatabasePath;
+                existing.TargetId = model.MaterializedRevision?.TargetId ?? existing.TargetId;
+                existing.RepositoryIdentity = model.MaterializedRevision?.RepositoryIdentity ?? existing.RepositoryIdentity;
+                existing.RequestedCommit = model.MaterializedRevision?.RequestedCommit ?? existing.RequestedCommit;
+                existing.ResolvedCommit = model.MaterializedRevision?.ResolvedCommit ?? existing.ResolvedCommit;
+                existing.TargetManifestSha256 = model.MaterializedRevision?.ManifestSha256 ?? existing.TargetManifestSha256;
+                existing.TargetSourceSha256 = model.MaterializedRevision?.SourceSha256 ?? existing.TargetSourceSha256;
+                existing.MaterializedAtUtc = model.MaterializedRevision?.MaterializedAtUtc?.UtcDateTime ?? existing.MaterializedAtUtc;
+                existing.ProvenancePolicyVersion = model.MaterializedRevision?.PolicyVersion ?? existing.ProvenancePolicyVersion;
                 existing.UpdatedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
@@ -76,7 +84,10 @@ public class ProjectRepository
                existing.RepoName != model.RepoName ||
                existing.Branch != model.Branch ||
                existing.LastAnalyzedCommit != model.LastAnalyzedCommit ||
-               existing.DatabasePath != model.DatabasePath;
+               existing.DatabasePath != model.DatabasePath ||
+               existing.TargetId != model.MaterializedRevision?.TargetId ||
+               existing.ResolvedCommit != model.MaterializedRevision?.ResolvedCommit ||
+               existing.TargetManifestSha256 != model.MaterializedRevision?.ManifestSha256;
     }
 
     // Delete

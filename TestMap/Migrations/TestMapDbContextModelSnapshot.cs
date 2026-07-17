@@ -275,6 +275,12 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("validation_outcome");
 
+                    b.Property<string>("WorkspaceIntegrityStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workspace_integrity_status");
+
                     b.Property<string>("WorkspacePath")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -1573,6 +1579,10 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("experiment_series_id");
 
+                    b.Property<DateTime?>("MaterializedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("materialized_at_utc");
+
                     b.Property<string>("Objective")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1582,6 +1592,30 @@ namespace TestMap.Migrations
                     b.Property<int>("ProjectId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("project_id");
+
+                    b.Property<string>("ProvenancePolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provenance_policy_version");
+
+                    b.Property<string>("RepositoryIdentity")
+                        .IsRequired()
+                        .HasMaxLength(511)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("repository_identity");
+
+                    b.Property<string>("RequestedCommit")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("requested_commit");
+
+                    b.Property<string>("ResolvedCommit")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resolved_commit");
 
                     b.Property<string>("ResultsFilePath")
                         .IsRequired()
@@ -1604,6 +1638,30 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("status");
 
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetManifestSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_manifest_sha256");
+
+                    b.Property<string>("TargetSourceSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_source_sha256");
+
+                    b.Property<string>("WorkspaceIntegrityStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workspace_integrity_status");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CandidateCohortId");
@@ -1612,6 +1670,8 @@ namespace TestMap.Migrations
 
                     b.HasIndex("RunUid")
                         .IsUnique();
+
+                    b.HasIndex("TargetId", "ResolvedCommit");
 
                     b.ToTable("experiment_runs", (string)null);
                 });
@@ -1781,6 +1841,12 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("attempt_number");
 
+                    b.Property<string>("BaseCommit")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("base_commit");
+
                     b.Property<string>("BudgetMode")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -1948,6 +2014,12 @@ namespace TestMap.Migrations
                     b.Property<double>("ValidationDurationSeconds")
                         .HasColumnType("REAL")
                         .HasColumnName("validation_duration_seconds");
+
+                    b.Property<string>("WorkspaceIntegrityStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("workspace_integrity_status");
 
                     b.HasKey("Id");
 
@@ -2170,6 +2242,92 @@ namespace TestMap.Migrations
                         .IsUnique();
 
                     b.ToTable("source_test_mapping_trace_steps", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.WorkspaceIntegrityObservationEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActualCommit")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("actual_commit");
+
+                    b.Property<int?>("AttemptNumber")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempt_number");
+
+                    b.Property<string>("Checkpoint")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("checkpoint");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("details");
+
+                    b.Property<string>("ExpectedCommit")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expected_commit");
+
+                    b.Property<int?>("ExperimentRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("experiment_run_id");
+
+                    b.Property<DateTime>("ObservedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("observed_at_utc");
+
+                    b.Property<bool>("OriginMatches")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("origin_matches");
+
+                    b.Property<string>("ProducerLane")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("producer_lane");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("WorkItemStableKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("work_item_stable_key");
+
+                    b.Property<bool?>("WorkingTreeDirty")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("working_tree_dirty");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetId", "ObservedAtUtc");
+
+                    b.HasIndex("ExperimentRunId", "Checkpoint", "Status");
+
+                    b.HasIndex("WorkItemStableKey", "AttemptNumber", "Checkpoint");
+
+                    b.ToTable("workspace_integrity_observations", (string)null);
                 });
 
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.FlakyTestDetection.FlakyTestRerunResultEntity", b =>
@@ -2539,17 +2697,56 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("last_analyzed_commit");
 
+                    b.Property<DateTime?>("MaterializedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("materialized_at_utc");
+
                     b.Property<string>("Owner")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("TEXT")
                         .HasColumnName("owner");
 
+                    b.Property<string>("ProvenancePolicyVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provenance_policy_version");
+
                     b.Property<string>("RepoName")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("TEXT")
                         .HasColumnName("repo_name");
+
+                    b.Property<string>("RepositoryIdentity")
+                        .HasMaxLength(511)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("repository_identity");
+
+                    b.Property<string>("RequestedCommit")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("requested_commit");
+
+                    b.Property<string>("ResolvedCommit")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resolved_commit");
+
+                    b.Property<string>("TargetId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetManifestSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_manifest_sha256");
+
+                    b.Property<string>("TargetSourceSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_source_sha256");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("TEXT")
@@ -2561,6 +2758,11 @@ namespace TestMap.Migrations
                         .HasColumnName("web_url");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("TargetId")
+                        .IsUnique();
+
+                    b.HasIndex("RepositoryIdentity", "ResolvedCommit");
 
                     b.ToTable("projects", (string)null);
                 });

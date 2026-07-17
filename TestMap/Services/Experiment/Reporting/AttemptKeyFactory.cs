@@ -7,6 +7,7 @@ public static class AttemptKeyFactory
 {
     public static string Create(
         string repositoryIdentity,
+        string resolvedCommit,
         string experimentSeriesId,
         string experimentRunUid,
         string producerLane,
@@ -19,9 +20,12 @@ public static class AttemptKeyFactory
             throw new ArgumentException("Experiment run UID is required.", nameof(experimentRunUid));
         if (string.IsNullOrWhiteSpace(resumeStableKey))
             throw new ArgumentException("Resume stable key is required.", nameof(resumeStableKey));
+        if (resolvedCommit.Length != 40 || !resolvedCommit.All(Uri.IsHexDigit))
+            throw new ArgumentException("Resolved commit must be a full 40-character SHA.", nameof(resolvedCommit));
 
         var material = string.Join("|",
             repositoryIdentity.Trim().ToLowerInvariant(),
+            resolvedCommit.Trim().ToLowerInvariant(),
             experimentSeriesId.Trim(),
             experimentRunUid.Trim(),
             producerLane.Trim().ToLowerInvariant(),

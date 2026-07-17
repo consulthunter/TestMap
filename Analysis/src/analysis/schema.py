@@ -50,6 +50,16 @@ SHARED_ATTEMPT_FIELDS: list[str] = [
     "repo_name",
     "repo_url",
     "commit_hash",
+    "target_id",
+    "repository_identity",
+    "requested_commit",
+    "resolved_commit",
+    "target_manifest_sha256",
+    "target_source_sha256",
+    "provenance_policy_version",
+    "workspace_integrity_status",
+    "repository_family_key",
+    "repository_revision_key",
     "source_member_id",
     "source_method_name",
     "source_method_signature",
@@ -134,17 +144,16 @@ SHARED_ATTEMPT_FIELDS: list[str] = [
 
 # Fields that uniquely identify a candidate across lanes
 CANDIDATE_KEY_FIELDS: list[str] = [
-    "repo_owner",
-    "repo_name",
-    "commit_hash",
+    "repository_identity",
+    "resolved_commit",
+    "target_id",
     "source_member_id",
 ]
 
 # Fields that uniquely identify a repository slice
 REPOSITORY_KEY_FIELDS: list[str] = [
-    "repo_owner",
-    "repo_name",
-    "commit_hash",
+    "repository_identity",
+    "resolved_commit",
 ]
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,29 @@
+{
+  "stable": {
+    "metadata": ["owner/repository", "main"],
+    "branch_commit": "0123456789abcdef0123456789abcdef01234567",
+    "commit_object": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "moving_default_branch": {
+    "first": ["main", "0123456789abcdef0123456789abcdef01234567"],
+    "second": ["main", "89abcdef0123456789abcdef0123456789abcdef"]
+  },
+  "retry_then_stable": {
+    "first_metadata": ["owner/repository", "main"],
+    "first_confirmation": ["owner/repository", "trunk"],
+    "second_metadata": ["owner/repository", "trunk"],
+    "second_confirmation": ["owner/repository", "trunk"]
+  },
+  "empty_repository": {
+    "metadata": ["owner/repository", null]
+  },
+  "failures": [
+    "repository_unavailable",
+    "authentication_failed",
+    "authorization_failed",
+    "rate_limited",
+    "default_branch_unavailable",
+    "commit_unavailable",
+    "service_unavailable"
+  ]
+}

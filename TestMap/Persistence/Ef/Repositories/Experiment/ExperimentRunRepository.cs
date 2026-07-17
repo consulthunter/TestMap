@@ -84,6 +84,15 @@ public class ExperimentRunRepository
         trackedEntity.Status = string.IsNullOrWhiteSpace(run.Status) ? "Completed" : run.Status;
         trackedEntity.ExperimentSeriesId = run.ExperimentSeriesId;
         trackedEntity.CandidateCohortId = run.CandidateCohortId;
+        trackedEntity.TargetId = run.TargetId;
+        trackedEntity.RepositoryIdentity = run.RepositoryIdentity;
+        trackedEntity.RequestedCommit = run.RequestedCommit;
+        trackedEntity.ResolvedCommit = run.ResolvedCommit;
+        trackedEntity.TargetManifestSha256 = run.TargetManifestSha256;
+        trackedEntity.TargetSourceSha256 = run.TargetSourceSha256;
+        trackedEntity.MaterializedAtUtc = run.MaterializedAtUtc;
+        trackedEntity.WorkspaceIntegrityStatus = run.WorkspaceIntegrityStatus;
+        trackedEntity.ProvenancePolicyVersion = run.ProvenancePolicyVersion;
 
         await _context.SaveChangesAsync(cancellationToken);
     }

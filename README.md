@@ -43,17 +43,25 @@ Analysis/                     analysis helpers for result datasets
 
 ```powershell
 dotnet run --project .\TestMap\TestMap.csproj -- setup
-dotnet run --project .\TestMap\TestMap.csproj -- check-projects --config .\TestMap\Config\default-config.json
+dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\pinned-targets-smoke.yaml
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- generate-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- experiment --config .\TestMap\Config\default-config.json
 ```
+
+`check-projects` screens the exact commit in each pinned YAML target. It publishes a complete YAML
+report plus directly reusable `tests-detected` and `no-tests-detected` target manifests. Repository,
+commit, and source provenance are preserved; access failures and incomplete provider trees remain
+indeterminate instead of being treated as evidence that tests are absent. Exit code `2` means an
+auditable bundle was published but the screening set is incomplete.
 
 > **Note:** `generate-tests` is experimental. For measured evaluation runs, prefer
 > `experiment` (see [Stable And Experimental Surfaces](#stable-and-experimental-surfaces)).
 
 ## Documentation
 
+- [Research Constitution](.specify/memory/constitution.md): non-negotiable principles for
+  reproducibility, measurement validity, lane fairness, provenance, and research review.
 - [Setup](Docs/SETUP.md): dependencies, first-time setup, `.env`, Docker images, and a first example run.
 - [Configuration](Docs/CONFIG.md): config model, override rules, tool model settings, secrets, and experimental switches.
 - [How It Works](Docs/HOW_IT_WORKS.md): high-level architecture and execution flow.
@@ -79,3 +87,34 @@ Originally, this started a an MSR (mining software repositories) tool. I wanted 
 Then, I wondered about how would I know the quality of such tests, possibly for RL (reinforcement learning driven by acutal test performance). A friend suggested running the projects in a Docker environment, so I would have actual data.
 Then, I figured now that I was collecting all of this data I could use it to generate tests for projects.
 Finally, I was asked what about a comparison between a generic LLM approach (ChatUniTest) versus an actual Agent (mini-swe-agent) which is how this tool ended up the way it is today.
+
+# Pinned Repository Experiments
+
+Measured `experiment` runs consume an immutable YAML target manifest rather than a URL list. Each
+target binds `owner/repository` to a full 40-character commit SHA, and TestMap records the requested
+and resolved revisions in SQLite and schema 3.0 result CSVs. Create and verify a manifest before a
+pilot:
+
+```powershell
+dotnet run --project TestMap -- targets create --input targets.csv --output targets.yaml
+dotnet run --project TestMap -- targets verify --file targets.yaml
+dotnet run --project TestMap -- experiment --config TestMap/Config/pinned-target-experiment.example.json
+```
+
+For one GitHub repository, the CSV step is optional:
+
+```powershell
+dotnet run --project TestMap -- targets create `
+  --url https://github.com/powershell/platyps `
+  --output TestMap/Output/platyps-targets.yaml
+```
+
+URL mode resolves the named default branch and its exact Git commit, confirms repository metadata,
+then publishes a content-addressed resolution record before the schema-3 manifest. It uses
+`GITHUB_TOKEN` when present and records only `authenticated` or `anonymous`, never the credential.
+Downstream commands verify the linked record locally and keep using the recorded commit even if the
+remote branch later moves. A valid URL that cannot be resolved leaves a categorized resolution
+record but does not create or replace a target manifest. CSV creation remains the schema-1 workflow.
+
+Discovery commands may still consume documented URL lists. Experiment mode rejects them because an
+unpinned branch tip cannot support reproducible lane comparisons.

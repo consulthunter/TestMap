@@ -22,7 +22,16 @@ public static class ExperimentRunMappingExtensions
             CandidateLimit = entity.CandidateLimit,
             Status = entity.Status,
             ExperimentSeriesId = entity.ExperimentSeriesId,
-            CandidateCohortId = entity.CandidateCohortId
+            CandidateCohortId = entity.CandidateCohortId,
+            TargetId = entity.TargetId,
+            RepositoryIdentity = entity.RepositoryIdentity,
+            RequestedCommit = entity.RequestedCommit,
+            ResolvedCommit = entity.ResolvedCommit,
+            TargetManifestSha256 = entity.TargetManifestSha256,
+            TargetSourceSha256 = entity.TargetSourceSha256,
+            MaterializedAtUtc = entity.MaterializedAtUtc,
+            WorkspaceIntegrityStatus = entity.WorkspaceIntegrityStatus,
+            ProvenancePolicyVersion = entity.ProvenancePolicyVersion
         };
     }
 
@@ -42,7 +51,16 @@ public static class ExperimentRunMappingExtensions
             CandidateLimit = run.CandidateLimit,
             Status = string.IsNullOrWhiteSpace(run.Status) ? "Completed" : run.Status,
             ExperimentSeriesId = run.ExperimentSeriesId,
-            CandidateCohortId = run.CandidateCohortId
+            CandidateCohortId = run.CandidateCohortId,
+            TargetId = run.TargetId,
+            RepositoryIdentity = run.RepositoryIdentity,
+            RequestedCommit = run.RequestedCommit,
+            ResolvedCommit = run.ResolvedCommit,
+            TargetManifestSha256 = run.TargetManifestSha256,
+            TargetSourceSha256 = run.TargetSourceSha256,
+            MaterializedAtUtc = run.MaterializedAtUtc,
+            WorkspaceIntegrityStatus = run.WorkspaceIntegrityStatus,
+            ProvenancePolicyVersion = run.ProvenancePolicyVersion
         };
     }
 }

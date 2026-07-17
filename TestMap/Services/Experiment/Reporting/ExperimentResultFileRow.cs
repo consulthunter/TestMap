@@ -6,7 +6,7 @@ namespace TestMap.Services.Experiment.Reporting;
 
 public sealed class ExperimentResultFileRow
 {
-    public string ResultsSchemaVersion { get; init; } = "2.0";
+    public string ResultsSchemaVersion { get; init; } = "3.0";
     public string RowKind { get; init; } = "attempt";
     public string AttemptId { get; init; } = string.Empty;
     public int ExperimentRunId { get; init; }
@@ -31,6 +31,14 @@ public sealed class ExperimentResultFileRow
     public string RepoOwner { get; init; } = string.Empty;
     public string RepoName { get; init; } = string.Empty;
     public string CommitHash { get; init; } = string.Empty;
+    public string TargetId { get; init; } = string.Empty;
+    public string RepositoryIdentity { get; init; } = string.Empty;
+    public string RequestedCommit { get; init; } = string.Empty;
+    public string ResolvedCommit { get; init; } = string.Empty;
+    public string TargetManifestSha256 { get; init; } = string.Empty;
+    public string TargetSourceSha256 { get; init; } = string.Empty;
+    public string ProvenancePolicyVersion { get; init; } = string.Empty;
+    public string WorkspaceIntegrityStatus { get; init; } = string.Empty;
     public DateTime RunDate { get; init; }
     public string Objective { get; init; } = string.Empty;
     public string TargetSelectionStrategy { get; init; } = string.Empty;

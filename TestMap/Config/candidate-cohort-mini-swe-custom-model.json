@@ -5,7 +5,7 @@
       "AnalyzeLatestCommit": false
     },
     "FilePaths": {
-      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example.yaml",
       "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
       "TempDirPath": "D:\\Projects\\TestMap\\Temp",
       "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"

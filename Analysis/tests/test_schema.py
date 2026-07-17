@@ -72,8 +72,9 @@ class TestCandidateAndRepositoryKeyFields:
         assert "source_member_id" in CANDIDATE_KEY_FIELDS
 
     def test_candidate_key_includes_repo_fields(self):
-        assert "repo_owner" in CANDIDATE_KEY_FIELDS
-        assert "repo_name" in CANDIDATE_KEY_FIELDS
+        assert "repository_identity" in CANDIDATE_KEY_FIELDS
+        assert "resolved_commit" in CANDIDATE_KEY_FIELDS
+        assert "target_id" in CANDIDATE_KEY_FIELDS
 
     def test_repository_key_fields_subset_of_candidate(self):
         for field in REPOSITORY_KEY_FIELDS:

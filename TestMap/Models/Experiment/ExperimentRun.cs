@@ -19,6 +19,15 @@ public class ExperimentRun
     public string Status { get; set; } = string.Empty;
     public string ExperimentSeriesId { get; set; } = string.Empty;
     public int? CandidateCohortId { get; set; }
+    public string TargetId { get; set; } = string.Empty;
+    public string RepositoryIdentity { get; set; } = string.Empty;
+    public string RequestedCommit { get; set; } = string.Empty;
+    public string ResolvedCommit { get; set; } = string.Empty;
+    public string TargetManifestSha256 { get; set; } = string.Empty;
+    public string TargetSourceSha256 { get; set; } = string.Empty;
+    public DateTime? MaterializedAtUtc { get; set; }
+    public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
+    public string ProvenancePolicyVersion { get; set; } = string.Empty;
 
     public virtual ICollection<CandidateMethod> CandidateMethods { get; set; } = new List<CandidateMethod>();
 }

@@ -48,6 +48,28 @@ public sealed class ExperimentResumeServiceTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void BuildStableKey_DifferentResolvedCommit_ProducesDifferentIdentity()
+    {
+        var service = new ExperimentResumeService();
+        var candidate = new CandidateMethod { MemberId = 123 };
+        var matrixItem = new GenerationExperimentMatrixItem
+        {
+            VariantId = "v1", Provider = AiProvider.OpenAi,
+            Approach = TestGenerationApproach.MetricsDriven,
+            BudgetMode = GenerationBudgetMode.PassAt1,
+            ContextMode = GenerationContextMode.NoHistory,
+            Temperature = 0,
+            Steps = new GenerationStepConfig { VariantId = "baseline" }
+        };
+        var first = service.BuildStableKey("run", "owner/repo",
+            "0123456789abcdef0123456789abcdef01234567", TestGenerationObjective.TestSuiteExpansion, candidate, matrixItem);
+        var second = service.BuildStableKey("run", "owner/repo",
+            "89abcdef0123456789abcdef0123456789abcdef", TestGenerationObjective.TestSuiteExpansion, candidate, matrixItem);
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void Evaluate_SkipsCompletedWorkItem()
     {
         var service = new ExperimentResumeService();

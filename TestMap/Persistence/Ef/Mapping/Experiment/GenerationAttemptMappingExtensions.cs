@@ -66,7 +66,9 @@ public static class GenerationAttemptMappingExtensions
             AppliedHelperCount = entity.AppliedHelperCount,
             ModifiedFilePath = entity.ModifiedFilePath,
             ModifiedFileContents = entity.ModifiedFileContents,
-            ModifiedFileSha256 = entity.ModifiedFileSha256
+            ModifiedFileSha256 = entity.ModifiedFileSha256,
+            BaseCommit = entity.BaseCommit,
+            WorkspaceIntegrityStatus = entity.WorkspaceIntegrityStatus
         };
     }
 
@@ -114,7 +116,9 @@ public static class GenerationAttemptMappingExtensions
             AppliedHelperCount = attempt.AppliedHelperCount,
             ModifiedFilePath = attempt.ModifiedFilePath,
             ModifiedFileContents = attempt.ModifiedFileContents,
-            ModifiedFileSha256 = attempt.ModifiedFileSha256
+            ModifiedFileSha256 = attempt.ModifiedFileSha256,
+            BaseCommit = attempt.BaseCommit,
+            WorkspaceIntegrityStatus = attempt.WorkspaceIntegrityStatus
         };
     }
 

@@ -21,9 +21,20 @@ from analysis.summaries import build_overview
 
 
 def _raw_rows() -> pd.DataFrame:
+    provenance = {
+        "results_schema_version": "3.0",
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "owner/repo",
+        "requested_commit": "0123456789abcdef0123456789abcdef01234567",
+        "resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
+    }
     return pd.DataFrame([
         {
-            "results_schema_version": "2.0",
+            **provenance,
             "row_kind": "attempt",
             "attempt_id": "llm-10",
             "experiment_run_uid": "run-1",
@@ -31,7 +42,7 @@ def _raw_rows() -> pd.DataFrame:
             "producer_lane": "testmap",
             "repo_owner": "owner",
             "repo_name": "repo",
-            "commit_hash": "abc",
+            "commit_hash": provenance["resolved_commit"],
             "source_member_id": "1",
             "generation_attempt_id": "10",
             "failure_kind": "None",
@@ -40,7 +51,7 @@ def _raw_rows() -> pd.DataFrame:
             "total_duration_seconds": "5",
         },
         {
-            "results_schema_version": "2.0",
+            **provenance,
             "row_kind": "attempt",
             "attempt_id": "agent-20",
             "experiment_run_uid": "run-1",
@@ -48,7 +59,7 @@ def _raw_rows() -> pd.DataFrame:
             "producer_lane": "agent-tool",
             "repo_owner": "owner",
             "repo_name": "repo",
-            "commit_hash": "abc",
+            "commit_hash": provenance["resolved_commit"],
             "source_member_id": "2",
             "tool_attempt_id": "20",
             "tool_id": "codex",
@@ -62,7 +73,7 @@ def _raw_rows() -> pd.DataFrame:
             "total_duration_seconds": "30",
         },
         {
-            "results_schema_version": "2.0",
+            **provenance,
             "row_kind": "attempt",
             "attempt_id": "agent-21",
             "experiment_run_uid": "run-1",
@@ -70,7 +81,7 @@ def _raw_rows() -> pd.DataFrame:
             "producer_lane": "agent-tool",
             "repo_owner": "owner",
             "repo_name": "repo",
-            "commit_hash": "abc",
+            "commit_hash": provenance["resolved_commit"],
             "source_member_id": "3",
             "tool_attempt_id": "21",
             "tool_id": "codex",

@@ -1,0 +1,8 @@
+{
+  "RuntimeConfig": {
+    "MaxConcurrency": 2,
+    "FilePaths": {
+      "TargetFilePath": "Fixtures/ProjectChecks/Manifests/source.yaml"
+    }
+  }
+}

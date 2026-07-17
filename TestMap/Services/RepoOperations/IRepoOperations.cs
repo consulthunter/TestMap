@@ -4,6 +4,6 @@ namespace TestMap.Services.RepoOperations;
 
 public interface IRepoOperations
 {
-    Task CloneRepoAsync();
+    Task PrepareRepositoryAsync(CancellationToken cancellationToken = default);
     Task DeleteRepoAsync();
 }

@@ -14,6 +14,8 @@ using TestMap.Services.Experiment.Evaluation;
 using TestMap.Services.Experiment.Evaluation.AgentTools;
 using TestMap.Services.Experiment.TaskCards;
 using TestMap.Services.TestGeneration.TargetSelection;
+using TestMap.Models.Targets;
+using TestMap.Services.Targets;
 
 namespace TestMap.UnitTests.AgentTools;
 
@@ -24,6 +26,7 @@ namespace TestMap.UnitTests.AgentTools;
 /// </summary>
 public sealed class AgentToolEvaluationLaneTests
 {
+    private const string TestBaseCommit = "0123456789abcdef0123456789abcdef01234567";
     private static ExperimentToolConfig MakeToolConfig() =>
         new() { Id = "codex", TimeoutMinutes = 45 };
 
@@ -113,7 +116,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId, targetedBaselineId: 44);
 
         // Act
@@ -148,7 +151,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new TestAgentToolRunner { ChangedFiles = [] };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -182,7 +185,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(
             MakeContext(runId, workItemId, candidateId),
@@ -219,7 +222,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(
             MakeContext(runId, workItemId, candidateId),
@@ -301,6 +304,12 @@ public sealed class AgentToolEvaluationLaneTests
             {
                 OutputPath = output.FullName
             };
+            var target = new TargetIdentityService().Create("owner/repository", TestBaseCommit, [1]);
+            project.BindTarget(target);
+            project.MaterializedRevision = new MaterializedRevision(
+                target.TargetId, target.Repository, TestBaseCommit, TestBaseCommit, target.Url,
+                new TargetPaths(workspace.FullName, Path.Combine(output.FullName, "analysis.db"), output.FullName, Path.Combine(output.FullName, "run.log")),
+                new string('a', 64), new string('b', 64), DateTimeOffset.UtcNow, MaterializationStatus.Available);
             var lane = new AgentToolEvaluationLane(
                 new TestAgentToolRunner { ChangedFiles = [] },
                 new AgentToolEnvironmentResolver(),
@@ -345,7 +354,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new ThrowingTestRunner("Docker daemon not reachable");
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -376,7 +385,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new TestAgentToolRunner { TimedOut = true };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -405,7 +414,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new TestAgentToolRunner { ExitCode = 2, ChangedFiles = ["SomeTests.cs"] };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -804,7 +813,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(MakeContext(runId, workItemId, candidateId), default);
 
@@ -842,7 +851,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [new ExperimentToolConfig { Id = "openhands", TimeoutMinutes = 45 }]);
+            [new ExperimentToolConfig { Id = "openhands", TimeoutMinutes = 45 }], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(MakeContext(runId, workItemId, candidateId), default);
 

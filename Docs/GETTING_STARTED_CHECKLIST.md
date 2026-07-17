@@ -25,3 +25,16 @@
   }
 }
 ```
+# Pinned Pilot Checks
+
+- [ ] Source rows contain valid `owner/repository` names and full commit SHAs.
+- [ ] Manifest and content-addressed rejection report hashes verify.
+- [ ] Verification report has exactly one row per manifest target.
+- [ ] Unavailable commits and authentication/rate-limit failures are retained in scope counts.
+- [ ] Temporary, output, artifact, and database paths include the resolved commit; logs use the readable date/time/repository hierarchy and retain pinned revision provenance in run metadata.
+- [ ] Existing revision workspaces have the expected origin and no researcher changes.
+- [ ] Target execution report has no `Pending` rows after the run.
+- [ ] Schema 3.0 audit reports no commit, cohort, integrity, or cross-revision path errors.
+
+Do not delete a lock file merely because it is old; first establish that no process owns the
+workspace. A dirty workspace is evidence to inspect, not a condition to erase automatically.

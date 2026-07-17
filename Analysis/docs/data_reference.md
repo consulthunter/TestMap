@@ -6,7 +6,8 @@ Column and semantics reference for the datasets in `data/`. For the operational 
 ## Lanes and grain
 
 - `lane`: `llm` (direct LLM generation) or `agentic` (external tool).
-- Result schema v2 writes separate attempt, generated-test, and test-result CSVs. Agentic attempts
+- Result schema v3 writes separate attempt, generated-test, and test-result CSVs with pinned target,
+  revision, manifest, and workspace-integrity provenance. Agentic attempts
   remain one row at attempt grain even when one tool invocation creates several tests.
 - `attempt_id` is a deterministic SHA-256 key over repository, experiment series/run, lane, stable
   work-item key, and attempt number. Local `generation_attempt_id` and `tool_attempt_id` values are

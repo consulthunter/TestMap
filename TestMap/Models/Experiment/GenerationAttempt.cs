@@ -40,6 +40,8 @@ public class GenerationAttempt
     public string? FailureStage { get; set; }
     public string? FailureCategory { get; set; }
     public string? ErrorMessage { get; set; }
+    public string BaseCommit { get; set; } = string.Empty;
+    public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
 
     // -----------------------------------------------------------------------
     // Basic Extension patch metadata — written after patch application,

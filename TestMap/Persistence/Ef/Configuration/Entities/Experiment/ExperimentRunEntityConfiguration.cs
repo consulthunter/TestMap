@@ -25,6 +25,15 @@ public class ExperimentRunEntityConfiguration : IEntityTypeConfiguration<Experim
         builder.Property(x => x.Status).HasColumnName("status").IsRequired();
         builder.Property(x => x.ExperimentSeriesId).HasColumnName("experiment_series_id").IsRequired();
         builder.Property(x => x.CandidateCohortId).HasColumnName("candidate_cohort_id");
+        builder.Property(x => x.TargetId).HasColumnName("target_id").IsRequired();
+        builder.Property(x => x.RepositoryIdentity).HasColumnName("repository_identity").IsRequired();
+        builder.Property(x => x.RequestedCommit).HasColumnName("requested_commit").IsRequired();
+        builder.Property(x => x.ResolvedCommit).HasColumnName("resolved_commit").IsRequired();
+        builder.Property(x => x.TargetManifestSha256).HasColumnName("target_manifest_sha256").IsRequired();
+        builder.Property(x => x.TargetSourceSha256).HasColumnName("target_source_sha256").IsRequired();
+        builder.Property(x => x.MaterializedAtUtc).HasColumnName("materialized_at_utc");
+        builder.Property(x => x.WorkspaceIntegrityStatus).HasColumnName("workspace_integrity_status").IsRequired();
+        builder.Property(x => x.ProvenancePolicyVersion).HasColumnName("provenance_policy_version").IsRequired();
 
         builder.HasMany(x => x.CandidateMethods)
             .WithOne(x => x.ExperimentRun)
@@ -39,5 +48,6 @@ public class ExperimentRunEntityConfiguration : IEntityTypeConfiguration<Experim
         builder.HasIndex(x => x.ExperimentSeriesId);
         builder.HasIndex(x => x.RunUid).IsUnique();
         builder.HasIndex(x => x.CandidateCohortId);
+        builder.HasIndex(x => new { x.TargetId, x.ResolvedCommit });
     }
 }

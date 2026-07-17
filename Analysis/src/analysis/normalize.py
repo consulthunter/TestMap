@@ -5,7 +5,7 @@ the standardized tables that notebooks consume.
 
 Key design constraints
 ----------------------
-- Result schema v2 separates attempt and generated-test rows into canonical files.
+- Result schema v3 separates row grains and requires pinned target provenance.
 - ``normalize_attempts`` handles the full pipeline and returns a DataFrame
   with one row per *attempt* for both lanes.
 - ``build_generated_tests_dataset`` normalizes the generated-test grain without
@@ -77,8 +77,42 @@ def make_repository_key(row: pd.Series) -> str:
     return "|".join(parts)
 
 
+def make_repository_family_key(row: pd.Series) -> str:
+    """Build the cross-revision repository identity key."""
+    return str(row.get("repository_identity", "")).strip().lower()
+
+
+def _validate_pinned_provenance(df: pd.DataFrame) -> None:
+    required = {
+        "results_schema_version", "target_id", "repository_identity",
+        "requested_commit", "resolved_commit", "target_manifest_sha256",
+        "target_source_sha256", "provenance_policy_version",
+        "workspace_integrity_status",
+    }
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Schema 3.0 rows are missing pinned provenance fields: {sorted(missing)}.")
+    versions = df["results_schema_version"].astype(str).str.strip()
+    if not versions.eq("3.0").all():
+        raise ValueError("Only results_schema_version 3.0 is supported.")
+    blank_fields = required - {"results_schema_version"}
+    for column in sorted(blank_fields):
+        blank = df[column].isna() | df[column].astype(str).str.strip().eq("")
+        if blank.any():
+            raise ValueError(f"Schema 3.0 rows require non-empty {column}.")
+    requested = df["requested_commit"].astype(str).str.strip().str.lower()
+    resolved = df["resolved_commit"].astype(str).str.strip().str.lower()
+    full_sha = requested.str.fullmatch(r"[0-9a-f]{40}") & resolved.str.fullmatch(r"[0-9a-f]{40}")
+    if not full_sha.all() or not requested.eq(resolved).all():
+        raise ValueError("Schema 3.0 rows require equal full requested and resolved commits.")
+    if "commit_hash" in df.columns:
+        alias = df["commit_hash"].astype(str).str.strip().str.lower()
+        if not alias.eq(resolved).all():
+            raise ValueError("commit_hash must equal resolved_commit in schema 3.0.")
+
+
 def _assign_attempt_ids(df: pd.DataFrame) -> None:
-    """Validate the canonical attempt IDs emitted by result schema v2."""
+    """Validate the canonical attempt IDs emitted by result schema v3."""
     if "attempt_id" not in df.columns:
         raise ValueError("Current result rows require attempt_id.")
     missing = df["attempt_id"].isna() | df["attempt_id"].astype(str).str.strip().eq("")
@@ -164,6 +198,9 @@ def _compute_metric_improved(df: pd.DataFrame) -> pd.Series:
 
 
 def _classify_row(row: pd.Series) -> object:
+    exported = _string_or_empty(row.get("outcome_classification"))
+    if exported:
+        return exported
     observed = _string_or_empty(row.get("tool_observed_outcome"))
     if observed:
         return observed
@@ -401,6 +438,7 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("normalize_attempts requires only row_kind='attempt' rows.")
 
     out = rename_raw_columns(df)
+    _validate_pinned_provenance(out)
 
     # 2. Normalize lane
     if "lane" in out.columns:
@@ -422,6 +460,8 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
     # 7. Keys
     out["candidate_key"] = out.apply(make_candidate_key, axis=1)
     out["repository_key"] = out.apply(make_repository_key, axis=1)
+    out["repository_revision_key"] = out["repository_key"]
+    out["repository_family_key"] = out.apply(make_repository_family_key, axis=1)
 
     # 8. Coerce types
     _coerce_numeric(out)
@@ -593,12 +633,15 @@ def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Generated-test normalization requires row_kind='generated_test' rows.")
 
     out = rename_raw_columns(raw_df)
+    _validate_pinned_provenance(out)
 
     if "lane" in out.columns:
         out["lane"] = out["lane"].fillna("").apply(normalize_lane)
 
     out["candidate_key"] = out.apply(make_candidate_key, axis=1)
     out["repository_key"] = out.apply(make_repository_key, axis=1)
+    out["repository_revision_key"] = out["repository_key"]
+    out["repository_family_key"] = out.apply(make_repository_family_key, axis=1)
     _assign_attempt_ids(out)
     _add_outcome_flags(out)
     out["impact_attribution"] = "attempt_level"
@@ -709,6 +752,11 @@ def build_repository_summary(candidates_df: pd.DataFrame) -> pd.DataFrame:
     ):
         row: dict = {
             "repository_key": repo_key,
+            "repository_revision_key": group["repository_revision_key"].iloc[0] if "repository_revision_key" in group.columns else repo_key,
+            "repository_family_key": group["repository_family_key"].iloc[0] if "repository_family_key" in group.columns else "",
+            "repository_identity": group["repository_identity"].iloc[0] if "repository_identity" in group.columns else "",
+            "resolved_commit": group["resolved_commit"].iloc[0] if "resolved_commit" in group.columns else "",
+            "target_id": group["target_id"].iloc[0] if "target_id" in group.columns else "",
             "lane": lane,
             "repo_owner": group["repo_owner"].iloc[0] if "repo_owner" in group.columns else "",
             "repo_name": group["repo_name"].iloc[0] if "repo_name" in group.columns else "",
@@ -744,6 +792,25 @@ def build_repository_summary(candidates_df: pd.DataFrame) -> pd.DataFrame:
         }
         records.append(row)
 
+    return pd.DataFrame(records)
+
+
+def build_repository_family_summary(repositories_df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate revision-level rows without conflating distinct commits."""
+    if repositories_df.empty or "repository_family_key" not in repositories_df.columns:
+        return pd.DataFrame()
+    records: list[dict] = []
+    for (family, lane), group in repositories_df.groupby(["repository_family_key", "lane"], sort=False):
+        records.append({
+            "repository_family_key": family,
+            "repository_identity": group["repository_identity"].iloc[0] if "repository_identity" in group.columns else family,
+            "lane": lane,
+            "revision_count": int(group["repository_revision_key"].nunique()),
+            "candidate_count": int(group["candidate_count"].sum()),
+            "validated_success_count": int(group["validated_success_count"].sum()),
+            "positive_impact_count": int(group["positive_impact_count"].sum()),
+            "total_generated_tests": int(group["total_generated_tests"].fillna(0).sum()),
+        })
     return pd.DataFrame(records)
 
 

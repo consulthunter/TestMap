@@ -33,6 +33,7 @@ public sealed class ToolAttempt
     public string ImageName { get; set; } = string.Empty;
     public string ImageKey { get; set; } = string.Empty;
     public string BaseCommit { get; set; } = string.Empty;
+    public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
     public string WorkspacePath { get; set; } = string.Empty;
     public string ArtifactPath { get; set; } = string.Empty;
     public string StdOutLogPath { get; set; } = string.Empty;

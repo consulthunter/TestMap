@@ -37,6 +37,7 @@ public class ToolAttemptEntityConfiguration : IEntityTypeConfiguration<ToolAttem
         builder.Property(x => x.ImageName).HasColumnName("image_name").IsRequired();
         builder.Property(x => x.ImageKey).HasColumnName("image_key").IsRequired();
         builder.Property(x => x.BaseCommit).HasColumnName("base_commit").IsRequired();
+        builder.Property(x => x.WorkspaceIntegrityStatus).HasColumnName("workspace_integrity_status").IsRequired();
         builder.Property(x => x.WorkspacePath).HasColumnName("workspace_path").IsRequired();
         builder.Property(x => x.ArtifactPath).HasColumnName("artifact_path").IsRequired();
         builder.Property(x => x.StdOutLogPath).HasColumnName("stdout_log_path").IsRequired();

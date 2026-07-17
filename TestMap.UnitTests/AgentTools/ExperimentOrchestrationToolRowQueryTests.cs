@@ -545,5 +545,6 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             toolAttemptGeneratedTestService: null!,
             toolPostAttemptMeasurementService: null!,
             generationApproaches: [],
-            workspace: null!);
+            workspace: null!,
+            workspaceIntegrity: null!);
 }

@@ -11,6 +11,7 @@ using TestMap.Services.AgentTools;
 using TestMap.Services.Experiment.Execution;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Workspace;
+using TestMap.Models.Targets;
 
 namespace TestMap.UnitTests.TestGeneration;
 
@@ -274,7 +275,8 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
             toolAttemptGeneratedTestService: null!,
             toolPostAttemptMeasurementService: null!,
             generationApproaches: [],
-            new RollbackWorkspaceService(context));
+            new RollbackWorkspaceService(context),
+            new AlwaysCleanWorkspaceIntegrityService());
     }
 
     private static CandidateMethodContext MakeContext(CandidateMethod candidate, string repoPath) =>
@@ -367,5 +369,21 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
 
             return new TargetedBaselineResult { Ran = true, TestRunId = _testRunId };
         }
+    }
+
+    private sealed class AlwaysCleanWorkspaceIntegrityService : IWorkspaceIntegrityService
+    {
+        public Task<WorkspaceIntegrityObservation> EvaluateAsync(
+            IntegrityCheckpoint checkpoint,
+            bool allowExpectedChanges = false,
+            int? experimentRunId = null,
+            string? producerLane = null,
+            string? workItemStableKey = null,
+            int? attemptNumber = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WorkspaceIntegrityObservation(
+                0, experimentRunId, new string('a', 64), producerLane, workItemStableKey, attemptNumber,
+                checkpoint, new string('b', 40), new string('b', 40), true, false,
+                WorkspaceIntegrityStatus.VerifiedClean, "clean", DateTimeOffset.UtcNow));
     }
 }

@@ -47,7 +47,7 @@ def read_results_csvs(patterns: list[str] | tuple[str, ...]) -> pd.DataFrame:
 def read_result_grains(
     patterns: list[str] | tuple[str, ...],
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Read schema-v2 result CSVs and partition them by declared row grain.
+    """Read schema-v3 result CSVs and partition them by declared row grain.
 
     When an attempt file is selected directly, its generated-test and test-result
     siblings are discovered automatically. Current-format files must declare
@@ -75,7 +75,7 @@ def read_result_grains(
         if missing:
             raise ValueError(f"{path} is not a current result CSV; missing {sorted(missing)}.")
         versions = df["results_schema_version"].dropna().astype(str).str.strip()
-        if not versions.empty and not versions.eq("2.0").all():
+        if not versions.empty and not versions.eq("3.0").all():
             raise ValueError(f"{path} contains unsupported results_schema_version values.")
         if df["attempt_id"].isna().any() or df["attempt_id"].astype(str).str.strip().eq("").any():
             raise ValueError(f"{path} contains rows without canonical attempt_id values.")

@@ -208,6 +208,91 @@ def audit_missing_repo_metadata(df: pd.DataFrame) -> list[dict]:
     return findings
 
 
+def audit_pinned_provenance(df: pd.DataFrame) -> list[dict]:
+    """Return blocking findings for the schema 3.0 reproducibility contract."""
+    findings: list[dict] = []
+    required = (
+        "target_id", "repository_identity", "requested_commit", "resolved_commit",
+        "target_manifest_sha256", "target_source_sha256",
+        "provenance_policy_version", "workspace_integrity_status",
+    )
+    for column in required:
+        if column not in df.columns:
+            findings.append({"check": f"missing_{column}_column", "severity": "error", "count": len(df),
+                             "detail": f"Schema 3.0 requires {column}."})
+            continue
+        blank = df[column].isna() | df[column].astype(str).str.strip().eq("")
+        if blank.any():
+            findings.append({"check": f"missing_{column}", "severity": "error", "count": int(blank.sum()),
+                             "detail": f"{int(blank.sum())} attempts are missing {column}."})
+
+    if {"requested_commit", "resolved_commit"} <= set(df.columns):
+        requested = df["requested_commit"].astype(str).str.strip().str.lower()
+        resolved = df["resolved_commit"].astype(str).str.strip().str.lower()
+        mismatch = ~requested.eq(resolved)
+        if mismatch.any():
+            findings.append({"check": "requested_resolved_commit_mismatch", "severity": "error",
+                             "count": int(mismatch.sum()), "detail": "Requested and resolved commits differ."})
+        if "commit_hash" in df.columns:
+            alias_mismatch = ~df["commit_hash"].astype(str).str.strip().str.lower().eq(resolved)
+            if alias_mismatch.any():
+                findings.append({"check": "legacy_commit_alias_mismatch", "severity": "error",
+                                 "count": int(alias_mismatch.sum()), "detail": "commit_hash differs from resolved_commit."})
+
+    if {"target_id", "repository_identity", "resolved_commit"} <= set(df.columns):
+        identities = df.groupby("target_id", dropna=False)[["repository_identity", "resolved_commit"]].nunique(dropna=False)
+        conflicts = identities.gt(1).any(axis=1)
+        if conflicts.any():
+            findings.append({"check": "target_identity_collision", "severity": "error",
+                             "count": int(conflicts.sum()), "detail": "A target_id maps to multiple repository revisions."})
+
+    if {"candidate_cohort_id", "resolved_commit"} <= set(df.columns):
+        cohort = df.dropna(subset=["candidate_cohort_id"]).groupby("candidate_cohort_id")["resolved_commit"].nunique()
+        conflicts = cohort.gt(1)
+        if conflicts.any():
+            findings.append({"check": "cohort_revision_mismatch", "severity": "error",
+                             "count": int(conflicts.sum()), "detail": "A candidate cohort spans multiple resolved commits."})
+
+    if "workspace_integrity_status" in df.columns:
+        verified = {"VerifiedClean", "VerifiedExpectedChanges"}
+        validated = df.get("validated_success", pd.Series(False, index=df.index)).fillna(False).astype(bool)
+        positive = df.get("positive_impact", pd.Series(False, index=df.index)).fillna(False).astype(bool)
+        blocking_success = (validated | positive) & ~df["workspace_integrity_status"].isin(verified)
+        if blocking_success.any():
+            findings.append({"check": "success_with_blocking_integrity", "severity": "error",
+                             "count": int(blocking_success.sum()),
+                             "detail": "Validated or positive-impact rows have blocking workspace integrity."})
+
+    if {"tool_artifact_path", "resolved_commit"} <= set(df.columns):
+        nonblank = df[df["tool_artifact_path"].fillna("").astype(str).str.strip().ne("")]
+        collisions = nonblank.groupby("tool_artifact_path")["resolved_commit"].nunique().gt(1)
+        if collisions.any():
+            findings.append({"check": "cross_revision_artifact_path_collision", "severity": "error",
+                             "count": int(collisions.sum()), "detail": "An artifact path is shared by multiple revisions."})
+    return findings
+
+
+def audit_child_provenance(attempts: pd.DataFrame, children: pd.DataFrame) -> list[dict]:
+    """Ensure generated-test rows inherit their parent attempt provenance exactly."""
+    if attempts.empty or children.empty or "attempt_id" not in attempts.columns or "attempt_id" not in children.columns:
+        return []
+    fields = [
+        "target_id", "repository_identity", "requested_commit", "resolved_commit",
+        "target_manifest_sha256", "target_source_sha256", "provenance_policy_version",
+        "workspace_integrity_status",
+    ]
+    available = [field for field in fields if field in attempts.columns and field in children.columns]
+    parent = attempts.drop_duplicates("attempt_id").set_index("attempt_id")[available]
+    joined = children.join(parent, on="attempt_id", rsuffix="_parent")
+    mismatch = pd.Series(False, index=joined.index)
+    for field in available:
+        mismatch |= joined[field].fillna("").astype(str).ne(joined[f"{field}_parent"].fillna("").astype(str))
+    if mismatch.any():
+        return [{"check": "child_provenance_mismatch", "severity": "error", "count": int(mismatch.sum()),
+                 "detail": "Generated-test rows do not inherit parent attempt provenance."}]
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Report builder
 # ---------------------------------------------------------------------------
@@ -250,7 +335,7 @@ def run(
     db_paths: list[str] | tuple[str, ...],
     artifacts_root: Optional[str],
     output_dir: str,
-) -> None:
+) -> bool:
     """Entry point for the ``audit`` CLI command."""
     out = ensure_output_dir(output_dir)
 
@@ -268,6 +353,8 @@ def run(
     findings += audit_generated_test_links(df)
     findings += audit_outcome_classification(df)
     findings += audit_missing_repo_metadata(df)
+    findings += audit_pinned_provenance(df)
+    findings += audit_child_provenance(raw, generated)
 
     report = build_audit_report(findings, df)
 
@@ -281,3 +368,4 @@ def run(
     print(f"Audit {status}: {report['summary']['error_count']} errors, "
           f"{report['summary']['warning_count']} warnings. "
           f"Report written to {out}")
+    return bool(report["summary"]["pass"])

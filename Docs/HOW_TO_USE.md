@@ -27,15 +27,15 @@ See [Configuration](CONFIG.md) for field-level guidance.
 For a new repository, run discovery and analysis before generation:
 
 ```powershell
-dotnet run --project .\TestMap\TestMap.csproj -- check-projects --config .\TestMap\Config\default-config.json
+dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\pinned-targets-smoke.yaml
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 ```
 
-> **Requires a GitHub token:** `check-projects` queries the GitHub API to decide whether each
-> target repository has tests, so a valid `GITHUB_TOKEN` PAT must be set in `TestMap/.env` (or the
-> process environment). If the token is missing, expired, or wrongly scoped, every repository is
-> classified into `repos_without_tests.txt` even when it clearly has tests. See
-> [Setup — Secrets](SETUP.md#secrets) for scope and token details.
+> `check-projects` reads a pinned target YAML manifest and inspects each exact commit. It writes a
+> stable bundle pointer, a complete YAML observation report, and reusable YAML manifests for tests
+> detected and no tests detected. A missing or invalid `GITHUB_TOKEN`, unavailable commit, rate
+> limit, or truncated tree remains indeterminate and causes exit code `2`; it is not evidence that
+> tests are absent. See [Setup — Secrets](SETUP.md#secrets) for token scope details.
 
 `collect-tests` is the important step before experiments because candidate selection and validation
 need stored source, test, coverage, and mutation evidence.
@@ -230,6 +230,24 @@ Use the SQLite database for detailed forensic analysis:
 - linked generated test members
 - raw validation and diagnostic data
 
+## Finding Project Logs
+
+All project runs use readable UTC directories beneath the configured log root:
+
+```text
+Logs/YYYY-MM-DD/HH-mm-ss_owner-repository/<project-id>.log
+```
+
+For example, a run of `powershell/platyps` started at 14:05:09 UTC on 16 July 2026 appears under
+`Logs/2026-07-16/14-05-09_powershell-platyps/`. A second run in the same second uses `-02`, then
+`-03`, without overwriting the first. `.testmap-log-reservation` records ownership of the directory;
+leave it in place, including in a partial directory created by a failed run.
+
+Pinned-target runs use `run.log` in that directory; legacy runs retain `<project-id>.log`. Docker and
+test-run logs are written beside the primary log. Pinned workspaces, databases, and artifacts remain
+commit-scoped, while the exact revision also remains recorded in the target manifest and execution
+report.
+
 ## Practical Advice
 
 - Keep `CandidateLimit` low until the config is proven.
@@ -238,3 +256,46 @@ Use the SQLite database for detailed forensic analysis:
 - Keep speculative planning off for Basic Extension unless you deliberately want the older decomposed
   generation flow.
 - Inspect failed attempts in the database, not just the CSV.
+# Reproducible Target Manifests
+
+The import file may be comma- or tab-delimited and needs only `name` and `lastCommitSHA`. `name` is
+the GitHub `owner/repository`; `lastCommitSHA` must be the full 40-character commit. Other columns are
+ignored. CSV quoting, UTF-8 BOMs, duplicate records, and rejected logical records are handled
+explicitly.
+
+For a single GitHub repository, resolve and pin its current default-branch head without creating an
+intermediate CSV:
+
+```powershell
+dotnet run --project TestMap -- targets create `
+  --url https://github.com/powershell/platyps `
+  --output TestMap/Data/platyps-targets.yaml
+```
+
+URL mode accepts one repository URL only. It queries repository metadata, the named default branch,
+the exact Git commit object, and confirmation metadata. If metadata changes during the observation,
+the complete sequence is retried once. The command publishes a content-addressed resolution record
+before a one-target schema-3 manifest. `GITHUB_TOKEN` is optional for public repositories; only the
+access mode is recorded. Failures retain a sanitized categorized resolution record and leave any
+existing manifest unchanged.
+
+```powershell
+dotnet run --project TestMap -- targets create `
+  --input Replication/LicenseFilteredRepo/licenseFilteredRepoList.csv `
+  --output TestMap/Data/evaluation-targets.yaml `
+  --delimiter auto
+
+dotnet run --project TestMap -- targets verify `
+  --file TestMap/Data/evaluation-targets.yaml `
+  --max-concurrency 4
+```
+
+Creation publishes a content-addressed rejection CSV first and the manifest last. Verification
+always writes one status row per target in manifest order. Unavailable repositories, authentication
+failures, rate limits, and missing commits remain part of the sampling-frame accounting.
+
+Schema-3 consumers hash and validate the linked resolution record locally. They use its exact commit
+and never re-resolve the default branch, so an existing target does not move when the branch moves.
+
+During a run, each target gets one terminal row in `target-execution-<manifest-hash>.csv`, including
+failures that happen before a database exists.

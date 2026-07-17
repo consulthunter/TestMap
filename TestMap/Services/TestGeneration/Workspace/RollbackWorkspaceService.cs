@@ -1,5 +1,6 @@
 using LibGit2Sharp;
 using TestMap.App;
+using TestMap.Models.Targets;
 
 namespace TestMap.Services.TestGeneration.Workspace;
 
@@ -20,12 +21,18 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
     public Task RollbackChangesAsync(CancellationToken cancellationToken = default)
     {
         using var repo = new Repository(_context.Project.DirectoryPath);
-        var headCommit = repo.Head.Tip ??
-                         throw new InvalidOperationException("Repository has no HEAD commit to reset to.");
-        repo.Reset(ResetMode.Hard, headCommit);
+        var baseCommitSha = _context.VerifiedBaseCommit ?? repo.Head.Tip?.Sha ??
+                            throw new InvalidOperationException("Repository has no verified base commit to restore.");
+        var baseCommit = repo.Lookup<Commit>(baseCommitSha) ??
+                         throw new InvalidOperationException("The verified base commit is unavailable locally.");
+        Commands.Checkout(repo, baseCommit, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
+        repo.Reset(ResetMode.Hard, baseCommit);
         DeleteUntrackedFiles(repo);
         DeleteIgnoredBuildArtifacts(repo.Info.WorkingDirectory);
-        _context.Project.Logger?.Debug("Repository rolled back to HEAD");
+        if (!string.Equals(repo.Head.Tip?.Sha, baseCommitSha, StringComparison.OrdinalIgnoreCase) || repo.RetrieveStatus().IsDirty)
+            throw new RepositoryMaterializationException(MaterializationStatus.Failed, "Workspace restoration to the pinned base commit failed.");
+        _context.CurrentCommit = baseCommitSha.ToLowerInvariant();
+        _context.Project.Logger?.Debug("Repository rolled back to pinned base commit {BaseCommit}", baseCommitSha);
         return Task.CompletedTask;
     }
 

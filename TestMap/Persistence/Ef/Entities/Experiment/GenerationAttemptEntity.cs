@@ -36,6 +36,8 @@ public class GenerationAttemptEntity
     [MaxLength(100)] public string FailureCategory { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
     public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
+    [MaxLength(40)] public string BaseCommit { get; set; } = string.Empty;
+    [MaxLength(50)] public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
 
     // Basic Extension patch metadata (nullable; null for non-BE attempts)
     public string? PatchJson { get; set; }

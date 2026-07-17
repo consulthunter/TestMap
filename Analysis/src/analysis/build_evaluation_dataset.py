@@ -22,6 +22,7 @@ from analysis.normalize import (
     build_candidate_summary,
     build_generated_tests_dataset,
     build_repository_summary,
+    build_repository_family_summary,
     normalize_attempts,
 )
 from analysis.summaries import build_overview
@@ -465,6 +466,7 @@ def run(
 
     candidates = build_candidate_summary(attempts)
     repositories = build_repository_summary(candidates)
+    repository_families = build_repository_family_summary(repositories)
     overview = build_overview(attempts)
 
     # RQ6 depth: mutation-operator survival profile.
@@ -480,11 +482,14 @@ def run(
         tool_generated_test_links=tool_generated_test_links,
         mutation_operators=mutation_operators,
     )
+    if not repository_families.empty:
+        repository_families.to_csv(out / "evaluation_repository_families.csv", index=False)
 
     print(f"Datasets written to {out}")
     print(f"  attempts:     {len(attempts):,}")
     print(f"  candidates:   {len(candidates):,}")
     print(f"  repositories: {len(repositories):,}")
+    print(f"  repo families: {len(repository_families):,}")
     print(f"  gen. tests:   {len(generated_tests):,}")
     print(f"  tool links:   {len(tool_generated_test_links):,}")
     print(f"  assertion rows: {len(assertion_counts):,}")

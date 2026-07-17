@@ -34,6 +34,7 @@ using TestMap.Services.TestGeneration.Strategies;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
 using TestMap.Services.TestGeneration.Workspace;
+using TestMap.Models.Targets;
 using ExperimentTestExecution = TestMap.Models.Experiment.TestExecution;
 
 namespace TestMap.Services.Experiment.Execution;
@@ -77,6 +78,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ITestGenerationApproach> _generationApproaches;
 
     private readonly RollbackWorkspaceService _workspace;
+    private readonly IWorkspaceIntegrityService _workspaceIntegrity;
     private ExperimentConfig? _activeExperimentConfig;
     private int? _activeExperimentRunId;
 
@@ -113,7 +115,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         IToolAttemptGeneratedTestService toolAttemptGeneratedTestService,
         IToolPostAttemptMeasurementService toolPostAttemptMeasurementService,
         IEnumerable<ITestGenerationApproach> generationApproaches,
-        RollbackWorkspaceService workspace)
+        RollbackWorkspaceService workspace,
+        IWorkspaceIntegrityService workspaceIntegrity)
     {
         _context = context;
         _config = config;
@@ -148,6 +151,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _toolPostAttemptMeasurementService = toolPostAttemptMeasurementService;
         _generationApproaches = generationApproaches.ToDictionary(x => x.Strategy);
         _workspace = workspace;
+        _workspaceIntegrity = workspaceIntegrity;
     }
 
     public async Task<ExperimentRun> RunExperimentAsync(
@@ -157,6 +161,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _activeExperimentConfig = config;
         CandidateCohortService.PrepareConfiguration(config);
         await _workspace.EnsureWorkspaceReadyAsync(cancellationToken);
+        var revision = _context.MaterializedRevision is { Status: MaterializationStatus.Available, ResolvedCommit: not null } materialized
+            ? materialized
+            : throw new InvalidOperationException("Measured experiments require an available pinned repository revision.");
+        var startIntegrity = await RequireVerifiedIntegrityAsync(
+            IntegrityCheckpoint.ExperimentStart, false, null, null, null, cancellationToken);
         _artifactCleanupService.CleanupProjectDirectory(false);
         var experimentStopwatch = Stopwatch.StartNew();
 
@@ -180,7 +189,16 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             CandidateLimit = config.CandidateLimit,
             ExperimentSeriesId = config.ExperimentSeriesId ?? string.Empty,
             ResultsFilePath = ResolveResultsFilePath(config),
-            Status = "Running"
+            Status = "Running",
+            TargetId = revision.TargetId,
+            RepositoryIdentity = revision.RepositoryIdentity,
+            RequestedCommit = revision.RequestedCommit,
+            ResolvedCommit = revision.ResolvedCommit!,
+            TargetManifestSha256 = revision.ManifestSha256,
+            TargetSourceSha256 = revision.SourceSha256,
+            MaterializedAtUtc = revision.MaterializedAtUtc?.UtcDateTime,
+            WorkspaceIntegrityStatus = startIntegrity.Status.ToString(),
+            ProvenancePolicyVersion = revision.PolicyVersion
         };
 
         experimentRun.Id = await _experimentRunRepo.InsertAsync(experimentRun, cancellationToken);
@@ -327,9 +345,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 }
             }
 
+            var finalIntegrity = await RequireVerifiedIntegrityAsync(
+                IntegrityCheckpoint.PreResultsPublication, false, null, null, null, cancellationToken);
             experimentStopwatch.Stop();
             experimentRun.CompletedAt = DateTime.UtcNow;
             experimentRun.Status = "Completed";
+            experimentRun.WorkspaceIntegrityStatus = finalIntegrity.Status.ToString();
             await _experimentRunRepo.UpdateAsync(experimentRun, cancellationToken);
 
             _context.Project.Logger?.Information(
@@ -439,15 +460,14 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
     private string GetRepositoryIdentity()
     {
-        return $"{_context.Project.Owner}/{_context.Project.RepoName}";
+        return _context.MaterializedRevision?.RepositoryIdentity
+               ?? throw new InvalidOperationException("Pinned repository identity is unavailable.");
     }
 
     private string GetCommitHash()
     {
-        return _context.Project.Commit ??
-               _context.Project.LastAnalyzedCommit ??
-               _context.CurrentCommit ??
-               string.Empty;
+        return _context.VerifiedBaseCommit
+               ?? throw new InvalidOperationException("Pinned resolved commit is unavailable.");
     }
 
     private sealed record MutationBaselineKey(
@@ -469,6 +489,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         foreach (var candidateMethod in candidateMethods)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            await RequireVerifiedIntegrityAsync(
+                IntegrityCheckpoint.PreBaseline, false, null, null, null, cancellationToken);
 
             if (!methodContextsByMemberId.TryGetValue(candidateMethod.MemberId, out var methodContext))
                 continue;
@@ -494,6 +516,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 // Clear them before either evaluation lane starts so the first lane/tool
                 // sees the same clean workspace as later attempts.
                 await _workspace.RollbackChangesAsync(cancellationToken);
+                await RequireVerifiedIntegrityAsync(
+                    IntegrityCheckpoint.PostRollback, false, null, null, null, cancellationToken);
             }
         }
 
@@ -593,6 +617,13 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     attempt,
                     cancellationToken);
                 persistedAttemptIdsByAttemptNumber[attempt.AttemptNumber] = persistedAttemptId;
+                await RequireVerifiedIntegrityAsync(
+                    IntegrityCheckpoint.PreResultsPublication,
+                    false,
+                    "testmap",
+                    workItem.StableKey,
+                    attempt.AttemptNumber,
+                    cancellationToken);
                 await _resultsWriter.AppendAsync(
                     experimentRun,
                     await CreateResultFileRowAsync(
@@ -788,6 +819,13 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                         Stopwatch? validationStopwatch = null;
                         try
                         {
+                            await RequireVerifiedIntegrityAsync(
+                                IntegrityCheckpoint.PreAttempt,
+                                false,
+                                "agent-tool",
+                                workItem.StableKey,
+                                attemptNumber,
+                                cancellationToken);
                             result = await lane.ExecuteAsync(
                                 new ExperimentEvaluationWorkItemContext
                                 {
@@ -798,10 +836,31 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                                 },
                                 cancellationToken);
 
-                            anySucceeded |= result.Success;
                             lastError = result.ErrorMessage ?? lastError;
 
-                            if (result.ToolAttempt is { RunStatus: ToolRunStatus.Completed, ChangedFilesCount: > 0 })
+                            WorkspaceIntegrityObservation? postAttemptIntegrity = null;
+                            if (result.ToolAttempt is not null)
+                            {
+                                postAttemptIntegrity = await _workspaceIntegrity.EvaluateAsync(
+                                    IntegrityCheckpoint.PostAttemptPreAnalysis,
+                                    true,
+                                    _activeExperimentRunId,
+                                    "agent-tool",
+                                    workItem.StableKey,
+                                    attemptNumber,
+                                    cancellationToken);
+                                result.ToolAttempt.WorkspaceIntegrityStatus = postAttemptIntegrity.Status.ToString();
+                                if (!postAttemptIntegrity.Status.IsVerified())
+                                {
+                                    result.ToolAttempt.ValidationOutcome = ToolValidationOutcome.ConstraintViolation;
+                                    result.ToolAttempt.ObservedOutcome = ToolObservedOutcome.ValidationFailed;
+                                    result.ToolAttempt.Notes = postAttemptIntegrity.Details;
+                                }
+                            }
+                            anySucceeded |= result.Success && postAttemptIntegrity?.Status.IsVerified() != false;
+
+                            if (postAttemptIntegrity?.Status.IsVerified() != false &&
+                                result.ToolAttempt is { RunStatus: ToolRunStatus.Completed, ChangedFilesCount: > 0 })
                             {
                                 validationStopwatch = Stopwatch.StartNew();
 
@@ -858,12 +917,26 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                                 await _toolAttemptRepo.UpdateAsync(result.ToolAttempt, cancellationToken);
                             }
 
-                            // Always restore the workspace to HEAD so the next tool attempt starts clean.
+                            // Always restore the workspace to the pinned base before the next attempt.
                             await _workspace.RollbackChangesAsync(cancellationToken);
+                            await RequireVerifiedIntegrityAsync(
+                                IntegrityCheckpoint.PostRollback,
+                                false,
+                                "agent-tool",
+                                workItem.StableKey,
+                                attemptNumber,
+                                cancellationToken);
                         }
 
                         if (result?.ToolAttempt != null)
                         {
+                            await RequireVerifiedIntegrityAsync(
+                                IntegrityCheckpoint.PreResultsPublication,
+                                false,
+                                "agent-tool",
+                                workItem.StableKey,
+                                attemptNumber,
+                                cancellationToken);
                             var toolRows = await CreateToolResultFileRowsAsync(
                                 experimentRun,
                                 candidateMethod,
@@ -935,6 +1008,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ValidationOutcome = ToolValidationOutcome.Skipped,
             ObservedOutcome = ToolObservedOutcome.Skipped,
             StartedAt = DateTime.UtcNow,
+            BaseCommit = GetCommitHash(),
+            WorkspaceIntegrityStatus = WorkspaceIntegrityStatus.VerifiedClean.ToString(),
             CompletedAt = DateTime.UtcNow,
             TimeoutSeconds = decision.Tool.TimeoutMinutes * 60,
             Model = workItem.ModelName,
@@ -1050,6 +1125,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         {
             AttemptId = AttemptKeyFactory.Create(
                 $"{_context.Project.Owner}/{_context.Project.RepoName}",
+                GetCommitHash(),
                 experimentRun.ExperimentSeriesId,
                 experimentRun.RunUid,
                 "testmap",
@@ -1063,7 +1139,15 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             RepoUrl = _context.Project.GitHubUrl,
             RepoOwner = _context.Project.Owner,
             RepoName = _context.Project.RepoName,
-            CommitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty,
+            CommitHash = GetCommitHash(),
+            TargetId = experimentRun.TargetId,
+            RepositoryIdentity = experimentRun.RepositoryIdentity,
+            RequestedCommit = experimentRun.RequestedCommit,
+            ResolvedCommit = experimentRun.ResolvedCommit,
+            TargetManifestSha256 = experimentRun.TargetManifestSha256,
+            TargetSourceSha256 = experimentRun.TargetSourceSha256,
+            ProvenancePolicyVersion = experimentRun.ProvenancePolicyVersion,
+            WorkspaceIntegrityStatus = attempt.WorkspaceIntegrityStatus,
             RunDate = DateTime.UtcNow,
             Objective = experimentRun.Objective,
             TargetSelectionStrategy = experimentRun.CandidateSelectionStrategy,
@@ -1259,6 +1343,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 RowKind = rowKind,
                 AttemptId = AttemptKeyFactory.Create(
                     $"{_context.Project.Owner}/{_context.Project.RepoName}",
+                    GetCommitHash(),
                     experimentRun.ExperimentSeriesId,
                     experimentRun.RunUid,
                     "agent-tool",
@@ -1285,7 +1370,15 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 RepoUrl = _context.Project.GitHubUrl,
                 RepoOwner = _context.Project.Owner,
                 RepoName = _context.Project.RepoName,
-                CommitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit ?? string.Empty,
+                CommitHash = GetCommitHash(),
+                TargetId = experimentRun.TargetId,
+                RepositoryIdentity = experimentRun.RepositoryIdentity,
+                RequestedCommit = experimentRun.RequestedCommit,
+                ResolvedCommit = experimentRun.ResolvedCommit,
+                TargetManifestSha256 = experimentRun.TargetManifestSha256,
+                TargetSourceSha256 = experimentRun.TargetSourceSha256,
+                ProvenancePolicyVersion = experimentRun.ProvenancePolicyVersion,
+                WorkspaceIntegrityStatus = attempt.WorkspaceIntegrityStatus,
                 RunDate = DateTime.UtcNow,
                 Objective = experimentRun.Objective,
                 TargetSelectionStrategy = experimentRun.CandidateSelectionStrategy,
@@ -1835,14 +1928,26 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 BudgetMode = matrixItem.BudgetMode,
                 GenerateAsync = async (attemptNumber, token) =>
                 {
+                    await RequireVerifiedIntegrityAsync(
+                        IntegrityCheckpoint.PreAttempt, false, "testmap", null, attemptNumber, token);
                     var attempt = await ExecuteSingleGenerationAttemptAsync(candidateMethodId, context, matrixItem, attemptNumber, token);
+                    var integrity = await _workspaceIntegrity.EvaluateAsync(
+                        IntegrityCheckpoint.PostAttemptPreAnalysis, true, _activeExperimentRunId,
+                        "testmap", null, attemptNumber, token);
+                    ApplyIntegrityOutcome(attempt, integrity);
                     repairHistory.Add(attempt);
                     return attempt;
                 },
                 RepairAsync = async (previousAttempt, attemptNumber, token) =>
                 {
+                    await RequireVerifiedIntegrityAsync(
+                        IntegrityCheckpoint.PreAttempt, false, "testmap", null, attemptNumber, token);
                     var priorSnapshot = repairHistory.ToList();
                     var attempt = await ExecuteSingleRepairAttemptAsync(candidateMethodId, context, matrixItem, previousAttempt, priorSnapshot, attemptNumber, token);
+                    var integrity = await _workspaceIntegrity.EvaluateAsync(
+                        IntegrityCheckpoint.PostAttemptPreAnalysis, true, _activeExperimentRunId,
+                        "testmap", null, attemptNumber, token);
+                    ApplyIntegrityOutcome(attempt, integrity);
                     repairHistory.Add(attempt);
                     return attempt;
                 },
@@ -1857,7 +1962,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                             execution.MutationScoreImprovement)
                         .ValidatedEvidencePositive;
                 },
-                RollbackAsync = token => _workspace.RollbackChangesAsync(token)
+                RollbackAsync = async token =>
+                {
+                    await _workspace.RollbackChangesAsync(token);
+                    await RequireVerifiedIntegrityAsync(
+                        IntegrityCheckpoint.PostRollback, false, "testmap", null, null, token);
+                }
             },
             cancellationToken);
 
@@ -2570,6 +2680,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             Temperature = matrixItem?.Temperature ?? _activeExperimentConfig?.Temperature ?? 0.0,
             AttemptNumber = attemptNumber,
             RuleDecisionSnapshotJson = BuildContextGraphDecisionSnapshot(context),
+            BaseCommit = GetCommitHash(),
+            WorkspaceIntegrityStatus = WorkspaceIntegrityStatus.VerifiedClean.ToString(),
             StartedAt = DateTime.UtcNow
         };
     }
@@ -2665,6 +2777,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             BudgetMode = budgetMode,
             AblationVariantId = "baseline",
             AttemptNumber = attemptNumber,
+            BaseCommit = GetCommitHash(),
+            WorkspaceIntegrityStatus = WorkspaceIntegrityStatus.VerifiedClean.ToString(),
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow,
             ErrorMessage = errorMessage,
@@ -2709,6 +2823,50 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             Status = s.Status,
             SkipReason = s.SkipReason
         }).ToList();
+    }
+
+    private async Task<WorkspaceIntegrityObservation> RequireVerifiedIntegrityAsync(
+        IntegrityCheckpoint checkpoint,
+        bool allowExpectedChanges,
+        string? producerLane,
+        string? workItemStableKey,
+        int? attemptNumber,
+        CancellationToken cancellationToken)
+    {
+        var observation = await _workspaceIntegrity.EvaluateAsync(
+            checkpoint,
+            allowExpectedChanges,
+            _activeExperimentRunId,
+            producerLane,
+            workItemStableKey,
+            attemptNumber,
+            cancellationToken);
+        if (!observation.Status.IsVerified())
+            throw new InvalidOperationException(
+                $"Workspace integrity checkpoint '{checkpoint}' failed with status '{observation.Status}'.");
+        return observation;
+    }
+
+    private static void ApplyIntegrityOutcome(
+        GenerationAttempt attempt,
+        WorkspaceIntegrityObservation observation)
+    {
+        attempt.WorkspaceIntegrityStatus = observation.Status.ToString();
+        if (observation.Status.IsVerified()) return;
+
+        attempt.FailureKind = TestFailureKind.Infrastructure;
+        attempt.FailureStage = "workspace-integrity";
+        attempt.FailureCategory = observation.Status.ToString();
+        attempt.ErrorMessage = observation.Details;
+        if (attempt.TestExecution is not null)
+        {
+            attempt.TestExecution.TestPassed = false;
+            attempt.TestExecution.Classification = TestClassification.ValidationFailed;
+            attempt.TestExecution.FailureKind = TestFailureKind.Infrastructure;
+            attempt.TestExecution.FailureStage = "workspace-integrity";
+            attempt.TestExecution.FailureCategory = observation.Status.ToString();
+            attempt.TestExecution.FailureSummary = observation.Details;
+        }
     }
 
     private static string BuildPersistenceErrorDetails(DbUpdateException exception)

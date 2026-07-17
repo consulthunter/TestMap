@@ -2,6 +2,8 @@ using LibGit2Sharp;
 using TestMap.App;
 using TestMap.Models;
 using TestMap.Services.TestGeneration.Workspace;
+using TestMap.Models.Targets;
+using TestMap.Services.Targets;
 
 namespace TestMap.UnitTests.TestGeneration;
 
@@ -50,6 +52,57 @@ public sealed class RollbackWorkspaceServiceTests : IDisposable
 
         Assert.False(Directory.Exists(Path.Combine(projectDirectory, "bin")));
         Assert.False(Directory.Exists(Path.Combine(projectDirectory, "obj")));
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RollbackChangesAsync_HeadMovedAfterAttempt_RestoresPinnedBaseCommit()
+    {
+        var repoPath = CreateRepository();
+        string baseCommit;
+        string movedCommit;
+        using (var repo = new Repository(repoPath))
+        {
+            baseCommit = repo.Head.Tip.Sha;
+            File.WriteAllText(Path.Combine(repoPath, "second.txt"), "second");
+            Commands.Stage(repo, "second.txt");
+            var signature = new Signature("TestMap", "testmap@example.com", DateTimeOffset.UtcNow);
+            movedCommit = repo.Commit("Moved head", signature, signature).Sha;
+        }
+        Assert.NotEqual(baseCommit, movedCommit);
+        var target = new TargetIdentityService().Create("owner/repository", baseCommit, [1]);
+        var project = new ProjectModel(directoryPath: repoPath);
+        project.BindTarget(target);
+        project.MaterializedRevision = new MaterializedRevision(
+            target.TargetId, target.Repository, baseCommit, baseCommit, target.Url,
+            new TargetPaths(repoPath, "db", "artifacts", "log"), new string('a', 64), new string('b', 64),
+            DateTimeOffset.UtcNow, MaterializationStatus.Available);
+
+        await new RollbackWorkspaceService(new ProjectContext(project)).RollbackChangesAsync();
+
+        using var restored = new Repository(repoPath);
+        Assert.Equal(baseCommit, restored.Head.Tip.Sha);
+        Assert.False(File.Exists(Path.Combine(repoPath, "second.txt")));
+        Assert.False(restored.RetrieveStatus().IsDirty);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RollbackChangesAsync_DeletedGitMetadata_FailsRestore()
+    {
+        var repoPath = CreateRepository();
+        string commit;
+        using (var repo = new Repository(repoPath)) commit = repo.Head.Tip.Sha;
+        var target = new TargetIdentityService().Create("owner/repository", commit, [1]);
+        var project = new ProjectModel(directoryPath: repoPath);
+        project.BindTarget(target);
+        project.MaterializedRevision = new MaterializedRevision(target.TargetId, target.Repository, commit, commit, target.Url,
+            new TargetPaths(repoPath, "db", "artifacts", "log"), new string('a', 64), new string('b', 64),
+            DateTimeOffset.UtcNow, MaterializationStatus.Available);
+        var gitPath = Path.Combine(repoPath, ".git");
+        foreach (var file in Directory.EnumerateFiles(gitPath, "*", SearchOption.AllDirectories)) File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(gitPath, true);
+        await Assert.ThrowsAnyAsync<Exception>(() => new RollbackWorkspaceService(new ProjectContext(project)).RollbackChangesAsync());
     }
 
     private string CreateRepository()

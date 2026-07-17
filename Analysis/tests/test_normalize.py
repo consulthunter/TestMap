@@ -28,7 +28,7 @@ from analysis.schema import LANE_AGENTIC, LANE_LLM
 def _llm_row(**kwargs) -> dict:
     """Minimal LLM attempt row matching pilot CSV structure."""
     defaults = {
-        "results_schema_version": "2.0",
+        "results_schema_version": "3.0",
         "row_kind": "attempt",
         "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
@@ -36,7 +36,15 @@ def _llm_row(**kwargs) -> dict:
         "tool_id": "",
         "repo_owner": "consulthunter",
         "repo_name": "TestMap-Example",
-        "commit_hash": "abc123",
+        "commit_hash": "0123456789abcdef0123456789abcdef01234567",
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "consulthunter/testmap-example",
+        "requested_commit": "0123456789abcdef0123456789abcdef01234567",
+        "resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
         "source_member_id": "2",
         "source_method_name": "Start",
         "failure_kind": "Runtime",
@@ -63,7 +71,7 @@ def _llm_row(**kwargs) -> dict:
 def _agentic_row(**kwargs) -> dict:
     """Minimal agentic generated-test row matching pilot CSV structure."""
     defaults = {
-        "results_schema_version": "2.0",
+        "results_schema_version": "3.0",
         "row_kind": "attempt",
         "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
@@ -71,7 +79,15 @@ def _agentic_row(**kwargs) -> dict:
         "tool_id": "codex",
         "repo_owner": "consulthunter",
         "repo_name": "TestMap-Example",
-        "commit_hash": "abc123",
+        "commit_hash": "0123456789abcdef0123456789abcdef01234567",
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "consulthunter/testmap-example",
+        "requested_commit": "0123456789abcdef0123456789abcdef01234567",
+        "resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
         "source_member_id": "2",
         "source_method_name": "Start",
         "tool_run_status": "Completed",
@@ -184,41 +200,41 @@ class TestRenameRawColumns:
 class TestKeyConstruction:
     def test_candidate_key_is_stable(self):
         row = pd.Series({
-            "repo_owner": "owner",
-            "repo_name": "repo",
-            "commit_hash": "abc",
+            "repository_identity": "owner/repo",
+            "resolved_commit": "abc",
+            "target_id": "target-a",
             "source_member_id": "42",
         })
         assert make_candidate_key(row) == make_candidate_key(row)
 
     def test_candidate_key_includes_source_member_id(self):
-        row1 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c",
+        row1 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c", "target_id": "target-a",
                            "source_member_id": "1"})
-        row2 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c",
+        row2 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c", "target_id": "target-a",
                            "source_member_id": "2"})
         assert make_candidate_key(row1) != make_candidate_key(row2)
 
     def test_candidate_key_differs_by_repo_name(self):
-        row1 = pd.Series({"repo_owner": "o", "repo_name": "r1", "commit_hash": "c",
+        row1 = pd.Series({"repository_identity": "o/r1", "resolved_commit": "c", "target_id": "target-a",
                            "source_member_id": "1"})
-        row2 = pd.Series({"repo_owner": "o", "repo_name": "r2", "commit_hash": "c",
+        row2 = pd.Series({"repository_identity": "o/r2", "resolved_commit": "c", "target_id": "target-b",
                            "source_member_id": "1"})
         assert make_candidate_key(row1) != make_candidate_key(row2)
 
     def test_candidate_key_differs_by_commit(self):
-        row1 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c1",
+        row1 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c1", "target_id": "target-a",
                            "source_member_id": "1"})
-        row2 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c2",
+        row2 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c2", "target_id": "target-b",
                            "source_member_id": "1"})
         assert make_candidate_key(row1) != make_candidate_key(row2)
 
     def test_repository_key_is_stable(self):
-        row = pd.Series({"repo_owner": "owner", "repo_name": "repo", "commit_hash": "abc"})
+        row = pd.Series({"repository_identity": "owner/repo", "resolved_commit": "abc"})
         assert make_repository_key(row) == make_repository_key(row)
 
     def test_repository_key_differs_by_owner(self):
-        row1 = pd.Series({"repo_owner": "o1", "repo_name": "r", "commit_hash": "c"})
-        row2 = pd.Series({"repo_owner": "o2", "repo_name": "r", "commit_hash": "c"})
+        row1 = pd.Series({"repository_identity": "o1/r", "resolved_commit": "c"})
+        row2 = pd.Series({"repository_identity": "o2/r", "resolved_commit": "c"})
         assert make_repository_key(row1) != make_repository_key(row2)
 
     def test_missing_fields_handled_gracefully(self):

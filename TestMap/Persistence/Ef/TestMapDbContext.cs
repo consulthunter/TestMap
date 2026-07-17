@@ -57,6 +57,7 @@ public class TestMapDbContext : DbContext
     public DbSet<RuleDecisionEntity> RuleDecisions => Set<RuleDecisionEntity>();
     public DbSet<ToolAttemptEntity> ToolAttempts => Set<ToolAttemptEntity>();
     public DbSet<ToolAttemptGeneratedTestEntity> ToolAttemptGeneratedTests => Set<ToolAttemptGeneratedTestEntity>();
+    public DbSet<WorkspaceIntegrityObservationEntity> WorkspaceIntegrityObservations => Set<WorkspaceIntegrityObservationEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -263,7 +263,8 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
         var owner = _context.Project.Owner;
         var repo = _context.Project.RepoName;
         var branch = _context.Project.Branch;
-        var commitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit;
+        var commitHash = _context.VerifiedBaseCommit
+            ?? throw new InvalidOperationException("Experiment analysis requires a verified pinned base commit.");
         var rows = new List<ExperimentResultRow>();
         var candidateProjectInfo = await LoadCandidateProjectInfoAsync(candidateMethods, cancellationToken);
 

@@ -1,0 +1,8 @@
+{
+  "repository": "owner/repository",
+  "requested_commit": "0123456789abcdef0123456789abcdef01234567",
+  "observed_commit": "0123456789abcdef0123456789abcdef01234567",
+  "tree_sha": "89abcdef0123456789abcdef0123456789abcdef",
+  "truncated": false,
+  "paths": ["src/Widget.cs", "tests/WidgetTests.cs"]
+}

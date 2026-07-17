@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using TestMap.Models.Configuration;
 using TestMap.Models.Experiment;
+using TestMap.Models.Targets;
 
 namespace TestMap.Services.Experiment.Reporting;
 
@@ -42,6 +43,14 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         "repo_owner",
         "repo_name",
         "commit_hash",
+        "target_id",
+        "repository_identity",
+        "requested_commit",
+        "resolved_commit",
+        "target_manifest_sha256",
+        "target_source_sha256",
+        "provenance_policy_version",
+        "workspace_integrity_status",
         "run_date",
         "objective",
         "target_selection_strategy",
@@ -260,6 +269,14 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
             Escape(row.RepoOwner),
             Escape(row.RepoName),
             Escape(row.CommitHash),
+            Escape(row.TargetId),
+            Escape(row.RepositoryIdentity),
+            Escape(row.RequestedCommit),
+            Escape(row.ResolvedCommit),
+            Escape(row.TargetManifestSha256),
+            Escape(row.TargetSourceSha256),
+            Escape(row.ProvenancePolicyVersion),
+            Escape(row.WorkspaceIntegrityStatus),
             Escape(row.RunDate.ToString("O")),
             Escape(row.Objective),
             Escape(row.TargetSelectionStrategy),
@@ -521,7 +538,7 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
     {
         var manifest = new
         {
-            results_schema_version = "2.0",
+            results_schema_version = "3.0",
             experiment_run_uid = experimentRun.RunUid,
             experiment_series_id = experimentRun.ExperimentSeriesId,
             attempt_file = ResolvePath(experimentRun),
@@ -532,6 +549,14 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
             coverage_noise_floor = EvaluationImpactPolicy.CoverageNoiseFloor,
             mutation_noise_floor = EvaluationImpactPolicy.MutationNoiseFloor,
             measurement_policy_version = EvaluationImpactPolicy.Version
+            ,target_id = experimentRun.TargetId
+            ,repository_identity = experimentRun.RepositoryIdentity
+            ,requested_commit = experimentRun.RequestedCommit
+            ,resolved_commit = experimentRun.ResolvedCommit
+            ,target_manifest_sha256 = experimentRun.TargetManifestSha256
+            ,target_source_sha256 = experimentRun.TargetSourceSha256
+            ,provenance_policy_version = experimentRun.ProvenancePolicyVersion
+            ,workspace_integrity_status = experimentRun.WorkspaceIntegrityStatus
         };
         var path = ResolveManifestPath(experimentRun);
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
@@ -559,6 +584,23 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
                 throw new InvalidOperationException("Every result row requires a canonical attempt_id.");
             if (string.IsNullOrWhiteSpace(row.ExperimentRunUid))
                 throw new InvalidOperationException("Every result row requires experiment_run_uid.");
+            if (row.ResultsSchemaVersion != "3.0")
+                throw new InvalidOperationException("Pinned evaluation output requires results schema version 3.0.");
+            if (string.IsNullOrWhiteSpace(row.TargetId) ||
+                string.IsNullOrWhiteSpace(row.RepositoryIdentity) ||
+                string.IsNullOrWhiteSpace(row.TargetManifestSha256) ||
+                string.IsNullOrWhiteSpace(row.TargetSourceSha256) ||
+                string.IsNullOrWhiteSpace(row.ProvenancePolicyVersion))
+                throw new InvalidOperationException("Schema 3.0 rows require complete target provenance.");
+            if (row.RequestedCommit.Length != 40 || row.ResolvedCommit.Length != 40 ||
+                !string.Equals(row.RequestedCommit, row.ResolvedCommit, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Schema 3.0 rows require equal full requested and resolved commits.");
+            if (!string.Equals(row.CommitHash, row.ResolvedCommit, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Schema 3.0 commit_hash must equal resolved_commit.");
+            if (!Enum.TryParse<WorkspaceIntegrityStatus>(row.WorkspaceIntegrityStatus, true, out var integrity))
+                throw new InvalidOperationException("Schema 3.0 rows require a recognized workspace integrity status.");
+            if ((row.ValidatedSuccess || row.PositiveImpact == true) && !integrity.IsVerified())
+                throw new InvalidOperationException("Validated success and positive impact require verified workspace integrity.");
         }
     }
 

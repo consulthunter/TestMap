@@ -40,7 +40,9 @@ OUTCOME_CATEGORIES = [
 def compute_scope_counts(df: pd.DataFrame) -> dict:
     """Repositories, projects, candidates, attempts evaluated."""
     return {
-        "repositories_evaluated": int(df["repository_key"].nunique()) if "repository_key" in df.columns else None,
+        "repository_revisions_evaluated": int(df["repository_revision_key"].nunique()) if "repository_revision_key" in df.columns else None,
+        "repository_families_evaluated": int(df["repository_family_key"].nunique()) if "repository_family_key" in df.columns else None,
+        "projects_evaluated": int(df["repository_revision_key"].nunique()) if "repository_revision_key" in df.columns else None,
         "candidates_evaluated": int(df["candidate_key"].nunique()) if "candidate_key" in df.columns else None,
         "total_attempts": len(df),
         "llm_attempts": int((df["lane"] == LANE_LLM).sum()) if "lane" in df.columns else None,

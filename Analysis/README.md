@@ -51,7 +51,8 @@ per repository database.
 |---|---|
 | `evaluation_attempts.csv` | one row per attempt (LLM generation attempt or agentic tool attempt) |
 | `evaluation_candidates.csv` | best attempt per (candidate, lane) |
-| `evaluation_repositories.csv` | one row per (repository, lane) |
+| `evaluation_repositories.csv` | one row per (repository revision, lane) |
+| `evaluation_repository_families.csv` | one row per (repository family, lane), aggregating revisions explicitly |
 | `generated_tests.csv` | one row per generated/linked test |
 | `tool_generated_test_links.csv` | agentic tool attempt → generated test member links |
 | `mutation_operators.csv` | mutation-operator survival profile per repo (needs `--db`) |
@@ -72,7 +73,7 @@ per repository database.
 ## Key semantics
 
 - Two lanes: `llm` and `agentic`, both canonicalized to one row per attempt; generated tests are
-  loaded from the separate schema-v2 child file.
+  loaded from the separate schema-v3 child file.
 - `validated_success` = `ValidatedEvidencePositive` **or** `ValidatedLowImpact`; `positive_impact`
   (VEP) = test passed **and** metrics improved ≥ noise floor (coverage ≥ 1pp or mutation ≥ 1pp).
 - `effective_tokens` = lane-fair cost (LLM cumulative repair-chain total; agentic total run) — use

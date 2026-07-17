@@ -1,0 +1,19 @@
+resolution_schema_version: 1
+requested_at_utc: 2026-07-16T18:15:07.2254446+00:00
+completed_at_utc: 2026-07-16T18:15:08.2703159+00:00
+requested_url: https://github.com/consulthunter/TestMap-Example
+requested_url_sha256: 270e11edb005f004985ca71a389e65afc5f87b08382b02bcb3b646eeed8e360c
+repository: consulthunter/testmap-example
+canonical_url: https://github.com/consulthunter/testmap-example.git
+provider: github.com
+policy_name: github-default-branch-head
+policy_version: 1
+authentication_mode: authenticated
+status: Resolved
+resolved_repository: consulthunter/testmap-example
+default_branch: main
+resolved_commit: 867ab17d3141bc0e6d696486bd8edb67546c00d1
+resolution_passes: 1
+reason_kind: 
+retry_after_utc: 
+summary: The default-branch head was resolved to an exact commit.

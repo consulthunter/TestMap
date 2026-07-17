@@ -1,0 +1,17 @@
+{
+  "accepted": [
+    "https://github.com/owner/repository",
+    "https://GITHUB.COM/Owner/Repository/",
+    "https://github.com/owner/repository.git"
+  ],
+  "rejected": [
+    "http://github.com/owner/repository",
+    "https://example.com/owner/repository",
+    "https://ghp_SYNTHETIC_NOT_A_SECRET@github.com/owner/repository",
+    "https://github.com/owner/repository?ref=main",
+    "https://github.com/owner/repository#readme",
+    "https://github.com/owner/repository/issues/1",
+    "https://github.com/owner/%2e%2e",
+    " https://github.com/owner/repository"
+  ]
+}

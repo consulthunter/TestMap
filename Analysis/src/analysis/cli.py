@@ -66,7 +66,9 @@ def audit(results, db, artifacts, out) -> None:
     Outputs: audit_report.json, audit_report.csv, audit_report.md.
     """
     from analysis.audit_evaluation_data import run
-    run(results=results, db_paths=db, artifacts_root=artifacts, output_dir=out)
+    passed = run(results=results, db_paths=db, artifacts_root=artifacts, output_dir=out)
+    if not passed:
+        raise click.ClickException("Evaluation audit found blocking errors.")
 
 
 @main.command("export-training")

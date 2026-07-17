@@ -1,0 +1,19 @@
+resolution_schema_version: 1
+requested_at_utc: 2026-07-16T18:30:00.0000000+00:00
+completed_at_utc: 2026-07-16T18:30:01.0000000+00:00
+requested_url: https://github.com/powershell/platyps
+requested_url_sha256: e204bb9d9e0e1011e176ea8b0df7cb9b6073b8f304890c1df57cf495f8a858d1
+repository: powershell/platyps
+canonical_url: https://github.com/powershell/platyps.git
+provider: github.com
+policy_name: github-default-branch-head
+policy_version: '1'
+authentication_mode: anonymous
+status: Resolved
+resolved_repository: powershell/platyps
+default_branch: main
+resolved_commit: 063264b97f6596469650ef6497fe83b9e51464c6
+resolution_passes: 1
+reason_kind: null
+retry_after_utc: null
+summary: The default-branch head was resolved to an exact commit.

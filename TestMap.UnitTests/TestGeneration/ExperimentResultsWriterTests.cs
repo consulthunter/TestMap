@@ -8,6 +8,10 @@ namespace TestMap.UnitTests.TestGeneration;
 
 public sealed class ExperimentResultsWriterTests
 {
+    private const string TargetId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private const string Commit = "0123456789abcdef0123456789abcdef01234567";
+    private const string ManifestHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    private const string SourceHash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     [Fact]
     [Trait("Category", "Unit")]
     public void ResolveResultsFilePath_UsesDefaultWhenOutputPathIsMissing()
@@ -57,6 +61,15 @@ public sealed class ExperimentResultsWriterTests
                         AttemptId = "attempt-42",
                         ExperimentRunId = 42,
                         ExperimentRunUid = "run-42",
+                        TargetId = TargetId,
+                        RepositoryIdentity = "owner/repo",
+                        RequestedCommit = Commit,
+                        ResolvedCommit = Commit,
+                        CommitHash = Commit,
+                        TargetManifestSha256 = ManifestHash,
+                        TargetSourceSha256 = SourceHash,
+                        ProvenancePolicyVersion = "pinned-target-v1",
+                        WorkspaceIntegrityStatus = "VerifiedClean",
                         ExperimentSeriesId = "model-study",
                         CandidateCohortId = 5,
                         CandidateCohortMemberId = 9,
@@ -90,7 +103,7 @@ public sealed class ExperimentResultsWriterTests
             var text = await File.ReadAllTextAsync(path);
 
             Assert.Contains("results_schema_version,row_kind,attempt_id,experiment_run_id,experiment_run_uid,experiment_series_id,candidate_cohort_id,candidate_cohort_member_id,producer_lane", text);
-            Assert.Contains("2.0,attempt,attempt-42,42,run-42,model-study,5,9,testmap", text);
+            Assert.Contains("3.0,attempt,attempt-42,42,run-42,model-study,5,9,testmap", text);
             Assert.DoesNotContain("metrics_path", text);
             Assert.Contains("source_method_mi,source_method_cc,source_method_coupling,source_method_dit,source_method_sloc,source_method_eloc", text);
             Assert.Contains("baseline_test_mi,baseline_test_cc,baseline_test_coupling,baseline_test_dit,baseline_test_sloc,baseline_test_eloc", text);
@@ -130,6 +143,9 @@ public sealed class ExperimentResultsWriterTests
                 AttemptId = "attempt-7",
                 ExperimentRunId = 7,
                 ExperimentRunUid = "run-7",
+                TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
+                TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+                ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
                 Provider = AiProvider.OpenAi,
                 GenerationApproach = TestGenerationApproach.Naive,
                 ContextMode = GenerationContextMode.ChainedHistory,
@@ -167,6 +183,9 @@ public sealed class ExperimentResultsWriterTests
                 AttemptId = "attempt-7",
                 ExperimentRunId = 7,
                 ExperimentRunUid = "run-7",
+                TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
+                TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+                ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
                 GeneratedTestMemberId = 42,
                 GeneratedTestMethodName = "GeneratedTest",
                 Provider = AiProvider.OpenAi,
@@ -202,6 +221,9 @@ public sealed class ExperimentResultsWriterTests
             AttemptId = "attempt-multiline",
             ExperimentRunId = 7,
             ExperimentRunUid = "run-7",
+            TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
+            TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+            ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
             GeneratedTestMemberId = 42,
             GeneratedTestMethodName = "GeneratedTest",
             FailureSummary = "first line, with comma\nsecond line with \"quotes\"",
@@ -247,6 +269,9 @@ public sealed class ExperimentResultsWriterTests
                         AttemptId = "attempt-8",
                         ExperimentRunId = 8,
                         ExperimentRunUid = "run-8",
+                        TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
+                        TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+                        ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
                         GeneratedTestMemberId = 101
                     },
                     new ExperimentResultFileRow
@@ -255,6 +280,9 @@ public sealed class ExperimentResultsWriterTests
                         AttemptId = "attempt-8",
                         ExperimentRunId = 8,
                         ExperimentRunUid = "run-8",
+                        TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
+                        TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+                        ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
                         GeneratedTestMemberId = 102,
                         ImpactAttribution = "attempt_level",
                         CoverageDelta = 0.05
@@ -265,6 +293,9 @@ public sealed class ExperimentResultsWriterTests
                         AttemptId = "attempt-8",
                         ExperimentRunId = 8,
                         ExperimentRunUid = "run-8",
+                        TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
+                        TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+                        ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
                         GeneratedTestMemberId = 102,
                         TestResultId = 501
                     }
@@ -315,6 +346,9 @@ public sealed class ExperimentResultsWriterTests
             AttemptId = "duplicate",
             ExperimentRunId = 10,
             ExperimentRunUid = "run-10"
+            ,TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit
+            ,TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash
+            ,ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean"
         };
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(
@@ -322,6 +356,43 @@ public sealed class ExperimentResultsWriterTests
             [row, row]));
 
         Assert.Contains("duplicate attempt_id", error.Message);
+        DeleteResultFiles(path);
+    }
+
+    [Fact]
+    public async Task WriteAsync_RejectsValidatedSuccessWithBlockingIntegrity()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var row = new ExperimentResultFileRow
+        {
+            AttemptId = "integrity-failed", ExperimentRunUid = "run-integrity", ExperimentRunId = 11,
+            TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
+            TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+            ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "RevisionMismatch",
+            ValidatedSuccess = true
+        };
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ExperimentResultsWriter().WriteAsync(new ExperimentRun { Id = 11, RunUid = "run-integrity", ResultsFilePath = path }, [row]));
+        Assert.Contains("verified workspace integrity", error.Message, StringComparison.OrdinalIgnoreCase);
+        DeleteResultFiles(path);
+    }
+
+    [Fact]
+    public async Task WriteAsync_RejectsRequestedResolvedCommitMismatch()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var row = new ExperimentResultFileRow
+        {
+            AttemptId = "revision-mismatch", ExperimentRunUid = "run-revision", ExperimentRunId = 12,
+            TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit,
+            ResolvedCommit = "89abcdef0123456789abcdef0123456789abcdef",
+            CommitHash = "89abcdef0123456789abcdef0123456789abcdef",
+            TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
+            ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean"
+        };
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ExperimentResultsWriter().WriteAsync(new ExperimentRun { Id = 12, RunUid = "run-revision", ResultsFilePath = path }, [row]));
+        Assert.Contains("requested and resolved", error.Message, StringComparison.OrdinalIgnoreCase);
         DeleteResultFiles(path);
     }
 

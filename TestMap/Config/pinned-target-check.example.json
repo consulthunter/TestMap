@@ -1,0 +1,12 @@
+{
+  "RuntimeConfig": {
+    "MaxConcurrency": 4,
+    "RunDateFormat": "yyyy-MM-dd_HH-mm-ss",
+    "FilePaths": {
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\pinned-targets-smoke.yaml",
+      "TempDirPath": "D:\\Projects\\TestMap\\TestMap\\Temp",
+      "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
+      "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
+    }
+  }
+}

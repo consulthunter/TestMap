@@ -28,17 +28,20 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
     private readonly ProjectContext? _projectContext;
     private readonly TestMapConfig? _config;
     private readonly TaskCardWriter? _taskCardWriter;
+    private readonly string? _verifiedBaseCommit;
 
     public AgentToolEvaluationLane(
         IAgentToolRunner runner,
         IAgentToolEnvironmentResolver envResolver,
         ToolAttemptRepository attemptRepo,
-        IReadOnlyList<ExperimentToolConfig> tools)
+        IReadOnlyList<ExperimentToolConfig> tools,
+        string verifiedBaseCommit)
     {
         _runner = runner;
         _envResolver = envResolver;
         _attemptRepo = attemptRepo;
         _tools = tools;
+        _verifiedBaseCommit = verifiedBaseCommit;
     }
 
     public AgentToolEvaluationLane(
@@ -49,7 +52,13 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         ProjectContext projectContext,
         TestMapConfig config,
         TaskCardWriter taskCardWriter)
-        : this(runner, envResolver, attemptRepo, tools)
+        : this(
+            runner,
+            envResolver,
+            attemptRepo,
+            tools,
+            projectContext.VerifiedBaseCommit
+            ?? throw new InvalidOperationException("Agent tool lanes require a verified pinned base commit."))
     {
         _projectContext = projectContext;
         _config = config;
@@ -96,6 +105,8 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             Model = environment.PersistableMetadata.TryGetValue("model", out var model) ? model : tool.Model ?? string.Empty,
             ProviderId = environment.PersistableMetadata.TryGetValue("provider_id", out var provider) ? provider : string.Empty
         };
+        attempt.BaseCommit = _verifiedBaseCommit!;
+        attempt.WorkspaceIntegrityStatus = "VerifiedClean";
 
         attempt.Id = await _attemptRepo.InsertAsync(attempt, cancellationToken);
         attempt.WorkspacePath = ResolveWorkspacePath();

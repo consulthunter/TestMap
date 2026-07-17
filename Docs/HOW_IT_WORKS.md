@@ -112,3 +112,18 @@ Both lanes are evaluated through the same persisted evidence and result reportin
 Experiment mode writes row-level results to CSV and persists richer data to SQLite. The CSV is for
 analysis and comparison; the database is the source of detailed attempt, execution, mapping, and
 artifact metadata.
+# Revision and Integrity Provenance
+
+The manifest byte hash is the provenance root. Before SQLite initialization, TestMap validates the
+origin, obtains the requested commit, checks it out detached, and verifies a clean tree. Requested
+and resolved commits must be identical.
+
+Workspace integrity is observed before extraction, baselines, experiment start, every attempt,
+post-attempt analysis, after rollback, and before result publication. A moved `HEAD`, wrong origin,
+invalid repository, unexpected dirty state, or failed restore blocks validation and positive-impact
+classification. Cleanup always targets the persisted base commit, never whatever `HEAD` happens to
+be after an agent exits.
+
+Canonical result schema 3.0 repeats target and revision provenance on attempt, generated-test, and
+test-result rows. Analysis uses `repository_family_key` for a project across revisions and
+`repository_revision_key` for one exact commit.

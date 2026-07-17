@@ -25,4 +25,8 @@
     <ProjectReference Include="..\TestMap\TestMap.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

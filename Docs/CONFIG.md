@@ -20,14 +20,55 @@ converter. The generated files use kebab-case.
 Important fields:
 
 - `FilePaths.TargetFilePath`: text file containing repository URLs.
-- `FilePaths.LogsDirPath`: local logs.
+- `FilePaths.LogsDirPath`: root for local logs. All project runs use the fixed UTC relative layout
+  described below.
 - `FilePaths.TempDirPath`: cloned repositories and temporary work.
 - `FilePaths.OutputDirPath`: databases, experiment CSVs, and run artifacts.
+- `Project.KeepProjectFiles`: when `false`, `collect-tests` removes each successfully prepared
+  cloned workspace from `TempDirPath` after processing; when `true`, the workspace remains available
+  for reuse and inspection. Pre-materialization failures are not allowed to delete an unverified or
+  busy workspace.
 - `Docker.DefaultContext`: Docker context used for Linux containers.
 - `Docker.Images.ValidationSdkAll`: image used for build/test/coverage validation.
 - `Docker.Images.AgentTools`: image map for agent tool lanes.
 - `Frameworks`: test attribute names used to identify test methods.
 - `MaxConcurrency`: project-level concurrency.
+
+Measured runs should set `FilePaths.TargetFilePath` to a pinned YAML target manifest. A schema-3
+manifest created with `targets create --url` contains one repository and links a content-addressed
+resolution record. Configuration loading verifies that record's hash, requested URL, repository,
+target identity, and exact commit without contacting GitHub again. Plain URL lists remain available
+only to discovery workflows.
+
+### Log Paths
+
+Both pinned-manifest and legacy repository-list workflows allocate one directory per project run:
+
+```text
+<LogsDirPath>/YYYY-MM-DD/HH-mm-ss_<owner>-<repository>/
+```
+
+Both date and time come from one captured UTC run-start instant. `RunDateFormat` may change the
+display or persisted run-date value, but it does not change this filesystem hierarchy. If the same
+repository starts more than once in one second, later directories use deterministic `-02`, `-03`,
+and subsequent suffixes. Every selected directory retains `.testmap-log-reservation`; existing or
+partial directories are never reused or overwritten.
+
+The primary project log is `<project-id>.log` for legacy runs and `run.log` for pinned runs. Child
+Docker/test logs are written beside it. Pinned workspace, database, and artifact locations remain
+scoped by immutable revision; the exact commit is retained in the manifest, materialized-revision
+record, database, and target-execution report rather than encoded into the log directory.
+
+```text
+<TempDirPath>/<owner>/<repository>/<resolved-commit>/
+<OutputDirPath>/<owner>/<repository>/<resolved-commit>/analysis.db
+<OutputDirPath>/<owner>/<repository>/<resolved-commit>/artifacts/
+<OutputDirPath>/project-validation.csv
+```
+
+`project-validation.csv` is the aggregate validation file for the configured target list. It is
+not stored under any individual repository or commit directory. `collect-tests` replaces this file
+at the start of an invocation so rows from different target-list runs are not mixed.
 
 ## TestingConfig.GenerationConfig
 
@@ -246,3 +287,21 @@ Use these deliberately:
 
 Start with `CandidateLimit: 1`, one provider, one budget mode, and either the TestMap lane or one
 tool lane.
+# Pinned Experiment Input
+
+For `experiment`, set `RuntimeConfig.FilePaths.TargetFilePath` to a schema v1 YAML manifest. A plain
+URL file is rejected in measured mode. `AnalyzeLatestCommit` does not override a manifest commit.
+
+Revision-scoped locations are derived as:
+
+```text
+<TempDirPath>/<owner>/<repository>/<resolved-commit>/
+<OutputDirPath>/<owner>/<repository>/<resolved-commit>/analysis.db
+<OutputDirPath>/<owner>/<repository>/<resolved-commit>/artifacts/
+<OutputDirPath>/project-validation.csv
+<LogsDirPath>/YYYY-MM-DD/HH-mm-ss_<owner>-<repository>/run.log
+```
+
+The checked-in `TestMap/Config/pinned-target-experiment.example.json` points at a two-target smoke
+manifest. Replace its provider/evaluation settings for the intended lane matrix; do not edit a
+manifest already used by a measured run.
