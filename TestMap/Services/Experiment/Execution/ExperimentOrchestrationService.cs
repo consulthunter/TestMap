@@ -1779,7 +1779,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return await (
             from report in _dbContext.CoverageReports
             join memberCoverage in _dbContext.MemberCoverages on report.Id equals memberCoverage.CoverageReportId
-            where report.TestRunId == testRunId.Value && memberCoverage.MemberId == memberId
+            where report.TestRunId == testRunId.Value
+                  && report.MeasurementPolicyVersion == "coverage-integrity-v1"
+                  && report.HasUsableCoverage
+                  && memberCoverage.MemberId == memberId
+                  && memberCoverage.AttributionStatus == "Mapped"
             orderby report.Id descending, memberCoverage.Id descending
             select (double?)memberCoverage.LineRate
         ).FirstOrDefaultAsync(cancellationToken);

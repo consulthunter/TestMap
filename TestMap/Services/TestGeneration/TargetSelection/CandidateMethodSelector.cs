@@ -93,6 +93,9 @@ public sealed class CandidateMethodSelector
                         from coverage in _dbContext.MemberCoverages
                         join report in _dbContext.CoverageReports on coverage.CoverageReportId equals report.Id
                         where coverage.MemberId == member.Id
+                              && coverage.AttributionStatus == "Mapped"
+                              && report.MeasurementPolicyVersion == "coverage-integrity-v1"
+                              && report.HasUsableCoverage
                               && coverage.LineRate >= minCoverageThreshold
                               && coverage.LineRate <= maxCoverageThreshold
                         orderby report.Timestamp descending, report.CreatedAt descending, coverage.Id descending

@@ -53,7 +53,11 @@ public sealed class AttemptMetricComparisonService(TestMapDbContext dbContext)
         return await (
             from report in dbContext.CoverageReports
             join coverage in dbContext.MemberCoverages on report.Id equals coverage.CoverageReportId
-            where report.TestRunId == testRunId.Value && coverage.MemberId == memberId
+            where report.TestRunId == testRunId.Value
+                  && report.MeasurementPolicyVersion == "coverage-integrity-v1"
+                  && report.HasUsableCoverage
+                  && coverage.MemberId == memberId
+                  && coverage.AttributionStatus == "Mapped"
             orderby report.Id descending, coverage.Id descending
             select (double?)coverage.LineRate
         ).FirstOrDefaultAsync(cancellationToken);

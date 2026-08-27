@@ -14,7 +14,13 @@ public class CoverageGapRiskFactorProvider(TestMapDbContext dbContext) : IRiskFa
         CancellationToken cancellationToken = default)
     {
         var latestCoverage = await dbContext.MemberCoverages
-            .Where(x => x.MemberId == candidateMember.Id)
+            .Where(x => x.MemberId == candidateMember.Id &&
+                        x.AttributionStatus == "Mapped" &&
+                        x.LineCountsAvailable &&
+                        dbContext.CoverageReports.Any(report =>
+                            report.Id == x.CoverageReportId &&
+                            report.MeasurementPolicyVersion == "coverage-integrity-v1" &&
+                            report.HasUsableCoverage))
             .OrderByDescending(x => x.CoverageReportId)
             .ThenByDescending(x => x.Id)
             .Select(x => new
@@ -25,7 +31,8 @@ public class CoverageGapRiskFactorProvider(TestMapDbContext dbContext) : IRiskFa
                 x.LinesValid,
                 x.LinesCovered,
                 x.BranchesValid,
-                x.BranchesCovered
+                x.BranchesCovered,
+                x.BranchCountsAvailable
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -38,7 +45,9 @@ public class CoverageGapRiskFactorProvider(TestMapDbContext dbContext) : IRiskFa
                 cancellationToken);
 
         var lineGap = 1.0 - latestCoverage.LineRate;
-        var branchGap = latestCoverage.BranchesValid > 0 ? 1.0 - latestCoverage.BranchRate : lineGap;
+        var branchGap = latestCoverage.BranchCountsAvailable && latestCoverage.BranchesValid > 0
+            ? 1.0 - latestCoverage.BranchRate
+            : lineGap;
         var gapDensity = latestCoverage.LinesValid > 0
             ? Math.Min(1.0, (double)gapCount / latestCoverage.LinesValid)
             : 0.0;

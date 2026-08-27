@@ -99,7 +99,10 @@ public sealed class AttemptMetricComparisonServiceTests
         {
             ProjectId = 1,
             TestRunId = testRunId,
-            LineRate = aggregateRate
+            LineRate = aggregateRate,
+            MeasurementPolicyVersion = "coverage-integrity-v1",
+            HasUsableCoverage = true,
+            CollectionStatus = "Mapped"
         };
         db.CoverageReports.Add(report);
         await db.SaveChangesAsync();
@@ -107,6 +110,7 @@ public sealed class AttemptMetricComparisonServiceTests
         {
             CoverageReportId = report.Id,
             MemberId = memberId,
+            AttributionStatus = "Mapped",
             LineRate = memberRate
         });
         await db.SaveChangesAsync();

@@ -81,6 +81,24 @@ anything you intend to measure or report.
 For Basic Extension generation, keep `EnableSpeculativePlanning` disabled unless you are deliberately
 running an ablation. The one-shot structured patch path is the recommended default.
 
+## Coverage Integrity
+
+Coverage collection records a terminal outcome even when no artifact is produced. The runner tries
+the requested collector first, falls back to the other built-in collector when necessary, and writes
+a `coverage-collection-v1` sidecar containing provider attempts, artifact hashes, merge inputs, and
+the final reason. Test success and coverage success are separate outcomes.
+
+Corrected reports use measurement policy `coverage-integrity-v1`. Raw class and member observations
+are persisted before source attribution, so unmatched, ambiguous, out-of-project, unsupported, and
+interrupted observations remain auditable with nullable source IDs. Exact line and branch counters
+carry explicit availability; unavailable values must not be interpreted as measured zero.
+
+`HasCoverage` is true only for the latest corrected report with usable mapped coverage. Historical
+reports remain queryable but are not silently upgraded to the corrected policy. Coverage-dependent
+candidate, risk, evidence, comparison, and MSR consumers use mapped rows from usable corrected
+reports only. Constructor observations (`.ctor` and `.cctor`) are retained and attributed when their
+kind, lines, and signature identify a unique persisted constructor.
+
 ## Assertion-Lineage Evidence
 
 Experiment result schema 4.0 can report whether each recognized generated-test assertion has a

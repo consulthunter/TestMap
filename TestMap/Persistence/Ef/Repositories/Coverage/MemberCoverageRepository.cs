@@ -26,30 +26,27 @@ public class MemberCoverageRepository
         return entity?.ToDomain();
     }
 
-    public async Task<int> InsertOrUpdateAsync(MemberCoverageModel model, int memberId, int coverageReportId)
+    public async Task<int> InsertOrUpdateAsync(MemberCoverageModel model, int? memberId, int coverageReportId)
     {
-        var existing = await _context.MemberCoverages.FirstOrDefaultAsync(x =>
-            x.MemberId == memberId && x.CoverageReportId == coverageReportId);
+        var existing = await FindExistingAsync(model, memberId, coverageReportId);
 
         return await InsertOrUpdateAsync(model, memberId, coverageReportId, existing);
     }
 
     public async Task<int> InsertOrUpdateAsync(
         MemberCoverageModel model,
-        int memberId,
+        int? memberId,
         int coverageReportId,
         MemberCoverageEntity? existing)
     {
-        existing ??= await _context.MemberCoverages.FirstOrDefaultAsync(x =>
-            x.MemberId == memberId && x.CoverageReportId == coverageReportId);
+        existing ??= await FindExistingAsync(model, memberId, coverageReportId);
 
         if (existing != null)
         {
-            if (HasChanged(existing, model))
+            if (existing.MemberId != memberId || HasChanged(existing, model))
             {
-                existing.LineRate = SanitizeDouble(model.LineRate);
-                existing.BranchRate = SanitizeDouble(model.BranchRate);
-                existing.Complexity = SanitizeDouble(model.ComplexityValue);
+                existing.MemberId = memberId;
+                Apply(existing, model);
                 await _context.SaveChangesAsync();
             }
 
@@ -66,6 +63,18 @@ public class MemberCoverageRepository
     {
         return entity.LineRate != SanitizeDouble(model.LineRate) ||
                entity.BranchRate != SanitizeDouble(model.BranchRate) ||
+               entity.ObjectCoverageId != model.ObjectCoverageId ||
+               entity.SourceOrdinal != model.SourceOrdinal ||
+               entity.Name != model.Name ||
+               entity.Signature != model.Signature ||
+               entity.AttributionStatus != model.AttributionStatus ||
+               entity.AttributionReason != model.AttributionReason ||
+               entity.LinesCovered != model.LinesCovered ||
+               entity.LinesValid != model.LinesValid ||
+               entity.BranchesCovered != model.BranchesCovered ||
+               entity.BranchesValid != model.BranchesValid ||
+               entity.LineCountsAvailable != model.LineCountsAvailable ||
+               entity.BranchCountsAvailable != model.BranchCountsAvailable ||
                entity.Complexity != SanitizeDouble(model.ComplexityValue);
     }
 
@@ -73,7 +82,31 @@ public class MemberCoverageRepository
     {
         entity.LineRate = SanitizeDouble(model.LineRate);
         entity.BranchRate = SanitizeDouble(model.BranchRate);
+        entity.ObjectCoverageId = model.ObjectCoverageId;
+        entity.SourceOrdinal = model.SourceOrdinal;
+        entity.Name = model.Name;
+        entity.Signature = model.Signature;
+        entity.AttributionStatus = model.AttributionStatus;
+        entity.AttributionReason = model.AttributionReason;
+        entity.LinesCovered = model.LinesCovered;
+        entity.LinesValid = model.LinesValid;
+        entity.BranchesCovered = model.BranchesCovered;
+        entity.BranchesValid = model.BranchesValid;
+        entity.LineCountsAvailable = model.LineCountsAvailable;
+        entity.BranchCountsAvailable = model.BranchCountsAvailable;
         entity.Complexity = SanitizeDouble(model.ComplexityValue);
+    }
+
+    private Task<MemberCoverageEntity?> FindExistingAsync(
+        MemberCoverageModel model,
+        int? memberId,
+        int coverageReportId)
+    {
+        return model.SourceOrdinal >= 0 && model.ObjectCoverageId.HasValue
+            ? _context.MemberCoverages.FirstOrDefaultAsync(x =>
+                x.ObjectCoverageId == model.ObjectCoverageId && x.SourceOrdinal == model.SourceOrdinal)
+            : _context.MemberCoverages.FirstOrDefaultAsync(x =>
+                x.MemberId == memberId && x.CoverageReportId == coverageReportId && x.SourceOrdinal < 0);
     }
 
     public static double SanitizeDouble(double value)

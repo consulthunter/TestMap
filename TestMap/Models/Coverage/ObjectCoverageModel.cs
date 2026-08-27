@@ -32,6 +32,32 @@ public class ObjectCoverageModel
 
     [XmlAttribute("filename")] public string Filename { get; set; } = "";
 
+    [XmlIgnore] public int? ObjectId { get; set; }
+
+    [XmlIgnore] public int CoverageReportId { get; set; }
+
+    [XmlIgnore] public int SourceOrdinal { get; set; } = -1;
+
+    [XmlIgnore] public string PackageName { get; set; } = string.Empty;
+
+    [XmlIgnore] public string AttributionStatus { get; set; } = string.Empty;
+
+    [XmlIgnore] public string AttributionReason { get; set; } = string.Empty;
+
+    [XmlIgnore] public int LinesCovered { get; set; }
+
+    [XmlIgnore] public int LinesValid { get; set; }
+
+    [XmlIgnore] public int BranchesCovered { get; set; }
+
+    [XmlIgnore] public int BranchesValid { get; set; }
+
+    [XmlIgnore] public bool LineCountsAvailable { get; set; }
+
+    [XmlIgnore] public bool BranchCountsAvailable { get; set; }
+
+    [XmlIgnore] public string CounterValidationError { get; set; } = string.Empty;
+
     [XmlArray("methods")]
     [XmlArrayItem("method")]
     public List<MemberCoverageModel> Methods { get; set; } = new();

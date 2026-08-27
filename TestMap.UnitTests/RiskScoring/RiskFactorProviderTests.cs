@@ -35,6 +35,40 @@ public sealed class RiskFactorProviderTests
         Assert.Contains("No coverage data", result.Evidence);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task CoverageGap_LegacyAndUnmatchedRows_AreNotConsumed()
+    {
+        await using var tdb = await TestDatabase.CreateAsync();
+        var corrected = await tdb.Db.CoverageReports.SingleAsync(x => x.Id == 1);
+        corrected.MeasurementPolicyVersion = string.Empty;
+        corrected.HasUsableCoverage = false;
+        corrected.CollectionStatus = "LegacyNotMeasured";
+        tdb.Db.MemberCoverages.AddRange(
+            new MemberCoverageEntity
+            {
+                MemberId = 1,
+                CoverageReportId = 1,
+                AttributionStatus = "Mapped",
+                LineRate = 1,
+                LineCountsAvailable = true
+            },
+            new MemberCoverageEntity
+            {
+                MemberId = null,
+                CoverageReportId = 1,
+                AttributionStatus = "Unmatched",
+                AttributionReason = "fixture",
+                SourceOrdinal = 0
+            });
+        await tdb.Db.SaveChangesAsync();
+
+        var result = await new CoverageGapRiskFactorProvider(tdb.Db).ScoreAsync(MakeCandidate(1));
+
+        Assert.Equal(0, result.Score);
+        Assert.Contains("No coverage data", result.Evidence);
+    }
+
     /// <summary>
     /// Full line and branch coverage with zero uncovered gaps produces a score of 0.0.
     /// </summary>
@@ -46,6 +80,9 @@ public sealed class RiskFactorProviderTests
         tdb.Db.MemberCoverages.Add(new MemberCoverageEntity
         {
             MemberId = 1, CoverageReportId = 1,
+            AttributionStatus = "Mapped",
+            LineCountsAvailable = true,
+            BranchCountsAvailable = true,
             LineRate = 1.0, BranchRate = 1.0,
             LinesCovered = 10, LinesValid = 10,
             BranchesCovered = 4, BranchesValid = 4
@@ -69,6 +106,9 @@ public sealed class RiskFactorProviderTests
         tdb.Db.MemberCoverages.Add(new MemberCoverageEntity
         {
             MemberId = 1, CoverageReportId = 1,
+            AttributionStatus = "Mapped",
+            LineCountsAvailable = true,
+            BranchCountsAvailable = true,
             LineRate = 0.0, BranchRate = 0.0,
             LinesCovered = 0, LinesValid = 10,
             BranchesCovered = 0, BranchesValid = 0  // no branches → branchGap = lineGap
@@ -97,6 +137,9 @@ public sealed class RiskFactorProviderTests
         tdb.Db.MemberCoverages.Add(new MemberCoverageEntity
         {
             MemberId = 1, CoverageReportId = 1,
+            AttributionStatus = "Mapped",
+            LineCountsAvailable = true,
+            BranchCountsAvailable = true,
             LineRate = 0.5, BranchRate = 0.5,
             LinesCovered = 5, LinesValid = 10,
             BranchesCovered = 2, BranchesValid = 4
@@ -357,6 +400,8 @@ public sealed class RiskFactorProviderTests
         tdb.Db.MemberCoverages.Add(new MemberCoverageEntity
         {
             MemberId = 1, CoverageReportId = 1,
+            AttributionStatus = "Mapped",
+            LineCountsAvailable = true,
             LineRate = 1.0, LinesValid = 10, LinesCovered = 10
         });
         await tdb.Db.SaveChangesAsync();
@@ -409,6 +454,8 @@ public sealed class RiskFactorProviderTests
         tdb.Db.MemberCoverages.Add(new MemberCoverageEntity
         {
             MemberId = 1, CoverageReportId = 1,
+            AttributionStatus = "Mapped",
+            LineCountsAvailable = true,
             LineRate = 1.0, LinesValid = 10, LinesCovered = 10
         });
         await tdb.Db.SaveChangesAsync();
@@ -482,6 +529,15 @@ public sealed class RiskFactorProviderTests
                 .Options;
             var db = new TestMapDbContext(options);
             await db.Database.EnsureCreatedAsync();
+            db.CoverageReports.Add(new CoverageReportEntity
+            {
+                Id = 1,
+                ProjectId = 1,
+                MeasurementPolicyVersion = "coverage-integrity-v1",
+                HasUsableCoverage = true,
+                CollectionStatus = "Mapped"
+            });
+            await db.SaveChangesAsync();
             return new TestDatabase(connection, db);
         }
 

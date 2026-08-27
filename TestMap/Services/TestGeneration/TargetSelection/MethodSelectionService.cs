@@ -418,7 +418,12 @@ public class MethodSelectionService : IMethodSelectionService
         }
 
         var coverageEntity = await _dbContext.MemberCoverages
-            .Where(x => x.MemberId == memberId)
+            .Where(x => x.MemberId == memberId &&
+                        x.AttributionStatus == "Mapped" &&
+                        _dbContext.CoverageReports.Any(report =>
+                            report.Id == x.CoverageReportId &&
+                            report.MeasurementPolicyVersion == "coverage-integrity-v1" &&
+                            report.HasUsableCoverage))
             .OrderByDescending(x => x.CoverageReportId)
             .FirstOrDefaultAsync(cancellationToken);
 

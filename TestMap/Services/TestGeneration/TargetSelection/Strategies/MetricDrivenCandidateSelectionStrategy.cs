@@ -46,12 +46,16 @@ public sealed class MetricDrivenCandidateSelectionStrategy : ICandidateSelection
         if (candidates.Count == 0) return new Dictionary<int, MetricDrivenCandidateScore>();
 
         var memberIds = candidates.Select(x => x.Id).ToList();
-        var latestCoverageByMemberId = (await _dbContext.MemberCoverages
-                .Where(x => memberIds.Contains(x.MemberId))
-                .OrderByDescending(x => x.CoverageReportId)
-                .ThenByDescending(x => x.Id)
-                .ToListAsync(cancellationToken))
-            .GroupBy(x => x.MemberId)
+        var latestCoverageByMemberId = (await (
+                from coverage in _dbContext.MemberCoverages
+                join report in _dbContext.CoverageReports on coverage.CoverageReportId equals report.Id
+                where coverage.MemberId.HasValue && memberIds.Contains(coverage.MemberId.Value)
+                      && coverage.AttributionStatus == "Mapped"
+                      && report.MeasurementPolicyVersion == "coverage-integrity-v1"
+                      && report.HasUsableCoverage
+                orderby coverage.CoverageReportId descending, coverage.Id descending
+                select coverage).ToListAsync(cancellationToken))
+            .GroupBy(x => x.MemberId!.Value)
             .ToDictionary(x => x.Key, x => x.First());
 
         var mutantsByMemberId = (await _dbContext.Mutants

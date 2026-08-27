@@ -188,6 +188,42 @@ public sealed class CandidateMethodSelectorTests
         Assert.Equal(1, candidate.MemberId);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task SelectAsync_LegacyAndNullIdUnmatchedCoverage_AreExcluded()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDbAsync(connection);
+        await SeedMemberAsync(db, 1, false, false, false, "src/Source/Svc.cs", "src/Source/Source.csproj");
+        await SeedCoverageAsync(db, 1, 0.5, coverageId: 1);
+        var legacy = await db.CoverageReports.SingleAsync(x => x.Id == 1);
+        legacy.MeasurementPolicyVersion = string.Empty;
+        legacy.CollectionStatus = "LegacyNotMeasured";
+        legacy.HasUsableCoverage = false;
+        db.CoverageReports.Add(new CoverageReportEntity
+        {
+            Id = 2,
+            ProjectId = 1,
+            RunId = "corrected-unmatched",
+            MeasurementPolicyVersion = "coverage-integrity-v1",
+            CollectionStatus = "ParsedNoUsableCoverage",
+            HasUsableCoverage = false
+        });
+        db.MemberCoverages.Add(new MemberCoverageEntity
+        {
+            CoverageReportId = 2,
+            MemberId = null,
+            AttributionStatus = "Unmatched",
+            AttributionReason = "fixture",
+            SourceOrdinal = 0,
+            Name = "Method"
+        });
+        await db.SaveChangesAsync();
+
+        Assert.Empty(await CreateSelector(db).SelectAsync(DefaultExperimentConfig()));
+    }
+
     /// <summary>
     /// When both a production member and a test member have coverage, only the
     /// production member is included; the test member is hard-filtered regardless.
@@ -312,7 +348,10 @@ public sealed class CandidateMethodSelectorTests
             {
                 Id = coverageId, ProjectId = 1, LineRate = lineRate,
                 BranchRate = 0.0, Complexity = 1, Version = "test",
-                Timestamp = 1, LinesValid = 10
+                Timestamp = 1, LinesValid = 10,
+                MeasurementPolicyVersion = "coverage-integrity-v1",
+                HasUsableCoverage = true,
+                CollectionStatus = "Mapped"
             });
         }
 
@@ -321,6 +360,8 @@ public sealed class CandidateMethodSelectorTests
             Id = coverageId + 1000,
             MemberId = memberId,
             CoverageReportId = coverageId,
+            AttributionStatus = "Mapped",
+            LineCountsAvailable = true,
             LineRate = lineRate,
             LinesValid = 10,
             Complexity = 1

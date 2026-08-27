@@ -25,7 +25,12 @@ public class TestGapRiskFactorProvider(TestMapDbContext dbContext) : IRiskFactor
                 select invocation.Id)
             .CountAsync(cancellationToken);
         var latestCoverage = await dbContext.MemberCoverages
-            .Where(x => x.MemberId == candidateMember.Id)
+            .Where(x => x.MemberId == candidateMember.Id &&
+                        x.AttributionStatus == "Mapped" &&
+                        dbContext.CoverageReports.Any(report =>
+                            report.Id == x.CoverageReportId &&
+                            report.MeasurementPolicyVersion == "coverage-integrity-v1" &&
+                            report.HasUsableCoverage))
             .OrderByDescending(x => x.CoverageReportId)
             .ThenByDescending(x => x.Id)
             .Select(x => x.LineRate)

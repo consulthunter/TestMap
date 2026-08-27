@@ -25,18 +25,22 @@ public class MapCoverageService(
             return;
         }
 
-        var existingReport = await dbContext.CoverageReports.FirstOrDefaultAsync(x =>
-            x.ProjectId == context.Project.DbId && x.Timestamp == report.Timestamp);
+        if ((report.LineCountsAvailable && report.LinesCovered > report.LinesValid) ||
+            (report.BranchCountsAvailable && report.BranchesCovered > report.BranchesValid))
+        {
+            report.CollectionStatus = "ParseFailed";
+            report.CollectionReason = "Coverage report contains a covered count greater than its valid count.";
+        }
+
+        report.MeasurementPolicyVersion = CoverageReportModel.CorrectedPolicyVersion;
+        var collectionFailedBeforeAttribution = IsPreAttributionFailure(report.CollectionStatus);
+        if (!collectionFailedBeforeAttribution) report.CollectionStatus = "PendingAttribution";
+        var existingReport = await FindReportAsync(report);
         var reportId = await coverageReportRepository.InsertOrUpdateAsync(report, context.Project.DbId, existingReport);
+        if (collectionFailedBeforeAttribution) return;
         var objects = await objectRepository.GetAllAsync();
         var members = await memberRepository.GetAllAsync();
         var files = await fileRepository.GetAllAsync();
-        var existingObjectCoverages = await dbContext.ObjectCoverages
-            .Where(x => x.CoverageReportId == reportId)
-            .ToListAsync();
-        var existingMemberCoverages = await dbContext.MemberCoverages
-            .Where(x => x.CoverageReportId == reportId)
-            .ToListAsync();
         var existingCoverageGaps = await dbContext.CoverageGaps
             .Where(x => x.CoverageReportId == reportId)
             .ToListAsync();
@@ -68,19 +72,41 @@ public class MapCoverageService(
             .Where(x => x.FileId > 0 && filePathById.ContainsKey(x.FileId))
             .GroupBy(x => NormalizePath(Path.GetFileName(filePathById[x.FileId])), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(x => x.Key, x => x.ToList(), StringComparer.OrdinalIgnoreCase);
-        var objectCoverageByKey = existingObjectCoverages.ToDictionary(x => (x.ObjectId, x.CoverageReportId));
-        var memberCoverageByKey = existingMemberCoverages.ToDictionary(x => (x.MemberId, x.CoverageReportId));
         var gapsByMember = existingCoverageGaps
             .GroupBy(x => x.MemberId)
             .ToDictionary(x => x.Key, x => x.ToList());
         var fileLinesCache = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var package in report.Packages)
-        foreach (var objectCoverage in package.Classes)
+        var rawObjects = await PersistRawObservationsAsync(report, reportId);
+        await dbContext.SaveChangesAsync();
+
+        foreach (var rawObject in rawObjects)
         {
+            var objectCoverage = rawObject.Model;
+            var objectEntity = rawObject.Entity;
+            if (!string.IsNullOrWhiteSpace(objectCoverage.CounterValidationError))
+            {
+                SetObjectOutcome(objectEntity, "Unsupported", objectCoverage.CounterValidationError);
+                SetChildOutcomes(rawObject, "ParentUnmatched", "Owning coverage class has invalid counters.");
+                continue;
+            }
+
             var normalizedCoverageName = CoverageTypeName.Normalize(objectCoverage.Name);
             var normalizedCoverageFilename = NormalizePath(objectCoverage.Filename);
-            if (!IsProjectCoverageObject(normalizedCoverageFilename, normalizedProjectFiles)) continue;
+            if (string.IsNullOrWhiteSpace(normalizedCoverageName) ||
+                string.IsNullOrWhiteSpace(normalizedCoverageFilename))
+            {
+                SetObjectOutcome(objectEntity, "Unsupported", "Coverage class is missing a usable name or filename.");
+                SetChildOutcomes(rawObject, "ParentUnmatched", "Owning coverage class is unsupported.");
+                continue;
+            }
+
+            if (!IsProjectCoverageObject(normalizedCoverageFilename, normalizedProjectFiles))
+            {
+                SetObjectOutcome(objectEntity, "OutOfProject", "Coverage filename does not match a persisted project file.");
+                SetChildOutcomes(rawObject, "ParentUnmatched", "Owning coverage class is outside the persisted project.");
+                continue;
+            }
 
             var objectCandidates = GetObjectCandidates(
                 normalizedCoverageName,
@@ -89,7 +115,7 @@ public class MapCoverageService(
                 objectsBySimpleName,
                 objectsByFileName);
 
-            var objectModel = SelectBestObjectMatch(
+            var objectMatch = SelectBestObjectMatch(
                 objectCandidates,
                 objectCoverage,
                 membersByObjectId,
@@ -97,47 +123,69 @@ public class MapCoverageService(
                 normalizedCoverageName,
                 normalizedCoverageFilename);
 
+            if (objectMatch.IsAmbiguous)
+            {
+                SetObjectOutcome(objectEntity, "Ambiguous", "Multiple persisted code objects have the same best attribution score.");
+                SetChildOutcomes(rawObject, "ParentUnmatched", "Owning coverage class attribution is ambiguous.");
+                continue;
+            }
+
+            var objectModel = objectMatch.Match;
             if (objectModel == null)
             {
+                SetObjectOutcome(objectEntity, "Unmatched", "No persisted code object matched the coverage class.");
+                SetChildOutcomes(rawObject, "ParentUnmatched", "Owning coverage class was not matched.");
                 context.Project.Logger?.Warning(
                     $"Coverage object '{objectCoverage.Name}' not found in persisted code objects.");
                 continue;
             }
 
-            UpsertObjectCoverage(
-                dbContext,
-                objectCoverage,
-                objectModel.Id,
-                reportId,
-                objectCoverageByKey);
+            objectEntity.ObjectId = objectModel.Id;
+            SetObjectOutcome(objectEntity, "Mapped", string.Empty);
             var objectMembers = membersByObjectId.GetValueOrDefault(objectModel.Id) ?? [];
             var objectMembersByName = membersByObjectIdAndName.GetValueOrDefault(objectModel.Id);
 
-            foreach (var memberCoverage in objectCoverage.Methods)
+            foreach (var rawMember in rawObject.Members)
             {
-                var normalizedMemberName = NormalizeMemberName(memberCoverage.Name);
-                if (string.IsNullOrWhiteSpace(normalizedMemberName)) continue;
+                var memberCoverage = rawMember.Model;
+                var memberEntity = rawMember.Entity;
+                if (!string.IsNullOrWhiteSpace(memberCoverage.CounterValidationError))
+                {
+                    SetMemberOutcome(memberEntity, "Unsupported", memberCoverage.CounterValidationError);
+                    continue;
+                }
 
-                var memberModel = FindMember(
+                var normalizedMemberName = NormalizeMemberName(memberCoverage.Name);
+                if (string.IsNullOrWhiteSpace(normalizedMemberName))
+                {
+                    SetMemberOutcome(memberEntity, "Unsupported", "Coverage member name is compiler-generated or empty.");
+                    continue;
+                }
+
+                var memberMatch = FindMember(
                     normalizedMemberName,
                     memberCoverage.Name,
                     memberCoverage,
                     objectMembers,
                     objectMembersByName);
 
+                if (memberMatch.IsAmbiguous)
+                {
+                    SetMemberOutcome(memberEntity, "Ambiguous", "Multiple persisted members remain after line and signature disambiguation.");
+                    continue;
+                }
+
+                var memberModel = memberMatch.Match;
                 if (memberModel == null)
                 {
+                    SetMemberOutcome(memberEntity, "Unmatched", "No compatible persisted member matched the coverage observation.");
                     context.Project.Logger?.Warning(
                         $"Coverage member '{memberCoverage.Name}' not found in persisted members.");
                     continue;
                 }
 
-                UpsertMemberCoverage(
-                    dbContext,
-                    memberCoverage,
-                    memberModel.Id,
-                    reportId,
-                    memberCoverageByKey);
+                memberEntity.MemberId = memberModel.Id;
+                SetMemberOutcome(memberEntity, "Mapped", string.Empty);
                 var coverageGaps = BuildCoverageGaps(
                     memberCoverage,
                     memberModel,
@@ -153,18 +201,196 @@ public class MapCoverageService(
             }
         }
 
+        report.RawObjectCount = rawObjects.Count;
+        report.MappedObjectCount = rawObjects.Count(x => x.Entity.AttributionStatus == "Mapped");
+        report.RawMemberCount = rawObjects.Sum(x => x.Members.Count);
+        report.MappedMemberCount = rawObjects.Sum(x => x.Members.Count(y => y.Entity.AttributionStatus == "Mapped"));
+        report.HasUsableCoverage = report.MappedObjectCount > 0 &&
+                                   (report.RawMemberCount == 0 || report.MappedMemberCount > 0);
+        report.CollectionStatus = report.RawObjectCount == 0
+            ? "ParsedNoData"
+            : !report.HasUsableCoverage
+                ? "ParsedNoUsableCoverage"
+                : report.MappedObjectCount == report.RawObjectCount &&
+                  report.MappedMemberCount == report.RawMemberCount
+                    ? "Mapped"
+                    : "PartiallyMapped";
+        var reportEntity = await dbContext.CoverageReports.FindAsync(reportId);
+        if (reportEntity != null) ApplyReportOutcome(reportEntity, report);
         await dbContext.SaveChangesAsync();
     }
 
     public async Task LinkToTestRunAsync(CoverageReportModel report, int testRunId)
     {
-        var entity = await dbContext.CoverageReports.FirstOrDefaultAsync(x =>
-            x.ProjectId == context.Project.DbId && x.Timestamp == report.Timestamp);
+        var entity = await FindReportAsync(report);
         if (entity == null || entity.TestRunId == testRunId) return;
 
         entity.TestRunId = testRunId;
         await dbContext.SaveChangesAsync();
     }
+
+    private Task<CoverageReportEntity?> FindReportAsync(CoverageReportModel report)
+    {
+        return string.IsNullOrWhiteSpace(report.RunId)
+            ? dbContext.CoverageReports.FirstOrDefaultAsync(x =>
+                x.ProjectId == context.Project.DbId && x.RunId == string.Empty && x.Timestamp == report.Timestamp)
+            : dbContext.CoverageReports.FirstOrDefaultAsync(x =>
+                x.ProjectId == context.Project.DbId && x.RunId == report.RunId);
+    }
+
+    private static bool IsPreAttributionFailure(string status)
+    {
+        return status is "ProviderUnavailable" or "CollectionFailed" or "NoArtifact" or "MergeFailed" or "ParseFailed";
+    }
+
+    private async Task<List<RawObjectObservation>> PersistRawObservationsAsync(
+        CoverageReportModel report,
+        int reportId)
+    {
+        var existingObjects = await dbContext.ObjectCoverages
+            .Where(x => x.CoverageReportId == reportId && x.SourceOrdinal >= 0)
+            .ToListAsync();
+        var existingMembers = await dbContext.MemberCoverages
+            .Where(x => x.CoverageReportId == reportId && x.SourceOrdinal >= 0)
+            .ToListAsync();
+        var objectsByOrdinal = existingObjects.ToDictionary(x => x.SourceOrdinal);
+        var membersByParentAndOrdinal = existingMembers
+            .Where(x => x.ObjectCoverageId.HasValue)
+            .ToDictionary(x => (x.ObjectCoverageId!.Value, x.SourceOrdinal));
+        var observations = new List<RawObjectObservation>();
+        var objectOrdinal = 0;
+
+        foreach (var package in report.Packages)
+        foreach (var objectModel in package.Classes)
+        {
+            ApplyCounters(objectModel, CoverageCounterCalculator.Calculate(objectModel.Lines));
+            objectModel.CoverageReportId = reportId;
+            objectModel.SourceOrdinal = objectOrdinal;
+            objectModel.PackageName = package.Name;
+            objectModel.AttributionStatus = "Pending";
+            objectModel.AttributionReason = "Awaiting source attribution.";
+            objectModel.ObjectId = null;
+
+            if (!objectsByOrdinal.TryGetValue(objectOrdinal, out var objectEntity))
+            {
+                objectEntity = objectModel.ToEntity(null, reportId);
+                dbContext.ObjectCoverages.Add(objectEntity);
+            }
+            else
+            {
+                objectEntity.ObjectId = null;
+                ObjectCoverageRepository.Apply(objectEntity, objectModel);
+            }
+
+            var rawMembers = new List<RawMemberObservation>();
+            for (var memberOrdinal = 0; memberOrdinal < objectModel.Methods.Count; memberOrdinal++)
+            {
+                var memberModel = objectModel.Methods[memberOrdinal];
+                ApplyCounters(memberModel, CoverageCounterCalculator.Calculate(memberModel.Lines));
+                memberModel.CoverageReportId = reportId;
+                memberModel.SourceOrdinal = memberOrdinal;
+                memberModel.AttributionStatus = "Pending";
+                memberModel.AttributionReason = "Awaiting source attribution.";
+                memberModel.MemberId = null;
+
+                MemberCoverageEntity memberEntity;
+                if (objectEntity.Id > 0 &&
+                    membersByParentAndOrdinal.TryGetValue((objectEntity.Id, memberOrdinal), out var existingMember))
+                {
+                    memberEntity = existingMember;
+                    memberEntity.MemberId = null;
+                    memberModel.ObjectCoverageId = objectEntity.Id;
+                    MemberCoverageRepository.Apply(memberEntity, memberModel);
+                }
+                else
+                {
+                    memberEntity = memberModel.ToEntity(null, reportId);
+                    memberEntity.ObjectCoverage = objectEntity;
+                    dbContext.MemberCoverages.Add(memberEntity);
+                }
+
+                rawMembers.Add(new RawMemberObservation(memberModel, memberEntity));
+            }
+
+            if (objectEntity.Id > 0)
+            {
+                var staleMembers = existingMembers.Where(x =>
+                    x.ObjectCoverageId == objectEntity.Id && x.SourceOrdinal >= objectModel.Methods.Count);
+                dbContext.MemberCoverages.RemoveRange(staleMembers);
+            }
+
+            observations.Add(new RawObjectObservation(objectModel, objectEntity, rawMembers));
+            objectOrdinal++;
+        }
+
+        dbContext.ObjectCoverages.RemoveRange(existingObjects.Where(x => x.SourceOrdinal >= objectOrdinal));
+        return observations;
+    }
+
+    private static void ApplyCounters(ObjectCoverageModel model, CoverageCounterResult result)
+    {
+        model.LinesCovered = result.LinesCovered;
+        model.LinesValid = result.LinesValid;
+        model.BranchesCovered = result.BranchesCovered;
+        model.BranchesValid = result.BranchesValid;
+        model.LineCountsAvailable = result.LineCountsAvailable;
+        model.BranchCountsAvailable = result.BranchCountsAvailable;
+        model.CounterValidationError = result.IsValid ? string.Empty : result.ValidationError;
+    }
+
+    private static void ApplyCounters(MemberCoverageModel model, CoverageCounterResult result)
+    {
+        model.LinesCovered = result.LinesCovered;
+        model.LinesValid = result.LinesValid;
+        model.BranchesCovered = result.BranchesCovered;
+        model.BranchesValid = result.BranchesValid;
+        model.LineCountsAvailable = result.LineCountsAvailable;
+        model.BranchCountsAvailable = result.BranchCountsAvailable;
+        model.CounterValidationError = result.IsValid ? string.Empty : result.ValidationError;
+    }
+
+    private static void SetObjectOutcome(ObjectCoverageEntity entity, string status, string reason)
+    {
+        entity.AttributionStatus = status;
+        entity.AttributionReason = reason;
+        if (status != "Mapped") entity.ObjectId = null;
+    }
+
+    private static void SetMemberOutcome(MemberCoverageEntity entity, string status, string reason)
+    {
+        entity.AttributionStatus = status;
+        entity.AttributionReason = reason;
+        if (status != "Mapped") entity.MemberId = null;
+    }
+
+    private static void SetChildOutcomes(RawObjectObservation observation, string status, string reason)
+    {
+        foreach (var member in observation.Members) SetMemberOutcome(member.Entity, status, reason);
+    }
+
+    private static void ApplyReportOutcome(CoverageReportEntity entity, CoverageReportModel report)
+    {
+        entity.CollectionStatus = report.CollectionStatus;
+        entity.HasUsableCoverage = report.HasUsableCoverage;
+        entity.MeasurementPolicyVersion = report.MeasurementPolicyVersion;
+        entity.RawObjectCount = report.RawObjectCount;
+        entity.MappedObjectCount = report.MappedObjectCount;
+        entity.RawMemberCount = report.RawMemberCount;
+        entity.MappedMemberCount = report.MappedMemberCount;
+    }
+
+    private sealed record RawObjectObservation(
+        ObjectCoverageModel Model,
+        ObjectCoverageEntity Entity,
+        List<RawMemberObservation> Members);
+
+    private sealed record RawMemberObservation(
+        MemberCoverageModel Model,
+        MemberCoverageEntity Entity);
+
+    private readonly record struct ObjectMatch(Models.Code.ObjectModel? Match, bool IsAmbiguous);
+
+    private readonly record struct MemberMatch(Models.Code.MemberModel? Match, bool IsAmbiguous);
 
     private static List<CoverageGapModel> BuildCoverageGaps(
         MemberCoverageModel memberCoverage,
@@ -279,7 +505,7 @@ public class MapCoverageService(
 
         if (trimmedValue.Equals(".ctor", StringComparison.OrdinalIgnoreCase) ||
             trimmedValue.Equals(".cctor", StringComparison.OrdinalIgnoreCase))
-            return string.Empty;
+            return trimmedValue;
 
         if (trimmedValue.StartsWith("get_", StringComparison.OrdinalIgnoreCase) ||
             trimmedValue.StartsWith("set_", StringComparison.OrdinalIgnoreCase) ||
@@ -303,6 +529,11 @@ public class MapCoverageService(
     private static bool IsCoverageCompatible(Models.Code.MemberModel member, string coverageMemberName)
     {
         var trimmedValue = coverageMemberName.Trim();
+        if (trimmedValue.Equals(".ctor", StringComparison.OrdinalIgnoreCase))
+            return member.Kind.Equals("constructor", StringComparison.OrdinalIgnoreCase);
+        if (trimmedValue.Equals(".cctor", StringComparison.OrdinalIgnoreCase))
+            return member.Kind.Equals("static_constructor", StringComparison.OrdinalIgnoreCase);
+
         if (trimmedValue.StartsWith("get_", StringComparison.OrdinalIgnoreCase) ||
             trimmedValue.StartsWith("set_", StringComparison.OrdinalIgnoreCase) ||
             trimmedValue.StartsWith("init_", StringComparison.OrdinalIgnoreCase))
@@ -310,7 +541,9 @@ public class MapCoverageService(
                    member.Kind.Equals("indexer", StringComparison.OrdinalIgnoreCase);
 
         return !member.Kind.Equals("property", StringComparison.OrdinalIgnoreCase) &&
-               !member.Kind.Equals("indexer", StringComparison.OrdinalIgnoreCase);
+               !member.Kind.Equals("indexer", StringComparison.OrdinalIgnoreCase) &&
+               !member.Kind.Equals("constructor", StringComparison.OrdinalIgnoreCase) &&
+               !member.Kind.Equals("static_constructor", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string StripMemberDecorations(string value)
@@ -325,7 +558,7 @@ public class MapCoverageService(
         return normalized.Trim();
     }
 
-    private static Models.Code.ObjectModel? SelectBestObjectMatch(
+    private static ObjectMatch SelectBestObjectMatch(
         IReadOnlyCollection<Models.Code.ObjectModel> candidates,
         ObjectCoverageModel objectCoverage,
         IReadOnlyDictionary<int, List<Models.Code.MemberModel>> membersByObjectId,
@@ -333,7 +566,7 @@ public class MapCoverageService(
         string normalizedCoverageName,
         string normalizedCoverageFilename)
     {
-        if (candidates.Count == 0) return null;
+        if (candidates.Count == 0) return new ObjectMatch(null, false);
 
         var normalizedCoverageMembers = objectCoverage.Methods
             .Select(x => x.Name)
@@ -342,7 +575,7 @@ public class MapCoverageService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return candidates
+        var scored = candidates
             .Select(candidate => new
             {
                 Candidate = candidate,
@@ -356,8 +589,11 @@ public class MapCoverageService(
             })
             .OrderByDescending(x => x.Score)
             .ThenByDescending(x => x.Candidate.Id)
-            .Select(x => x.Candidate)
-            .FirstOrDefault();
+            .ToList();
+        var bestScore = scored[0].Score;
+        return scored.Count(x => x.Score == bestScore) > 1
+            ? new ObjectMatch(null, true)
+            : new ObjectMatch(scored[0].Candidate, false);
     }
 
     private static int ScoreObjectCandidate(
@@ -414,7 +650,7 @@ public class MapCoverageService(
         foreach (var match in matches) candidates[match.Id] = match;
     }
 
-    private static Models.Code.MemberModel? FindMember(
+    private static MemberMatch FindMember(
         string normalizedMemberName,
         string coverageMemberName,
         MemberCoverageModel coverage,
@@ -428,15 +664,19 @@ public class MapCoverageService(
             x.Name.Equals(normalizedMemberName, StringComparison.OrdinalIgnoreCase) &&
             IsCoverageCompatible(x, coverageMemberName)).ToList();
 
-        if (matches.Count <= 1) return matches.SingleOrDefault();
+        if (matches.Count == 0) return new MemberMatch(null, false);
+        if (matches.Count == 1) return new MemberMatch(matches[0], false);
 
         var byLine = matches.Where(member => CoverageLinesOverlapMember(coverage, member)).ToList();
-        if (byLine.Count == 1) return byLine[0];
+        if (byLine.Count == 1) return new MemberMatch(byLine[0], false);
 
         var coverageParameterCount = CountParameters(coverage.Signature);
-        var bySignature = matches.Where(member =>
+        var signatureCandidates = byLine.Count > 1 ? byLine : matches;
+        var bySignature = signatureCandidates.Where(member =>
             CountParameters(member.FullString) == coverageParameterCount).ToList();
-        return bySignature.Count == 1 ? bySignature[0] : null;
+        return bySignature.Count == 1
+            ? new MemberMatch(bySignature[0], false)
+            : new MemberMatch(null, true);
     }
 
     internal static bool CoverageLinesOverlapMember(

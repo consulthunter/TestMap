@@ -49,12 +49,18 @@ public sealed class GenerationEvidenceServiceTests
             Id = 99,
             ProjectId = 1,
             Version = "test",
-            Timestamp = 1
+            Timestamp = 1,
+            MeasurementPolicyVersion = "coverage-integrity-v1",
+            HasUsableCoverage = true,
+            CollectionStatus = "Mapped"
         });
         fixture.DbContext.MemberCoverages.Add(new MemberCoverageEntity
         {
             MemberId = 7,
             CoverageReportId = 99,
+            AttributionStatus = "Mapped",
+            LineCountsAvailable = true,
+            BranchCountsAvailable = true,
             LineRate = 0.5,
             BranchRate = 0.25,
             LinesCovered = 5,

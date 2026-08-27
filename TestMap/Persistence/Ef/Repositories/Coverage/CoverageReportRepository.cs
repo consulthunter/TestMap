@@ -38,8 +38,7 @@ public class CoverageReportRepository
 
     public async Task<int> InsertOrUpdateAsync(CoverageReportModel model, int projectId)
     {
-        var existing = await _context.CoverageReports.FirstOrDefaultAsync(x =>
-            x.ProjectId == projectId && x.Timestamp == model.Timestamp);
+        var existing = await FindExistingAsync(model, projectId);
 
         return await InsertOrUpdateAsync(model, projectId, existing);
     }
@@ -49,8 +48,7 @@ public class CoverageReportRepository
         int projectId,
         CoverageReportEntity? existing)
     {
-        existing ??= await _context.CoverageReports.FirstOrDefaultAsync(x =>
-            x.ProjectId == projectId && x.Timestamp == model.Timestamp);
+        existing ??= await FindExistingAsync(model, projectId);
 
         if (existing != null)
         {
@@ -60,6 +58,19 @@ public class CoverageReportRepository
                 existing.BranchRate = SanitizeDouble(model.BranchRate);
                 existing.Complexity = SanitizeDouble(model.ComplexityValue);
                 existing.Version = model.Version;
+                existing.RunId = model.RunId;
+                existing.CollectionStatus = model.CollectionStatus;
+                existing.CollectionReason = model.CollectionReason;
+                existing.SuccessfulCollector = model.SuccessfulCollector;
+                existing.CollectionMetadataJson = model.CollectionMetadataJson;
+                existing.HasUsableCoverage = model.HasUsableCoverage;
+                existing.LineCountsAvailable = model.LineCountsAvailable;
+                existing.BranchCountsAvailable = model.BranchCountsAvailable;
+                existing.MeasurementPolicyVersion = model.MeasurementPolicyVersion;
+                existing.RawObjectCount = model.RawObjectCount;
+                existing.MappedObjectCount = model.MappedObjectCount;
+                existing.RawMemberCount = model.RawMemberCount;
+                existing.MappedMemberCount = model.MappedMemberCount;
                 existing.LinesCovered = model.LinesCovered;
                 existing.LinesValid = model.LinesValid;
                 existing.BranchesCovered = model.BranchesCovered;
@@ -87,10 +98,32 @@ public class CoverageReportRepository
                entity.BranchRate != SanitizeDouble(model.BranchRate) ||
                entity.Complexity != SanitizeDouble(model.ComplexityValue) ||
                entity.Version != model.Version ||
+               entity.RunId != model.RunId ||
+               entity.CollectionStatus != model.CollectionStatus ||
+               entity.CollectionReason != model.CollectionReason ||
+               entity.SuccessfulCollector != model.SuccessfulCollector ||
+               entity.CollectionMetadataJson != model.CollectionMetadataJson ||
+               entity.HasUsableCoverage != model.HasUsableCoverage ||
+               entity.LineCountsAvailable != model.LineCountsAvailable ||
+               entity.BranchCountsAvailable != model.BranchCountsAvailable ||
+               entity.MeasurementPolicyVersion != model.MeasurementPolicyVersion ||
+               entity.RawObjectCount != model.RawObjectCount ||
+               entity.MappedObjectCount != model.MappedObjectCount ||
+               entity.RawMemberCount != model.RawMemberCount ||
+               entity.MappedMemberCount != model.MappedMemberCount ||
                entity.LinesCovered != model.LinesCovered ||
                entity.LinesValid != model.LinesValid ||
                entity.BranchesCovered != model.BranchesCovered ||
                entity.BranchesValid != model.BranchesValid;
+    }
+
+    private Task<CoverageReportEntity?> FindExistingAsync(CoverageReportModel model, int projectId)
+    {
+        return string.IsNullOrWhiteSpace(model.RunId)
+            ? _context.CoverageReports.FirstOrDefaultAsync(x =>
+                x.ProjectId == projectId && x.RunId == string.Empty && x.Timestamp == model.Timestamp)
+            : _context.CoverageReports.FirstOrDefaultAsync(x =>
+                x.ProjectId == projectId && x.RunId == model.RunId);
     }
 
     private static double SanitizeDouble(double value)

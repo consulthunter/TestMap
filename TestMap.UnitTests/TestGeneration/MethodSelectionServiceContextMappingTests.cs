@@ -597,6 +597,21 @@ public sealed class MethodSelectionServiceContextMappingTests
             .Options;
         var db = new TestMapDbContext(options);
         await db.Database.EnsureCreatedAsync();
+        db.ChangeTracker.Tracked += (_, args) =>
+        {
+            if (args.FromQuery) return;
+            if (args.Entry.Entity is CoverageReportEntity report)
+            {
+                report.MeasurementPolicyVersion = "coverage-integrity-v1";
+                report.HasUsableCoverage = true;
+                report.CollectionStatus = "Mapped";
+            }
+            else if (args.Entry.Entity is MemberCoverageEntity coverage)
+            {
+                coverage.AttributionStatus = "Mapped";
+                coverage.LineCountsAvailable = true;
+            }
+        };
         return db;
     }
 

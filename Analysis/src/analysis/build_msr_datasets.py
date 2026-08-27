@@ -10,7 +10,8 @@ Outputs::
     msr_entities.csv           attribution spine: one row per member and object
     msr_code_metrics.csv       one row per persisted metric row
     msr_test_smells.csv        one row per detected smell
-    msr_coverage.csv           one row per member/object coverage row
+    msr_coverage.csv           one row per raw member/object coverage observation,
+                               retaining nullable attribution and corrected provenance
     msr_mutants.csv            one row per (member, report) mutant aggregate
     msr_mappings.csv           one row per source-to-test mapping
     msr_structural_checks.csv  long format: repo x construct x check

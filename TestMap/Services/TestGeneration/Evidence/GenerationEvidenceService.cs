@@ -79,7 +79,12 @@ public sealed class GenerationEvidenceService : IGenerationEvidenceService
     {
         var latestCoverage = await _dbContext.MemberCoverages
             .AsNoTracking()
-            .Where(x => x.MemberId == methodId)
+            .Where(x => x.MemberId == methodId &&
+                        x.AttributionStatus == "Mapped" &&
+                        _dbContext.CoverageReports.Any(report =>
+                            report.Id == x.CoverageReportId &&
+                            report.MeasurementPolicyVersion == "coverage-integrity-v1" &&
+                            report.HasUsableCoverage))
             .OrderByDescending(x => x.CoverageReportId)
             .ThenByDescending(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);

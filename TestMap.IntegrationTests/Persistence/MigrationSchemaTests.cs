@@ -93,7 +93,7 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Equal(16, applied.Count);
+            Assert.Equal(17, applied.Count);
             Assert.Contains(applied, x => x.Contains("InitialCreate"));
             Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
@@ -110,6 +110,36 @@ public sealed class MigrationSchemaTests
             Assert.Contains(applied, x => x.Contains("AddPinnedProjectProvenance"));
             Assert.Contains(applied, x => x.Contains("AddPinnedExperimentProvenanceAndIntegrity"));
             Assert.Contains(applied, x => x.Contains("AddAssertionLineageEvidence"));
+            Assert.Contains(applied, x => x.Contains("AddCoverageDataIntegrity"));
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsCoverageIntegrityColumnsAndIndexesWithoutNewTables()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var reportColumns = await GetColumnNamesAsync(db, "coverage_reports");
+            var objectColumns = await GetColumnNamesAsync(db, "object_coverages");
+            var memberColumns = await GetColumnNamesAsync(db, "member_coverages");
+
+            Assert.Contains("run_id", reportColumns);
+            Assert.Contains("collection_status", reportColumns);
+            Assert.Contains("measurement_policy_version", reportColumns);
+            Assert.Contains("raw_member_count", reportColumns);
+            Assert.Contains("source_ordinal", objectColumns);
+            Assert.Contains("attribution_status", objectColumns);
+            Assert.Contains("line_counts_available", objectColumns);
+            Assert.Contains("object_coverage_id", memberColumns);
+            Assert.Contains("signature", memberColumns);
+            Assert.Contains("branch_counts_available", memberColumns);
+
+            var indexes = await GetIndexNamesAsync(db);
+            Assert.Contains("IX_coverage_reports_project_id_run_id", indexes);
+            Assert.Contains("IX_object_coverages_coverage_report_id_source_ordinal", indexes);
+            Assert.Contains("IX_member_coverages_object_coverage_id_source_ordinal", indexes);
         });
     }
 
@@ -270,5 +300,19 @@ public sealed class MigrationSchemaTests
             columns.Add(reader.GetString(1));
 
         return columns;
+    }
+
+    private static async Task<IReadOnlyList<string>> GetIndexNamesAsync(TestMapDbContext db)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;";
+        var indexes = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) indexes.Add(reader.GetString(0));
+        return indexes;
     }
 }

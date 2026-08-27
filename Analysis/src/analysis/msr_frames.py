@@ -80,6 +80,13 @@ def _has_table(conn: sqlite3.Connection, table: str) -> bool:
     return row is not None
 
 
+def _has_columns(conn: sqlite3.Connection, table: str, columns: set[str]) -> bool:
+    if not _has_table(conn, table):
+        return False
+    available = {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
+    return columns.issubset(available)
+
+
 def _query(conn: sqlite3.Connection, sql: str) -> pd.DataFrame:
     return pd.read_sql_query(sql, conn)
 
@@ -228,32 +235,120 @@ def load_test_smells(conn: sqlite3.Connection) -> pd.DataFrame:
 def load_coverage(conn: sqlite3.Connection) -> pd.DataFrame:
     """Return member and object coverage rows in one frame."""
     frames: list[pd.DataFrame] = []
+    corrected = _has_columns(conn, "coverage_reports", {
+        "run_id", "collection_status", "has_usable_coverage", "measurement_policy_version"
+    })
 
     if _has_table(conn, "member_coverages"):
-        frames.append(_query(conn, """
+        if corrected and _has_columns(conn, "member_coverages", {
+            "object_coverage_id", "source_ordinal", "name", "signature",
+            "attribution_status", "attribution_reason", "line_counts_available",
+            "branch_counts_available"
+        }):
+            frames.append(_query(conn, """
             SELECT mc.id AS observation_id,
                    'member' AS entity_kind,
                    mc.member_id AS entity_id,
+                   mc.object_coverage_id,
                    mc.coverage_report_id,
+                   mc.source_ordinal,
+                   NULL AS package_name,
+                   mc.name AS raw_name,
+                   NULL AS raw_filename,
+                   mc.signature AS raw_signature,
+                   mc.attribution_status,
+                   mc.attribution_reason,
+                   mc.line_counts_available,
+                   mc.branch_counts_available,
                    mc.line_rate, mc.branch_rate,
                    mc.lines_covered, mc.lines_valid,
                    mc.branches_covered, mc.branches_valid,
-                   mc.complexity
+                   mc.complexity,
+                   cr.run_id AS coverage_run_id,
+                   cr.test_run_id,
+                   cr.collection_status,
+                   cr.collection_reason,
+                   cr.successful_collector,
+                   cr.has_usable_coverage,
+                   cr.measurement_policy_version,
+                   cr.raw_object_count, cr.mapped_object_count,
+                   cr.raw_member_count, cr.mapped_member_count
             FROM member_coverages mc
+            JOIN coverage_reports cr ON cr.id = mc.coverage_report_id
         """))
+        else:
+            frames.append(_query(conn, """
+                SELECT mc.id AS observation_id, 'member' AS entity_kind,
+                       mc.member_id AS entity_id, NULL AS object_coverage_id,
+                       mc.coverage_report_id, NULL AS source_ordinal,
+                       NULL AS package_name, NULL AS raw_name, NULL AS raw_filename,
+                       NULL AS raw_signature, 'LegacyNotMeasured' AS attribution_status,
+                       NULL AS attribution_reason, NULL AS line_counts_available,
+                       NULL AS branch_counts_available, mc.line_rate, mc.branch_rate,
+                       mc.lines_covered, mc.lines_valid, mc.branches_covered,
+                       mc.branches_valid, mc.complexity, NULL AS coverage_run_id,
+                       NULL AS test_run_id, 'LegacyNotMeasured' AS collection_status,
+                       NULL AS collection_reason, NULL AS successful_collector,
+                       0 AS has_usable_coverage, '' AS measurement_policy_version,
+                       NULL AS raw_object_count, NULL AS mapped_object_count,
+                       NULL AS raw_member_count, NULL AS mapped_member_count
+                FROM member_coverages mc
+            """))
 
     if _has_table(conn, "object_coverages"):
-        frames.append(_query(conn, """
+        if corrected and _has_columns(conn, "object_coverages", {
+            "source_ordinal", "package_name", "name", "filename", "attribution_status",
+            "attribution_reason", "line_counts_available", "branch_counts_available"
+        }):
+            frames.append(_query(conn, """
             SELECT oc.id AS observation_id,
                    'object' AS entity_kind,
                    oc.object_id AS entity_id,
+                   NULL AS object_coverage_id,
                    oc.coverage_report_id,
+                   oc.source_ordinal,
+                   oc.package_name,
+                   oc.name AS raw_name,
+                   oc.filename AS raw_filename,
+                   NULL AS raw_signature,
+                   oc.attribution_status,
+                   oc.attribution_reason,
+                   oc.line_counts_available,
+                   oc.branch_counts_available,
                    oc.line_rate, oc.branch_rate,
                    oc.lines_covered, oc.lines_valid,
                    oc.branches_covered, oc.branches_valid,
-                   oc.complexity
+                   oc.complexity,
+                   cr.run_id AS coverage_run_id,
+                   cr.test_run_id,
+                   cr.collection_status,
+                   cr.collection_reason,
+                   cr.successful_collector,
+                   cr.has_usable_coverage,
+                   cr.measurement_policy_version,
+                   cr.raw_object_count, cr.mapped_object_count,
+                   cr.raw_member_count, cr.mapped_member_count
             FROM object_coverages oc
+            JOIN coverage_reports cr ON cr.id = oc.coverage_report_id
         """))
+        else:
+            frames.append(_query(conn, """
+                SELECT oc.id AS observation_id, 'object' AS entity_kind,
+                       oc.object_id AS entity_id, NULL AS object_coverage_id,
+                       oc.coverage_report_id, NULL AS source_ordinal,
+                       NULL AS package_name, NULL AS raw_name, NULL AS raw_filename,
+                       NULL AS raw_signature, 'LegacyNotMeasured' AS attribution_status,
+                       NULL AS attribution_reason, NULL AS line_counts_available,
+                       NULL AS branch_counts_available, oc.line_rate, oc.branch_rate,
+                       oc.lines_covered, oc.lines_valid, oc.branches_covered,
+                       oc.branches_valid, oc.complexity, NULL AS coverage_run_id,
+                       NULL AS test_run_id, 'LegacyNotMeasured' AS collection_status,
+                       NULL AS collection_reason, NULL AS successful_collector,
+                       0 AS has_usable_coverage, '' AS measurement_policy_version,
+                       NULL AS raw_object_count, NULL AS mapped_object_count,
+                       NULL AS raw_member_count, NULL AS mapped_member_count
+                FROM object_coverages oc
+            """))
 
     if not frames:
         return pd.DataFrame()

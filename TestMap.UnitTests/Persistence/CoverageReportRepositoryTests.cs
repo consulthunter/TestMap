@@ -140,6 +140,47 @@ public sealed class CoverageReportRepositoryTests
         Assert.False(await repo.HasCoverageReportsAsync(projectId: 999));
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task InsertOrUpdateAsync_CorrectedRunIdentityAndMetadata_RoundTripsAndUpdates()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var repo = new CoverageReportRepository(db);
+        var first = MakeReport(timestamp: 0);
+        first.RunId = "run-a";
+        first.CollectionStatus = "PendingAttribution";
+        first.CollectionReason = "Parsed current-run artifact.";
+        first.SuccessfulCollector = "XPlat Code Coverage";
+        first.CollectionMetadataJson = "{\"schema\":\"coverage-collection-v1\"}";
+        first.MeasurementPolicyVersion = CoverageReportModel.CorrectedPolicyVersion;
+        first.LineCountsAvailable = true;
+        first.RawObjectCount = 2;
+        first.RawMemberCount = 5;
+
+        var firstId = await repo.InsertOrUpdateAsync(first, projectId: 10);
+        var second = MakeReport(timestamp: 0);
+        second.RunId = "run-b";
+        second.MeasurementPolicyVersion = CoverageReportModel.CorrectedPolicyVersion;
+        var secondId = await repo.InsertOrUpdateAsync(second, projectId: 10);
+
+        Assert.NotEqual(firstId, secondId);
+        first.CollectionStatus = "Mapped";
+        first.HasUsableCoverage = true;
+        first.MappedObjectCount = 1;
+        first.MappedMemberCount = 4;
+        Assert.Equal(firstId, await repo.InsertOrUpdateAsync(first, projectId: 10));
+
+        var stored = await db.CoverageReports.SingleAsync(x => x.Id == firstId);
+        Assert.Equal("run-a", stored.RunId);
+        Assert.Equal("Mapped", stored.CollectionStatus);
+        Assert.True(stored.HasUsableCoverage);
+        Assert.Equal(2, stored.RawObjectCount);
+        Assert.Equal(4, stored.MappedMemberCount);
+        Assert.Contains("coverage-collection-v1", stored.CollectionMetadataJson);
+    }
+
     // ─── Infrastructure ───────────────────────────────────────────────────────
 
     private static async Task<TestMapDbContext> CreateDbAsync(SqliteConnection connection)

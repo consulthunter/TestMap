@@ -66,7 +66,10 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             LineRate = 0.82,
             BranchRate = 0.7,
             Complexity = 1.0,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            MeasurementPolicyVersion = "coverage-integrity-v1",
+            HasUsableCoverage = true,
+            CollectionStatus = "Mapped"
         });
         db.MutationTestingReports.Add(new MutationTestingReportEntity
         {
@@ -136,7 +139,10 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             LineRate = 0.90,
             BranchRate = 0.7,
             Complexity = 1.0,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            MeasurementPolicyVersion = "coverage-integrity-v1",
+            HasUsableCoverage = true,
+            CollectionStatus = "Mapped"
         };
         db.CoverageReports.Add(report);
         await db.SaveChangesAsync();
@@ -146,6 +152,7 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             {
                 CoverageReportId = report.Id,
                 MemberId = 42,
+                AttributionStatus = "Mapped",
                 LineRate = 0.65,
                 BranchRate = 0.5,
                 LinesCovered = 13,
@@ -155,6 +162,7 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             {
                 CoverageReportId = report.Id,
                 MemberId = 43,
+                AttributionStatus = "Mapped",
                 LineRate = 1.0,
                 BranchRate = 1.0,
                 LinesCovered = 4,

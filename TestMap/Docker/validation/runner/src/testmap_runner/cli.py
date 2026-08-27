@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -27,6 +29,32 @@ class CommandResult:
     coverage_file_count: int = 0
     stdout: str = ""
     stderr: str = ""
+    collector_attempts: tuple[CollectorAttempt, ...] = ()
+    coverage_artifacts: tuple[CoverageArtifact, ...] = ()
+    successful_collector: str | None = None
+
+
+@dataclass(frozen=True)
+class CoverageArtifact:
+    path: Path
+    sha256: str
+    target: str
+    framework: str
+
+
+@dataclass(frozen=True)
+class CollectorAttempt:
+    order: int
+    collector: str
+    return_code: int
+    trx_files: tuple[Path, ...]
+    coverage_artifacts: tuple[CoverageArtifact, ...]
+
+
+DEFAULT_COVERAGE_COLLECTORS = (
+    "XPlat Code Coverage",
+    "Code Coverage;Format=Cobertura",
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -176,6 +204,9 @@ def run_dotnet_tests(args: argparse.Namespace) -> int:
     overall_exit_code = 0
     produced_any_test_results = False
     produced_any_coverage_files = False
+    all_attempts: list[CollectorAttempt] = []
+    all_artifacts: list[CoverageArtifact] = []
+    successful_collector: str | None = None
 
     for solution_name in solution_names:
         solution_path = find_named_file(paths.project_dir, solution_name)
@@ -192,6 +223,9 @@ def run_dotnet_tests(args: argparse.Namespace) -> int:
             framework=args.framework,
             collector=None,
         )
+        all_attempts.extend(result.collector_attempts)
+        all_artifacts.extend(result.coverage_artifacts)
+        successful_collector = result.successful_collector or successful_collector
         if result.test_result_count == 0:
             print(f"No TRX test results were produced for solution: {solution_path}")
             overall_exit_code = overall_exit_code or result.return_code or 1
@@ -213,16 +247,32 @@ def run_dotnet_tests(args: argparse.Namespace) -> int:
 
     if not produced_any_test_results:
         print("No TRX test results were produced for any specified solution.")
-        return overall_exit_code or 1
+        exit_code = overall_exit_code or 1
+        status = classify_no_artifact_status(all_attempts)
+        write_collection_sidecar(paths, args.run_id, status,
+                                 "No current-run TRX test results were produced.", exit_code,
+                                 successful_collector, all_attempts, all_artifacts)
+        return exit_code
 
     if not produced_any_coverage_files:
         print("No coverage files were produced for any specified solution.")
-        return overall_exit_code or 1
+        exit_code = overall_exit_code or 1
+        status = classify_no_artifact_status(all_attempts)
+        write_collection_sidecar(paths, args.run_id, status,
+                                 "Collectors completed without a current-run coverage artifact.", exit_code,
+                                 successful_collector, all_attempts, all_artifacts)
+        return exit_code
 
-    merge_exit_code = merge_coverage_reports(paths, args.run_id)
+    merge_inputs, duplicates = dedupe_artifacts(all_artifacts)
+    merge_exit_code = merge_coverage_reports(paths, args.run_id, [item.path for item in merge_inputs])
     if merge_exit_code != 0:
+        write_collection_sidecar(paths, args.run_id, "MergeFailed",
+                                 "Current-run coverage artifacts could not be merged.", overall_exit_code,
+                                 successful_collector, all_attempts, all_artifacts, merge_inputs, duplicates)
         return merge_exit_code
 
+    write_collection_sidecar(paths, args.run_id, "Merged", "", overall_exit_code,
+                             successful_collector, all_attempts, all_artifacts, merge_inputs, duplicates)
     print("All specified solutions processed.")
     return overall_exit_code
 
@@ -238,6 +288,9 @@ def run_dotnet_test_project(args: argparse.Namespace) -> int:
 
     if not project_path.exists():
         print(f"Project not found in container: {project_path}")
+        status = classify_no_artifact_status(result.collector_attempts)
+        write_collection_sidecar(paths, args.run_id, status,
+                                 f"Project not found in container: {project_path}", 1, None, [], [])
         return 1
 
     print(f"Processing test project: {project_path}")
@@ -249,10 +302,21 @@ def run_dotnet_test_project(args: argparse.Namespace) -> int:
     )
     if result.test_result_count == 0:
         print(f"No TRX test results were produced for project: {project_path}")
-        return result.return_code or 1
+        exit_code = result.return_code or 1
+        write_collection_sidecar(paths, args.run_id, "CollectionFailed",
+                                 "No current-run TRX test result was produced.", exit_code,
+                                 result.successful_collector, result.collector_attempts,
+                                 result.coverage_artifacts)
+        return exit_code
     if result.coverage_file_count == 0:
         print(f"No coverage files were produced for project: {project_path}")
-        return result.return_code or 1
+        exit_code = result.return_code or 1
+        status = classify_no_artifact_status(result.collector_attempts)
+        write_collection_sidecar(paths, args.run_id, status,
+                                 "Collectors completed without a current-run coverage artifact.", exit_code,
+                                 result.successful_collector, result.collector_attempts,
+                                 result.coverage_artifacts)
+        return exit_code
 
     if result.return_code != 0:
         print(
@@ -260,10 +324,18 @@ def run_dotnet_test_project(args: argparse.Namespace) -> int:
             "Continuing so produced coverage can still be merged."
         )
 
-    merge_exit_code = merge_coverage_reports(paths, args.run_id)
+    merge_inputs, duplicates = dedupe_artifacts(result.coverage_artifacts)
+    merge_exit_code = merge_coverage_reports(paths, args.run_id, [item.path for item in merge_inputs])
     if merge_exit_code != 0:
+        write_collection_sidecar(paths, args.run_id, "MergeFailed",
+                                 "Current-run coverage artifacts could not be merged.", result.return_code,
+                                 result.successful_collector, result.collector_attempts,
+                                 result.coverage_artifacts, merge_inputs, duplicates)
         return merge_exit_code
 
+    write_collection_sidecar(paths, args.run_id, "Merged", "", result.return_code,
+                             result.successful_collector, result.collector_attempts,
+                             result.coverage_artifacts, merge_inputs, duplicates)
     print("Targeted test project processed.")
     return result.return_code
 
@@ -476,14 +548,14 @@ def run_dotnet_test_command(
         framework: str | None,
         collector: str | None,
 ) -> CommandResult:
-    collectors = [collector] if collector else [
-        "XPlat Code Coverage",
-        "Code Coverage;Format=Cobertura",
-    ]
+    collectors = build_collector_order(collector)
 
     overall_trx_count = 0
     overall_coverage_count = 0
     last_return_code = 0
+    attempts: list[CollectorAttempt] = []
+    artifacts: list[CoverageArtifact] = []
+    successful_collector: str | None = None
 
     for index, collector in enumerate(dict.fromkeys(collectors)):
         started_at = time.time()
@@ -514,8 +586,27 @@ def run_dotnet_test_command(
 
         wait_for_artifacts(paths.coverage_dir, trx_file_prefix, started_at)
 
-        trx_file_count = count_recent_trx_files(paths.coverage_dir, trx_file_prefix, started_at)
-        coverage_file_count = count_recent_coverage_files(paths.coverage_dir, started_at)
+        trx_files = recent_trx_files(paths.coverage_dir, trx_file_prefix, started_at)
+        coverage_files = recent_coverage_files(paths.coverage_dir, started_at)
+        trx_file_count = len(trx_files)
+        coverage_file_count = len(coverage_files)
+        attempt_artifacts = tuple(
+            CoverageArtifact(
+                path=path,
+                sha256=sha256_file(path),
+                target=str(target_path),
+                framework=framework or "",
+            )
+            for path in coverage_files
+        )
+        attempts.append(CollectorAttempt(
+            order=index + 1,
+            collector=collector,
+            return_code=result.return_code,
+            trx_files=tuple(trx_files),
+            coverage_artifacts=attempt_artifacts,
+        ))
+        artifacts.extend(attempt_artifacts)
 
         overall_trx_count += trx_file_count
         overall_coverage_count += coverage_file_count
@@ -525,14 +616,8 @@ def run_dotnet_test_command(
             f"and {coverage_file_count} coverage file(s)."
         )
 
-        if result.return_code != 0:
-            return CommandResult(
-                return_code=result.return_code,
-                test_result_count=overall_trx_count,
-                coverage_file_count=overall_coverage_count,
-            )
-
         if coverage_file_count > 0:
+            successful_collector = collector
             break
 
         if index < len(collectors) - 1:
@@ -542,11 +627,18 @@ def run_dotnet_test_command(
         return_code=last_return_code,
         test_result_count=overall_trx_count,
         coverage_file_count=overall_coverage_count,
+        collector_attempts=tuple(attempts),
+        coverage_artifacts=tuple(artifacts),
+        successful_collector=successful_collector,
     )
 
 
-def merge_coverage_reports(paths: RunnerPaths, run_id: str) -> int:
-    coverage_files = dedupe_by_name(paths.coverage_dir.rglob("*.cobertura.xml"))
+def merge_coverage_reports(
+        paths: RunnerPaths,
+        run_id: str,
+        coverage_files: Sequence[Path],
+) -> int:
+    coverage_files = dedupe_by_name(coverage_files)
     if not coverage_files:
         print("No coverage files found to merge.")
         return 0
@@ -570,6 +662,8 @@ def merge_coverage_reports(paths: RunnerPaths, run_id: str) -> int:
         return merge_result.return_code
 
     print(f"Merged raw coverage saved to: {merged_raw}")
+    shutil.copyfile(merged_raw, merged_normalized)
+    print(f"Normalized coverage saved to: {merged_normalized}")
 
     if paths.reportgenerator_executable:
         report_result = run_process(
@@ -646,11 +740,105 @@ def dedupe_by_name(paths: Sequence[Path] | list[Path] | object) -> list[Path]:
     unique: dict[str, Path] = {}
     for path in paths:
         path = Path(path)
-        if path.name not in unique:
-            unique[path.name] = path
+        identity = str(path.resolve())
+        if identity not in unique:
+            unique[identity] = path
         else:
             print(f"Skipping duplicate coverage file: {path}")
     return list(unique.values())
+
+
+def is_merge_output(path: Path) -> bool:
+    return path.name.startswith("merged_") or any(part.startswith("report_") for part in path.parts)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def dedupe_artifacts(
+        artifacts: Sequence[CoverageArtifact],
+) -> tuple[list[CoverageArtifact], list[CoverageArtifact]]:
+    unique: dict[tuple[str, str, str], CoverageArtifact] = {}
+    duplicates: list[CoverageArtifact] = []
+    for artifact in artifacts:
+        identity = (artifact.sha256, artifact.target.replace("\\", "/"), artifact.framework)
+        if identity in unique:
+            duplicates.append(artifact)
+        else:
+            unique[identity] = artifact
+    return list(unique.values()), duplicates
+
+
+def classify_no_artifact_status(attempts: Sequence[CollectorAttempt]) -> str:
+    if attempts and all(attempt.return_code != 0 and not attempt.trx_files for attempt in attempts):
+        return "ProviderUnavailable"
+    if any(attempt.return_code != 0 for attempt in attempts):
+        return "CollectionFailed"
+    return "NoArtifact"
+
+
+def write_collection_sidecar(
+        paths: RunnerPaths,
+        run_id: str,
+        status: str,
+        reason: str,
+        test_return_code: int,
+        successful_collector: str | None,
+        attempts: Sequence[CollectorAttempt],
+        artifacts: Sequence[CoverageArtifact],
+        merge_inputs: Sequence[CoverageArtifact] = (),
+        duplicates: Sequence[CoverageArtifact] = (),
+) -> None:
+    ensure_directory(paths.coverage_dir)
+
+    def relative(path: Path) -> str:
+        try:
+            return path.resolve().relative_to(paths.project_dir.resolve()).as_posix()
+        except ValueError:
+            return str(path)
+
+    def artifact_json(artifact: CoverageArtifact) -> dict[str, str]:
+        return {
+            "path": relative(artifact.path),
+            "sha256": artifact.sha256,
+            "target": artifact.target,
+            "framework": artifact.framework,
+        }
+
+    document = {
+        "schemaVersion": "coverage-collection-v1",
+        "runId": run_id,
+        "status": status,
+        "reason": reason,
+        "testReturnCode": test_return_code,
+        "successfulCollector": successful_collector or "",
+        "providerAttempts": [
+            {
+                "order": order,
+                "collector": attempt.collector,
+                "returnCode": attempt.return_code,
+                "trxFiles": [relative(path) for path in attempt.trx_files],
+                "coverageArtifacts": [artifact_json(item) for item in attempt.coverage_artifacts],
+            }
+            for order, attempt in enumerate(attempts, start=1)
+        ],
+        "merge": {
+            "status": status if status in {"Merged", "MergeFailed"} else "NotAttempted",
+            "inputArtifacts": [relative(item.path) for item in merge_inputs],
+            "duplicateArtifacts": [relative(item.path) for item in duplicates],
+            "rawOutput": relative(paths.coverage_dir / f"merged_{run_id}_raw.cobertura.xml"),
+            "normalizedOutput": relative(paths.coverage_dir / f"merged_{run_id}.cobertura.xml"),
+        },
+    }
+    sidecar = paths.coverage_dir / f"collection_{run_id}.json"
+    temporary = paths.coverage_dir / f"collection_{run_id}.json.tmp"
+    temporary.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, sidecar)
 
 
 def ensure_directory(path: Path) -> None:
@@ -663,6 +851,13 @@ def build_trx_file_prefix(target_path: Path, framework: str | None, collector: s
     return f"{target_path.stem}_{framework_segment}_{collector_segment}"
 
 
+def build_collector_order(requested_collector: str | None) -> list[str]:
+    return list(dict.fromkeys(
+        ([requested_collector] if requested_collector else []) +
+        [candidate for candidate in DEFAULT_COVERAGE_COLLECTORS if candidate != requested_collector]
+    ))
+
+
 def wait_for_artifacts(coverage_dir: Path, trx_file_prefix: str, started_at: float) -> None:
     for _ in range(10):
         if count_recent_trx_files(coverage_dir, trx_file_prefix, started_at) > 0:
@@ -673,16 +868,22 @@ def wait_for_artifacts(coverage_dir: Path, trx_file_prefix: str, started_at: flo
 
 
 def count_recent_trx_files(coverage_dir: Path, trx_file_prefix: str, started_at: float) -> int:
-    return sum(
-        1
-        for path in coverage_dir.glob(f"{trx_file_prefix}*.trx")
+    return len(recent_trx_files(coverage_dir, trx_file_prefix, started_at))
+
+
+def recent_trx_files(coverage_dir: Path, trx_file_prefix: str, started_at: float) -> list[Path]:
+    return sorted(
+        path for path in coverage_dir.glob(f"{trx_file_prefix}*.trx")
         if path.exists() and path.stat().st_mtime >= started_at
     )
 
 
 def count_recent_coverage_files(coverage_dir: Path, started_at: float) -> int:
-    return sum(
-        1
-        for path in coverage_dir.rglob("*.cobertura.xml")
-        if path.exists() and path.stat().st_mtime >= started_at
+    return len(recent_coverage_files(coverage_dir, started_at))
+
+
+def recent_coverage_files(coverage_dir: Path, started_at: float) -> list[Path]:
+    return sorted(
+        path for path in coverage_dir.rglob("*.cobertura.xml")
+        if path.exists() and path.stat().st_mtime >= started_at and not is_merge_output(path)
     )
