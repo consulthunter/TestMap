@@ -44,6 +44,11 @@ per repository database.
 | `audit` | Data-completeness report to run before analysis. |
 | `export-training` | ML training export. `--grain {mapping,candidate,pair}`. |
 | `repo-report` | Render a single-repository report. |
+| `msr-population` | Select the MSR validation population from execution + validation reports; copy the corpus. |
+| `build-msr-datasets` | Consolidate per-repo `analysis.db` files into MSR validation frames + structural checks. |
+| `msr-coverage-audit` | Find repos claiming coverage with no coverage rows; classify why, write exclusions. |
+| `msr-validate` | Draw the seeded human-judged sample; write units, codebooks, and rater forms. |
+| `msr-collect` | Parse filled rating forms; report inter-rater agreement and agreement with TestMap. |
 
 ## Outputs (`data/`)
 
@@ -55,6 +60,8 @@ per repository database.
 | `evaluation_repository_families.csv` | one row per (repository family, lane), aggregating revisions explicitly |
 | `generated_tests.csv` | one row per generated/linked test |
 | `tool_generated_test_links.csv` | agentic tool attempt → generated test member links |
+| `assertion_observations.csv` | one row per recognized assertion from the schema-1 sidecar |
+| `traced_assertions.csv` | derived view containing only semantic `Traced` observations |
 | `mutation_operators.csv` | mutation-operator survival profile per repo (needs `--db`) |
 | `evaluation_overview.json` / `.csv` | headline totals and outcome counts |
 | `failures/failure_cases.csv` / `.jsonl` | qualitative failure dataset |
@@ -69,16 +76,27 @@ per repository database.
 | `03_cross_repo_lane_comparison` | LLM vs agentic on shared outcomes (paired, weighted, cost). |
 | `04_model_tool_analysis` | Per model/tool ranking, predictors, best-by-category. |
 | `05_failure_casebook` | Sampling frame + flow for qualitative coding. |
+| `00_msr_validation` | Mining-layer validation: availability, distributions, IQRs, structural checks. |
 
 ## Key semantics
 
 - Two lanes: `llm` and `agentic`, both canonicalized to one row per attempt; generated tests are
-  loaded from the separate schema-v3 child file.
+  loaded from the separate result child file.
 - `validated_success` = `ValidatedEvidencePositive` **or** `ValidatedLowImpact`; `positive_impact`
   (VEP) = test passed **and** metrics improved ≥ noise floor (coverage ≥ 1pp or mutation ≥ 1pp).
 - `effective_tokens` = lane-fair cost (LLM cumulative repair-chain total; agentic total run) — use
   it, not raw `total_tokens`, for cost comparisons.
 - Candidate-weighted views are the primary headline; attempt-weighted is a sensitivity check.
+- `read_result_grains()` is the explicit schema-3 compatibility reader. Because schema 3 has no
+  classified lineage, its assertion status is `NotMeasured` and its category counts remain null.
+- `read_schema4_result_bundle()` reads schema-4 attempts/children together with the schema-1
+  `*.assertions.csv` sidecar. Only these persisted semantic observations can populate `Traced`,
+  `Trivial`, and `Unresolved`; legacy regex or invocation counts remain inventory-only.
+- Run the strict audit before publishing assertion-quality results. It blocks unsupported versions,
+  missing policy/reasons, duplicate or orphan identities, broken trace paths, count mismatches,
+  missing sidecars, and cross-lane policy differences.
+- Assertion lineage measures direct data dependence only. `Traced` does not establish oracle
+  strength or mutation sensitivity, and it does not attribute a mutant kill to the assertion.
 
 Design rationale and methodology: [analysis_plan.md](analysis_plan.md).
 Column dictionary and lane-specific details: [docs/data_reference.md](docs/data_reference.md).

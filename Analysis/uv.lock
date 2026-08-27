@@ -21,6 +21,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "papermill" },
+    { name = "pyyaml" },
     { name = "scipy" },
     { name = "seaborn" },
 ]
@@ -38,6 +39,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.0" },
     { name = "pandas", specifier = ">=3.0.3" },
     { name = "papermill", specifier = ">=2.7.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "scipy", specifier = ">=1.18.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
 ]

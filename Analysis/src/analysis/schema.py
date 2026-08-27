@@ -15,6 +15,103 @@ LANE_AGENTIC = "agentic"
 LANE_VALUES = [LANE_LLM, LANE_AGENTIC]
 
 # ---------------------------------------------------------------------------
+# Assertion-lineage contract versions and vocabularies
+# ---------------------------------------------------------------------------
+
+LEGACY_RESULTS_SCHEMA_VERSION = "3.0"
+ASSERTION_RESULTS_SCHEMA_VERSION = "4.0"
+ASSERTION_SIDECAR_SCHEMA_VERSION = "1.0"
+ASSERTION_POLICY_VERSION = "assertion-lineage-v1"
+ASSERTION_CATALOG_VERSION = "assertion-catalog-v1"
+
+ASSERTION_CATEGORIES = frozenset({"Traced", "Trivial", "Unresolved"})
+ASSERTION_MEASUREMENT_STATUSES = frozenset(
+    {"Complete", "Partial", "Unavailable", "NotApplicable", "NotMeasured"}
+)
+ASSERTION_SUMMARY_STATUSES = frozenset(
+    {"Classified", "NoRecognizedAssertions", "Unavailable"}
+)
+ASSERTION_RECOGNITION_KINDS = frozenset({"Semantic", "SyntacticFallback"})
+
+ASSERTION_UNRESOLVED_REASONS = frozenset({
+    "DepthExceeded",
+    "CycleDetected",
+    "AmbiguousDefinitions",
+    "AmbiguousDispatch",
+    "DynamicInvocation",
+    "Reflection",
+    "UnknownDelegateTarget",
+    "UnsupportedAssertionShape",
+    "UnsupportedWrite",
+    "UnsupportedAlias",
+    "UnsupportedFieldFlow",
+    "MissingDefinition",
+    "MissingSource",
+    "SemanticModelUnavailable",
+    "ProjectLoadFailure",
+    "PathCapExceeded",
+})
+
+ASSERTION_UNAVAILABLE_REASONS = frozenset({
+    "NoAppliedTestArtifact",
+    "GeneratedTestMemberUnresolved",
+    "PostAttemptAnalysisSkipped",
+    "SemanticProjectUnavailable",
+    "SourceUnavailable",
+    "AnalysisDisabled",
+    "AnalysisFailure",
+    "HistoricalNotMeasured",
+})
+
+ASSERTION_RESULT_FIELDS: list[str] = [
+    "assertion_measurement_status",
+    "assertion_measurement_reason",
+    "assertion_policy_version",
+    "assertion_catalog_version",
+    "assertion_max_depth",
+    "recognized_assertion_count",
+    "unrecognized_assertion_count",
+    "traced_assertion_count",
+    "trivial_assertion_count",
+    "unresolved_assertion_count",
+    "no_recognized_assertions",
+    "assertion_analysis_duration_ms",
+    "assertion_attribution",
+]
+
+ASSERTION_SIDECAR_REQUIRED_FIELDS = frozenset({
+    "assertion_schema_version",
+    "observation_id",
+    "attempt_id",
+    "repository_identity",
+    "resolved_commit",
+    "intended_source_member_id",
+    "generated_test_assertion_summary_id",
+    "test_member_name",
+    "test_file_path",
+    "test_member_content_hash",
+    "assertion_ordinal",
+    "start_line",
+    "start_column",
+    "end_line",
+    "end_column",
+    "framework",
+    "assertion_method",
+    "recognition_kind",
+    "expression_hash",
+    "category",
+    "resolution_code",
+    "target_relation",
+    "depth_reached",
+    "resolved_production_member_ids",
+    "policy_version",
+    "assertion_catalog_version",
+    "max_depth",
+    "trace_summary",
+    "ordered_lineage_paths_json",
+})
+
+# ---------------------------------------------------------------------------
 # Raw CSV column → canonical column renames
 # Applied once at load time before any other normalization.
 # ---------------------------------------------------------------------------
@@ -140,6 +237,7 @@ SHARED_ATTEMPT_FIELDS: list[str] = [
     "deleted_files_count",
     "baseline_test_execution_time_ms",
     "generated_test_execution_time_ms",
+    *ASSERTION_RESULT_FIELDS,
 ]
 
 # Fields that uniquely identify a candidate across lanes

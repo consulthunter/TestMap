@@ -1,10 +1,9 @@
 ﻿FROM testmap-dotnet-agent-base:0.1
 
-ARG AIDER_VERSION=latest
+ARG AIDER_VERSION=0.86.2
 
-# Install Aider using uv.
-# For reproducible evaluation runs, replace "latest" with a pinned version
-# after the pilot stabilizes.
+# Install Aider using uv. The version is pinned so an evaluation sweep cannot
+# silently change tool behaviour partway through; bump it deliberately.
 RUN if [ "$AIDER_VERSION" = "latest" ]; then \
       uv tool install aider-chat; \
     else \

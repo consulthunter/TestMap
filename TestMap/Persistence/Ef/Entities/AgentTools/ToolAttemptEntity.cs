@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using TestMap.Persistence.Ef.Entities.Experiment;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 
 namespace TestMap.Persistence.Ef.Entities.AgentTools;
 
@@ -65,4 +66,6 @@ public class ToolAttemptEntity
     public virtual ExperimentRunEntity? ExperimentRun { get; set; }
     public virtual ExperimentMatrixWorkItemEntity? MatrixWorkItem { get; set; }
     public virtual CandidateMethodEntity? CandidateMethod { get; set; }
+    public virtual ICollection<AssertionLineageMeasurementEntity> AssertionLineageMeasurements { get; set; } =
+        new List<AssertionLineageMeasurementEntity>();
 }

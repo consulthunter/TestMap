@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -76,6 +76,22 @@ public static class Utilities
                 NormalizeIdentityPart(kind)));
     }
 
+    /// <summary>
+    /// Identifies a member by where it is declared, what it is called, its signature, and its
+    /// body.
+    ///
+    /// The body is part of the identity because a generated test is a distinct artefact of the
+    /// attempt that produced it. Without it, every attempt emitting a same-named test resolved to
+    /// one row whose body, location, metrics and smells were overwritten by whichever attempt ran
+    /// last, so six different tests reported one set of numbers. Including the body gives each
+    /// attempt's test its own id, and everything keyed to a member -- code metrics, test smells,
+    /// coverage, mappings -- is then attached to the version it was measured against and is never
+    /// rewritten by a later attempt.
+    ///
+    /// Layout is not identity: the body is compared with runs of whitespace collapsed, so
+    /// reindenting a method does not fork it into a new member. A change to the code itself,
+    /// including its comments, does.
+    /// </summary>
     public static string ComputeMemberIdentityHash(int objectEntityId, string name, string kind, string fullString)
     {
         var signatureFingerprint = TryExtractMemberSignatureFingerprint(fullString);
@@ -85,7 +101,56 @@ public static class Utilities
                 objectEntityId,
                 NormalizeIdentityPart(kind),
                 NormalizeIdentityPart(name),
-                signatureFingerprint));
+                signatureFingerprint,
+                BuildBodyFingerprint(fullString)));
+    }
+
+    /// <summary>
+    /// Normalised text of the declaration, used to tell one version of a member from another.
+    /// Leading and trailing trivia are dropped so surrounding blank lines and the preceding
+    /// member's formatting cannot change it.
+    /// </summary>
+    private static string BuildBodyFingerprint(string fullString)
+    {
+        if (string.IsNullOrWhiteSpace(fullString)) return string.Empty;
+
+        string text;
+        try
+        {
+            text = SyntaxFactory.ParseMemberDeclaration(fullString) is { } declaration
+                ? declaration.ToString()
+                : fullString;
+        }
+        catch
+        {
+            text = fullString;
+        }
+
+        return CollapseWhitespace(text);
+    }
+
+    private static string CollapseWhitespace(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        var pendingSpace = false;
+        foreach (var character in value)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                pendingSpace = builder.Length > 0;
+                continue;
+            }
+
+            if (pendingSpace)
+            {
+                builder.Append(' ');
+                pendingSpace = false;
+            }
+
+            builder.Append(character);
+        }
+
+        return builder.ToString();
     }
 
     public static string? ExtractTestMethodName(string testCode)

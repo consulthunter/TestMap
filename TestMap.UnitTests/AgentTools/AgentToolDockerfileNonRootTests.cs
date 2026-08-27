@@ -72,6 +72,33 @@ public sealed class AgentToolDockerfileNonRootTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void CopilotRunner_PassesConfiguredModelAsFlag()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "copilot", "run-copilot.sh"));
+
+        Assert.Contains("MODEL_ARGS+=(--model \"${COPILOT_MODEL}\")", runner);
+        Assert.Contains("\"${MODEL_ARGS[@]}\"", runner);
+        Assert.Contains("COPILOT_MODEL=${COPILOT_MODEL:-}", runner);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CopilotRunner_RecordsByokProviderAndRequiresModel()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "copilot", "run-copilot.sh"));
+
+        Assert.Contains("COPILOT_PROVIDER_BASE_URL=${COPILOT_PROVIDER_BASE_URL:-}", runner);
+        Assert.Contains("COPILOT_PROVIDER_TYPE=${COPILOT_PROVIDER_TYPE:-}", runner);
+        Assert.Contains("COPILOT_PROVIDER_API_KEY_SET=", runner);
+        Assert.Contains("BYOK requires a model", runner);
+        // The provider key must never be written to the attempt artifacts in plain text.
+        Assert.DoesNotContain("COPILOT_PROVIDER_API_KEY=${COPILOT_PROVIDER_API_KEY", runner);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void MiniSweAgentRunner_GeneratesCustomEndpointModelConfig()
     {
         var dockerRoot = ResolveAgentToolsRoot();

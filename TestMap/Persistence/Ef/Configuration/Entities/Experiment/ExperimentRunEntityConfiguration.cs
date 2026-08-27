@@ -34,6 +34,10 @@ public class ExperimentRunEntityConfiguration : IEntityTypeConfiguration<Experim
         builder.Property(x => x.MaterializedAtUtc).HasColumnName("materialized_at_utc");
         builder.Property(x => x.WorkspaceIntegrityStatus).HasColumnName("workspace_integrity_status").IsRequired();
         builder.Property(x => x.ProvenancePolicyVersion).HasColumnName("provenance_policy_version").IsRequired();
+        builder.Property(x => x.AssertionLineagePolicyVersion).HasColumnName("assertion_lineage_policy_version").IsRequired();
+        builder.Property(x => x.AssertionCatalogVersion).HasColumnName("assertion_catalog_version").IsRequired();
+        builder.Property(x => x.AssertionLineageMaxDepth).HasColumnName("assertion_lineage_max_depth").IsRequired();
+        builder.Property(x => x.AssertionLineagePathCap).HasColumnName("assertion_lineage_path_cap").IsRequired();
 
         builder.HasMany(x => x.CandidateMethods)
             .WithOne(x => x.ExperimentRun)

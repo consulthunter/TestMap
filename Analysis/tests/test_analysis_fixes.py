@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from analysis.audit_evaluation_data import (
+    audit_assertion_lineage,
     audit_agentic_identity_and_artifacts,
     audit_agentic_no_post_attempt,
     audit_generated_test_links,
@@ -161,6 +162,30 @@ def test_audit_checks_agentic_contract_and_links():
     assert "agentic_missing_post_attempt_measurement" in checks
     assert "agentic_missing_generated_test_links" in checks
     assert "unclassified_attempts" in checks
+
+
+def test_assertion_audit_rejects_unavailable_measurement_without_reason():
+    attempts = pd.DataFrame([{
+        "results_schema_version": "4.0",
+        "attempt_id": "attempt-1",
+        "candidate_key": "candidate-1",
+        "lane": "llm",
+        "assertion_measurement_status": "Unavailable",
+        "assertion_measurement_reason": "",
+        "assertion_policy_version": "assertion-lineage-v1",
+        "assertion_catalog_version": "assertion-catalog-v1",
+        "assertion_max_depth": 4,
+        "recognized_assertion_count": pd.NA,
+        "traced_assertion_count": pd.NA,
+        "trivial_assertion_count": pd.NA,
+        "unresolved_assertion_count": pd.NA,
+    }])
+    findings = audit_assertion_lineage(
+        attempts, pd.DataFrame(), pd.DataFrame(), sidecar_present=False
+    )
+    assert "missing_assertion_measurement_reason" in {
+        finding["check"] for finding in findings
+    }
 
 
 def test_exact_mcnemar_uses_binomial_discordant_pairs():

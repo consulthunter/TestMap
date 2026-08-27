@@ -1,4 +1,5 @@
 <!-- SPECKIT START -->
-For additional context about technologies, project structure, validation commands, and research
-constraints for the active feature, read `specs/004-readable-log-directories/plan.md`.
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/005-non-trivial-assertions/plan.md
 <!-- SPECKIT END -->

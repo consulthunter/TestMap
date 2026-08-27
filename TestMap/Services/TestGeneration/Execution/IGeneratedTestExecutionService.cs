@@ -4,6 +4,7 @@ using TestMap.Models.Rules;
 using TestMap.Models.Testing;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
+using TestMap.Services.StaticAnalysis.Assertions;
 
 namespace TestMap.Services.TestGeneration.Execution;
 
@@ -69,5 +70,12 @@ public sealed class GeneratedTestExecutionResult
     public TestRunModel? BaselineTestRun { get; init; }
     /// <summary>DB id of the persisted generated-test member (when it validated and was analyzed).</summary>
     public int? GeneratedTestMemberId { get; init; }
+    /// <summary>The source member this attempt was asked to exercise.</summary>
+    public int? IntendedSourceMemberId { get; init; }
+    /// <summary>
+    /// Transient assertion evidence captured while the applied test source still exists.
+    /// It is persisted only after the attempt and test-execution identifiers are allocated.
+    /// </summary>
+    public AssertionLineageAnalysisResult? AssertionLineageAnalysis { get; init; }
     public DateTime ExecutedAt { get; init; } = DateTime.UtcNow;
 }

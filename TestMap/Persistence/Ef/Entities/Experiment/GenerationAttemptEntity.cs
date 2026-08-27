@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 using TestMap.Persistence.Ef.Entities.Rules;
 
 namespace TestMap.Persistence.Ef.Entities.Experiment;
@@ -54,5 +55,7 @@ public class GenerationAttemptEntity
     public virtual GenerationAttemptEntity? ParentAttempt { get; set; }
     public virtual ICollection<GenerationStepEntity> GenerationSteps { get; set; } = new List<GenerationStepEntity>();
     public virtual GeneratedTestExecutionEntity? TestExecution { get; set; }
+    public virtual ICollection<AssertionLineageMeasurementEntity> AssertionLineageMeasurements { get; set; } =
+        new List<AssertionLineageMeasurementEntity>();
     public virtual ICollection<RuleDecisionEntity> RuleDecisions { get; set; } = new List<RuleDecisionEntity>();
 }

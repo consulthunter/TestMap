@@ -231,7 +231,7 @@ Model mapping by tool:
 | `aider` | `Tools[].Model` | `AIDER_MODEL` |
 | `mini-swe-agent` | `Tools[].Model` | `MINI_MODEL` |
 | `openhands` | `Tools[].Model` | `LLM_MODEL` |
-| `copilot` | metadata only unless a native model flag is added |
+| `copilot` | `Tools[].Model` | `COPILOT_MODEL` (passed as `--model`) |
 
 For `aider`, `mini-swe-agent`, and `openhands`, TestMap prefixes model names when needed:
 
@@ -239,6 +239,51 @@ For `aider`, `mini-swe-agent`, and `openhands`, TestMap prefixes model names whe
 Provider=Anthropic + Model=claude-sonnet-4-6
 => anthropic/claude-sonnet-4-6
 ```
+
+For `copilot`, the model id must come from the Copilot CLI's own catalog (`gpt-5.2`,
+`gpt-5.3-codex`, `claude-sonnet-4.6`, `claude-haiku-4.5`, ...) and is never provider-prefixed. The
+runner passes it as `--model`, which outranks `COPILOT_MODEL`, the settings file, and the CLI
+default. When the attempt's telemetry reports the model that actually served the request, that
+observed value is what TestMap records on the attempt, so a silent server-side substitution shows up
+in results instead of being masked by the configured value.
+
+### Copilot With Your Own Provider (BYOK)
+
+Copilot CLI can talk to a non-GitHub endpoint, so it can be pointed at the same custom or local
+model as `mini-swe-agent`. TestMap enables this whenever the tool resolves a base URL, from
+`Tools[].Endpoint` or from a `CustomOpenAi`/`Ollama` provider block:
+
+| Resolved value | Container env |
+|---|---|
+| `Tools[].Model` | `COPILOT_MODEL` (passed as `--model`) |
+| `Tools[].Endpoint` or provider endpoint | `COPILOT_PROVIDER_BASE_URL` |
+| Provider id | `COPILOT_PROVIDER_TYPE` (`anthropic`, otherwise `openai`) |
+| Provider API key | `COPILOT_PROVIDER_API_KEY` |
+
+```json
+{
+  "Id": "copilot",
+  "ImageKey": "copilot",
+  "Provider": "CustomOpenAi",
+  "Model": "gpt-oss-120b",
+  "Endpoint": "https://llm-api.example.edu/api/",
+  "RequiredEnvironmentVariables": ["GITHUB_COPILOT_TOKEN", "CUSTOM_API_KEY"]
+}
+```
+
+Notes:
+
+- With no endpoint resolved, none of the `COPILOT_PROVIDER_*` variables are set and Copilot stays on
+  GitHub-hosted models.
+- The model is mandatory in BYOK mode; Copilot has no default for a provider it does not host, and
+  the runner fails the attempt rather than letting the CLI error mid-run.
+- The API key is optional so unauthenticated local servers (Ollama, vLLM) work.
+- Azure OpenAI is not a TestMap provider. Reach it by setting `COPILOT_PROVIDER_TYPE` to `azure` in
+  the tool's `Environment` block, with the deployment URL as the endpoint.
+- BYOK models must support tool calling and streaming; Copilot errors out otherwise.
+- `GITHUB_COPILOT_TOKEN` is still required: it authenticates the CLI itself, not the model calls.
+- Endpoints are resolved inside the container, so a host-local server needs
+  `http://host.docker.internal:<port>` rather than `localhost`.
 
 Native environment overrides win:
 
@@ -263,7 +308,7 @@ Example:
   "Id": "copilot",
   "ImageKey": "copilot",
   "Provider": "OpenAi",
-  "Model": "github-copilot",
+  "Model": "gpt-5.2",
   "RequiredEnvironmentVariables": ["GITHUB_COPILOT_TOKEN"]
 }
 ```

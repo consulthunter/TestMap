@@ -70,6 +70,10 @@ public sealed class ExperimentResultsWriterTests
                         TargetSourceSha256 = SourceHash,
                         ProvenancePolicyVersion = "pinned-target-v1",
                         WorkspaceIntegrityStatus = "VerifiedClean",
+                        AssertionMeasurementStatus = "NotApplicable",
+                        AssertionPolicyVersion = "assertion-lineage-v1",
+                        AssertionCatalogVersion = "assertion-catalog-v1",
+                        AssertionMaxDepth = 4,
                         ExperimentSeriesId = "model-study",
                         CandidateCohortId = 5,
                         CandidateCohortMemberId = 9,
@@ -103,7 +107,7 @@ public sealed class ExperimentResultsWriterTests
             var text = await File.ReadAllTextAsync(path);
 
             Assert.Contains("results_schema_version,row_kind,attempt_id,experiment_run_id,experiment_run_uid,experiment_series_id,candidate_cohort_id,candidate_cohort_member_id,producer_lane", text);
-            Assert.Contains("3.0,attempt,attempt-42,42,run-42,model-study,5,9,testmap", text);
+            Assert.Contains("4.0,attempt,attempt-42,42,run-42,model-study,5,9,testmap", text);
             Assert.DoesNotContain("metrics_path", text);
             Assert.Contains("source_method_mi,source_method_cc,source_method_coupling,source_method_dit,source_method_sloc,source_method_eloc", text);
             Assert.Contains("baseline_test_mi,baseline_test_cc,baseline_test_coupling,baseline_test_dit,baseline_test_sloc,baseline_test_eloc", text);
@@ -146,6 +150,10 @@ public sealed class ExperimentResultsWriterTests
                 TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
                 TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
                 ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
+                AssertionMeasurementStatus = "NotApplicable",
+                AssertionPolicyVersion = "assertion-lineage-v1",
+                AssertionCatalogVersion = "assertion-catalog-v1",
+                AssertionMaxDepth = 4,
                 Provider = AiProvider.OpenAi,
                 GenerationApproach = TestGenerationApproach.Naive,
                 ContextMode = GenerationContextMode.ChainedHistory,
@@ -186,6 +194,10 @@ public sealed class ExperimentResultsWriterTests
                 TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
                 TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
                 ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
+                AssertionMeasurementStatus = "NotApplicable",
+                AssertionPolicyVersion = "assertion-lineage-v1",
+                AssertionCatalogVersion = "assertion-catalog-v1",
+                AssertionMaxDepth = 4,
                 GeneratedTestMemberId = 42,
                 GeneratedTestMethodName = "GeneratedTest",
                 Provider = AiProvider.OpenAi,
@@ -224,6 +236,10 @@ public sealed class ExperimentResultsWriterTests
             TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
             TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
             ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
+            AssertionMeasurementStatus = "NotApplicable",
+            AssertionPolicyVersion = "assertion-lineage-v1",
+            AssertionCatalogVersion = "assertion-catalog-v1",
+            AssertionMaxDepth = 4,
             GeneratedTestMemberId = 42,
             GeneratedTestMethodName = "GeneratedTest",
             FailureSummary = "first line, with comma\nsecond line with \"quotes\"",
@@ -272,6 +288,10 @@ public sealed class ExperimentResultsWriterTests
                         TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
                         TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
                         ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
+                        AssertionMeasurementStatus = "NotApplicable",
+                        AssertionPolicyVersion = "assertion-lineage-v1",
+                        AssertionCatalogVersion = "assertion-catalog-v1",
+                        AssertionMaxDepth = 4,
                         GeneratedTestMemberId = 101
                     },
                     new ExperimentResultFileRow
@@ -283,6 +303,10 @@ public sealed class ExperimentResultsWriterTests
                         TargetId = TargetId, RepositoryIdentity = "owner/repo", RequestedCommit = Commit, ResolvedCommit = Commit, CommitHash = Commit,
                         TargetManifestSha256 = ManifestHash, TargetSourceSha256 = SourceHash,
                         ProvenancePolicyVersion = "pinned-target-v1", WorkspaceIntegrityStatus = "VerifiedClean",
+                        AssertionMeasurementStatus = "NotApplicable",
+                        AssertionPolicyVersion = "assertion-lineage-v1",
+                        AssertionCatalogVersion = "assertion-catalog-v1",
+                        AssertionMaxDepth = 4,
                         GeneratedTestMemberId = 102,
                         ImpactAttribution = "attempt_level",
                         CoverageDelta = 0.05
@@ -396,6 +420,128 @@ public sealed class ExperimentResultsWriterTests
         DeleteResultFiles(path);
     }
 
+    /// <summary>
+    /// A row takes its counts from the per-test summary it describes, so its status must
+    /// describe that same test. An attempt covering several tests can be Partial overall while
+    /// an individual test has no usable evidence and therefore no counts; publishing that row
+    /// under the attempt's status claims counts that reconcile when none exist.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task WriteAsync_PartialStatusWithoutCounts_IsRejected()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var row = MakeAssertionRow("partial-no-counts", "Partial", "GeneratedTestMemberUnresolved");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ExperimentResultsWriter().WriteAsync(
+                new ExperimentRun { Id = 14, RunUid = "run-14", ResultsFilePath = path },
+                [row]));
+
+        Assert.Contains("reconcile", error.Message, StringComparison.OrdinalIgnoreCase);
+        DeleteResultFiles(path);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task WriteAsync_UnavailableTestStatusWithoutCounts_IsAccepted()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var run = new ExperimentRun { Id = 15, RunUid = "run-15", ResultsFilePath = path };
+        var row = MakeAssertionRow("unavailable-no-counts", "Unavailable", "GeneratedTestMemberUnresolved");
+
+        try
+        {
+            await new ExperimentResultsWriter().WriteAsync(run, [row]);
+            Assert.Contains(",Unavailable,GeneratedTestMemberUnresolved,", await File.ReadAllTextAsync(path));
+        }
+        finally
+        {
+            DeleteResultFiles(path);
+        }
+    }
+
+    private static ExperimentResultFileRow MakeAssertionRow(
+        string attemptId,
+        string assertionStatus,
+        string assertionReason) => new()
+    {
+        AttemptId = attemptId,
+        ExperimentRunId = 14,
+        ExperimentRunUid = "run-14",
+        TargetId = TargetId,
+        RepositoryIdentity = "owner/repo",
+        RequestedCommit = Commit,
+        ResolvedCommit = Commit,
+        CommitHash = Commit,
+        TargetManifestSha256 = ManifestHash,
+        TargetSourceSha256 = SourceHash,
+        ProvenancePolicyVersion = "pinned-target-v1",
+        WorkspaceIntegrityStatus = "VerifiedClean",
+        AssertionMeasurementStatus = assertionStatus,
+        AssertionMeasurementReason = assertionReason,
+        AssertionPolicyVersion = "assertion-lineage-v1",
+        AssertionCatalogVersion = "assertion-catalog-v1",
+        AssertionMaxDepth = 4,
+        AssertionAttribution = "generated_test"
+    };
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task WriteAsync_WritesSchema4AssertionSummaryAndManifestMetadata()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"testmap-results-{Guid.NewGuid():N}.csv");
+        var run = new ExperimentRun { Id = 13, RunUid = "run-13", ResultsFilePath = path };
+        var row = new ExperimentResultFileRow
+        {
+            AttemptId = "assertions-13",
+            ExperimentRunId = 13,
+            ExperimentRunUid = "run-13",
+            TargetId = TargetId,
+            RepositoryIdentity = "owner/repo",
+            RequestedCommit = Commit,
+            ResolvedCommit = Commit,
+            CommitHash = Commit,
+            TargetManifestSha256 = ManifestHash,
+            TargetSourceSha256 = SourceHash,
+            ProvenancePolicyVersion = "pinned-target-v1",
+            WorkspaceIntegrityStatus = "VerifiedClean",
+            AssertionMeasurementStatus = "Complete",
+            AssertionPolicyVersion = "assertion-lineage-v1",
+            AssertionCatalogVersion = "assertion-catalog-v1",
+            AssertionMaxDepth = 4,
+            RecognizedAssertionCount = 3,
+            UnrecognizedAssertionCount = 1,
+            TracedAssertionCount = 1,
+            TrivialAssertionCount = 1,
+            UnresolvedAssertionCount = 1,
+            NoRecognizedAssertions = false,
+            AssertionAnalysisDurationMs = 12.5,
+            AssertionAttribution = "connectivity-only"
+        };
+
+        try
+        {
+            await new ExperimentResultsWriter().WriteAsync(run, [row]);
+
+            var text = await File.ReadAllTextAsync(path);
+            var manifest = await File.ReadAllTextAsync(
+                ExperimentResultsWriter.ResolveManifestPath(run));
+            Assert.Contains(
+                "assertion_measurement_status,assertion_measurement_reason,assertion_policy_version",
+                text);
+            Assert.Contains(",Complete,,assertion-lineage-v1,assertion-catalog-v1,4,3,1,1,1,1,False,12.5,connectivity-only", text);
+            Assert.Contains("\"results_schema_version\": \"4.0\"", manifest);
+            Assert.Contains("\"assertion_schema_version\": \"1.0\"", manifest);
+            Assert.Contains("\"assertion-lineage-v1\"", manifest);
+            Assert.Contains("\"assertion-catalog-v1\"", manifest);
+        }
+        finally
+        {
+            DeleteResultFiles(path);
+        }
+    }
+
     private static void DeleteResultFiles(string path)
     {
         var run = new ExperimentRun { ResultsFilePath = path };
@@ -404,6 +550,7 @@ public sealed class ExperimentResultsWriterTests
                      path,
                      ExperimentResultsWriter.ResolveGeneratedTestsPath(run),
                      ExperimentResultsWriter.ResolveTestResultsPath(run),
+                     ExperimentResultsWriter.ResolveAssertionsPath(run),
                      ExperimentResultsWriter.ResolveManifestPath(run)
                  })
         {

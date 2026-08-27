@@ -5,7 +5,7 @@
       "AnalyzeLatestCommit": false
     },
     "FilePaths": {
-      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\filtered-test-repos.yaml",
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\licenseFiltered-project-check-tests-detected-e5cb6c9c8a53.yaml",
       "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
       "TempDirPath": "D:\\Projects\\TestMap\\Temp",
       "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
@@ -47,7 +47,7 @@
         "DataSource"
       ]
     },
-    "MaxConcurrency": 5,
+    "MaxConcurrency": 10,
     "RunDateFormat": "yyyy-MM-dd"
   },
   "TestingConfig": {

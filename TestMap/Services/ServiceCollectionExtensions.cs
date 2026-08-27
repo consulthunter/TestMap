@@ -8,6 +8,7 @@ using TestMap.Persistence.Ef.Repositories.Code;
 using TestMap.Persistence.Ef.Repositories.Coverage;
 using TestMap.Persistence.Ef.Repositories.AgentTools;
 using TestMap.Persistence.Ef.Repositories.Experiment;
+using TestMap.Persistence.Ef.Repositories.Experiment.Assertions;
 using TestMap.Persistence.Ef.Repositories.FlakyTestDetection;
 using TestMap.Persistence.Ef.Repositories.MutationTesting;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
@@ -22,6 +23,7 @@ using TestMap.Services.Rules;
 using TestMap.Services.FlakyTestDetection;
 using TestMap.Services.RiskScoring;
 using TestMap.Services.StaticAnalysis;
+using TestMap.Services.StaticAnalysis.Assertions;
 using TestMap.Services.StaticAnalysis.Enrichment;
 using TestMap.Services.TestExecution;
 using TestMap.Services.TestExecution.Collection;
@@ -210,6 +212,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRepoOperations, RepoOperations.RepoOperations>();
         services.AddScoped<IStaticAnalysisWorkspace, StaticAnalysisWorkspace>();
         services.AddScoped<IRoslynSourceTestTraceService, RoslynSourceTestTraceService>();
+        services.AddSingleton<AssertionPatternCatalog>();
+        services.AddSingleton<AssertionOperandExtractor>();
+        services.AddSingleton<AssertionLineageClassifier>();
+        services.AddSingleton<RoslynProductionMemberResolver>();
+        services.AddScoped<AssertionLineageSlicer>();
+        services.AddScoped<IAssertionLineageAnalysisService, RoslynAssertionLineageAnalysisService>();
         services.AddScoped<IAnalyzeProjectService, AnalyzeProjectService>();
         services.AddScoped<ICodeMetricsService, CodeMetricsService>();
         services.AddScoped<ITestMetadataEnrichmentService, TestMetadataEnrichmentService>();
@@ -270,6 +278,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<WorkspaceIntegrityObservationRepository>();
         services.AddScoped<GenerationStepRepository>();
         services.AddScoped<TestExecutionRepository>();
+        services.AddScoped<AssertionLineageMeasurementRepository>();
         services.AddScoped<ISourceTestMappingRefreshService>(sp =>
             sp.GetRequiredService<SourceTestMappingRefreshService>());
 
@@ -291,6 +300,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CandidateCohortService>();
         services.AddScoped<IExperimentAnalysisService, ExperimentAnalysisService>();
         services.AddScoped<IExperimentResultsWriter, ExperimentResultsWriter>();
+        services.AddScoped<IAssertionObservationWriter, AssertionObservationWriter>();
+        services.AddScoped<IAssertionLineageSummaryService, AssertionLineageSummaryService>();
+        services.AddScoped<IAssertionLineageAuditService, AssertionLineageAuditService>();
         services.AddScoped<IStepAblationVariantGenerator, StepAblationVariantGenerator>();
         services.AddScoped<IGenerationExperimentMatrixGenerator, GenerationExperimentMatrixGenerator>();
         services.AddScoped<IGenerationBudgetExecutor, GenerationBudgetExecutor>();

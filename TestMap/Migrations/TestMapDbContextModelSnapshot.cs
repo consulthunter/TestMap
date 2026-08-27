@@ -950,6 +950,445 @@ namespace TestMap.Migrations
                     b.ToTable("object_coverages", (string)null);
                 });
 
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionLineageMeasurementEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<double?>("AnalysisDurationMs")
+                        .HasColumnType("REAL")
+                        .HasColumnName("analysis_duration_ms");
+
+                    b.Property<int?>("AnalyzedTestCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("analyzed_test_count");
+
+                    b.Property<string>("AssertionCatalogVersion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("assertion_catalog_version");
+
+                    b.Property<int>("CandidateMethodId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("candidate_method_id");
+
+                    b.Property<DateTime>("CompletedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("completed_at");
+
+                    b.Property<int?>("EligibleTestCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("eligible_test_count");
+
+                    b.Property<int>("ExperimentRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("experiment_run_id");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<int?>("GenerationAttemptId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("generation_attempt_id");
+
+                    b.Property<int>("MaxDepth")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("max_depth");
+
+                    b.Property<int?>("NoRecognizedAssertionTestCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("no_recognized_assertion_test_count");
+
+                    b.Property<string>("PolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("policy_version");
+
+                    b.Property<string>("ProducerLane")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("producer_lane");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("project_id");
+
+                    b.Property<int?>("RecognizedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("recognized_assertion_count");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<int?>("ToolAttemptId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("tool_attempt_id");
+
+                    b.Property<int?>("TracedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("traced_assertion_count");
+
+                    b.Property<int?>("TrivialAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("trivial_assertion_count");
+
+                    b.Property<int?>("UnavailableTestCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("unavailable_test_count");
+
+                    b.Property<int?>("UnrecognizedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("unrecognized_assertion_count");
+
+                    b.Property<int?>("UnresolvedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("unresolved_assertion_count");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CandidateMethodId");
+
+                    b.HasIndex("ExperimentRunId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("GenerationAttemptId", "PolicyVersion", "AssertionCatalogVersion", "MaxDepth")
+                        .IsUnique()
+                        .HasFilter("generation_attempt_id IS NOT NULL");
+
+                    b.HasIndex("ToolAttemptId", "PolicyVersion", "AssertionCatalogVersion", "MaxDepth")
+                        .IsUnique()
+                        .HasFilter("tool_attempt_id IS NOT NULL");
+
+                    b.ToTable("assertion_lineage_measurements", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_assertion_lineage_measurements_category_counts", "recognized_assertion_count IS NULL OR recognized_assertion_count = traced_assertion_count + trivial_assertion_count + unresolved_assertion_count");
+
+                            t.HasCheckConstraint("ck_assertion_lineage_measurements_positive_depth", "max_depth > 0");
+
+                            t.HasCheckConstraint("ck_assertion_lineage_measurements_single_owner", "(generation_attempt_id IS NOT NULL AND tool_attempt_id IS NULL) OR (generation_attempt_id IS NULL AND tool_attempt_id IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionLineageStepEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AssertionObservationId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("assertion_observation_id");
+
+                    b.Property<int>("Depth")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("depth");
+
+                    b.Property<int?>("EndColumn")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("end_column");
+
+                    b.Property<int?>("EndLine")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("end_line");
+
+                    b.Property<string>("FilePath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("file_path");
+
+                    b.Property<int>("InputIndex")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("input_index");
+
+                    b.Property<int?>("MemberId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("outcome");
+
+                    b.Property<int>("PathIndex")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("path_index");
+
+                    b.Property<string>("ReasonCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason_code");
+
+                    b.Property<int?>("StartColumn")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("start_column");
+
+                    b.Property<int?>("StartLine")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("start_line");
+
+                    b.Property<int>("StepIndex")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("step_index");
+
+                    b.Property<string>("StepKind")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("step_kind");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("summary");
+
+                    b.Property<string>("SymbolDisplay")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("symbol_display");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StepKind", "MemberId");
+
+                    b.HasIndex("AssertionObservationId", "InputIndex", "PathIndex", "StepIndex")
+                        .IsUnique();
+
+                    b.ToTable("assertion_lineage_steps", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionObservationEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AssertionMethod")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("assertion_method");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("category");
+
+                    b.Property<int>("DepthReached")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("depth_reached");
+
+                    b.Property<int>("EndColumn")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("end_column");
+
+                    b.Property<int>("EndLine")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("end_line");
+
+                    b.Property<string>("ExpressionHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expression_hash");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("file_path");
+
+                    b.Property<string>("Framework")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("framework");
+
+                    b.Property<int>("GeneratedTestAssertionSummaryId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("generated_test_assertion_summary_id");
+
+                    b.Property<int?>("InvocationId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("invocation_id");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("ordinal");
+
+                    b.Property<string>("RecognitionKind")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("recognition_kind");
+
+                    b.Property<string>("ResolutionCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resolution_code");
+
+                    b.Property<int>("StartColumn")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("start_column");
+
+                    b.Property<int>("StartLine")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("start_line");
+
+                    b.Property<string>("TargetRelation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_relation");
+
+                    b.Property<string>("TraceSummary")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("trace_summary");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Category");
+
+                    b.HasIndex("InvocationId");
+
+                    b.HasIndex("GeneratedTestAssertionSummaryId", "ExpressionHash")
+                        .IsUnique();
+
+                    b.HasIndex("GeneratedTestAssertionSummaryId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("assertion_observations", (string)null);
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.GeneratedTestAssertionSummaryEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AssertionLineageMeasurementId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("assertion_lineage_measurement_id");
+
+                    b.Property<string>("FallbackIdentityHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("fallback_identity_hash");
+
+                    b.Property<int?>("GeneratedTestExecutionId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("generated_test_execution_id");
+
+                    b.Property<int?>("RecognizedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("recognized_assertion_count");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StatusReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status_reason");
+
+                    b.Property<string>("TestFilePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_file_path");
+
+                    b.Property<string>("TestMemberContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_member_content_hash");
+
+                    b.Property<int?>("TestMemberId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("test_member_id");
+
+                    b.Property<string>("TestMethodName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("test_method_name");
+
+                    b.Property<int?>("ToolAttemptGeneratedTestId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("tool_attempt_generated_test_id");
+
+                    b.Property<int?>("TracedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("traced_assertion_count");
+
+                    b.Property<int?>("TrivialAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("trivial_assertion_count");
+
+                    b.Property<int?>("UnrecognizedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("unrecognized_assertion_count");
+
+                    b.Property<int?>("UnresolvedAssertionCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("unresolved_assertion_count");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssertionLineageMeasurementId");
+
+                    b.HasIndex("GeneratedTestExecutionId")
+                        .IsUnique()
+                        .HasFilter("generated_test_execution_id IS NOT NULL");
+
+                    b.HasIndex("TestMemberId");
+
+                    b.HasIndex("ToolAttemptGeneratedTestId")
+                        .IsUnique()
+                        .HasFilter("tool_attempt_generated_test_id IS NOT NULL");
+
+                    b.HasIndex("AssertionLineageMeasurementId", "FallbackIdentityHash")
+                        .IsUnique()
+                        .HasFilter("test_member_id IS NULL");
+
+                    b.HasIndex("AssertionLineageMeasurementId", "TestMemberId")
+                        .IsUnique()
+                        .HasFilter("test_member_id IS NOT NULL");
+
+                    b.ToTable("generated_test_assertion_summaries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_generated_test_assertion_summaries_category_counts", "recognized_assertion_count IS NULL OR recognized_assertion_count = traced_assertion_count + trivial_assertion_count + unresolved_assertion_count");
+
+                            t.HasCheckConstraint("ck_generated_test_assertion_summaries_single_owner", "generated_test_execution_id IS NULL OR tool_attempt_generated_test_id IS NULL");
+                        });
+                });
+
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.CandidateCohortEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1548,6 +1987,26 @@ namespace TestMap.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
                         .HasColumnName("id");
+
+                    b.Property<string>("AssertionCatalogVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("assertion_catalog_version");
+
+                    b.Property<int>("AssertionLineageMaxDepth")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("assertion_lineage_max_depth");
+
+                    b.Property<int>("AssertionLineagePathCap")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("assertion_lineage_path_cap");
+
+                    b.Property<string>("AssertionLineagePolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("assertion_lineage_policy_version");
 
                     b.Property<int?>("CandidateCohortId")
                         .HasColumnType("INTEGER")
@@ -3262,6 +3721,86 @@ namespace TestMap.Migrations
                     b.Navigation("TestRun");
                 });
 
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionLineageMeasurementEntity", b =>
+                {
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.CandidateMethodEntity", "CandidateMethod")
+                        .WithMany()
+                        .HasForeignKey("CandidateMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.ExperimentRunEntity", "ExperimentRun")
+                        .WithMany()
+                        .HasForeignKey("ExperimentRunId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.GenerationAttemptEntity", "GenerationAttempt")
+                        .WithMany("AssertionLineageMeasurements")
+                        .HasForeignKey("GenerationAttemptId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptEntity", "ToolAttempt")
+                        .WithMany("AssertionLineageMeasurements")
+                        .HasForeignKey("ToolAttemptId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("CandidateMethod");
+
+                    b.Navigation("ExperimentRun");
+
+                    b.Navigation("GenerationAttempt");
+
+                    b.Navigation("ToolAttempt");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionLineageStepEntity", b =>
+                {
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionObservationEntity", "AssertionObservation")
+                        .WithMany("LineageSteps")
+                        .HasForeignKey("AssertionObservationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AssertionObservation");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionObservationEntity", b =>
+                {
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.Assertions.GeneratedTestAssertionSummaryEntity", "GeneratedTestAssertionSummary")
+                        .WithMany("AssertionObservations")
+                        .HasForeignKey("GeneratedTestAssertionSummaryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("GeneratedTestAssertionSummary");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.GeneratedTestAssertionSummaryEntity", b =>
+                {
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionLineageMeasurementEntity", "AssertionLineageMeasurement")
+                        .WithMany("GeneratedTestSummaries")
+                        .HasForeignKey("AssertionLineageMeasurementId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.GeneratedTestExecutionEntity", "GeneratedTestExecution")
+                        .WithMany("AssertionLineageSummaries")
+                        .HasForeignKey("GeneratedTestExecutionId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptGeneratedTestEntity", "ToolAttemptGeneratedTest")
+                        .WithMany("AssertionLineageSummaries")
+                        .HasForeignKey("ToolAttemptGeneratedTestId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("AssertionLineageMeasurement");
+
+                    b.Navigation("GeneratedTestExecution");
+
+                    b.Navigation("ToolAttemptGeneratedTest");
+                });
+
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.CandidateCohortMemberEntity", b =>
                 {
                     b.HasOne("TestMap.Persistence.Ef.Entities.Experiment.CandidateCohortEntity", "CandidateCohort")
@@ -3469,6 +4008,31 @@ namespace TestMap.Migrations
                     b.Navigation("TestRun");
                 });
 
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptEntity", b =>
+                {
+                    b.Navigation("AssertionLineageMeasurements");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.AgentTools.ToolAttemptGeneratedTestEntity", b =>
+                {
+                    b.Navigation("AssertionLineageSummaries");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionLineageMeasurementEntity", b =>
+                {
+                    b.Navigation("GeneratedTestSummaries");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.AssertionObservationEntity", b =>
+                {
+                    b.Navigation("LineageSteps");
+                });
+
+            modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.Assertions.GeneratedTestAssertionSummaryEntity", b =>
+                {
+                    b.Navigation("AssertionObservations");
+                });
+
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.CandidateCohortEntity", b =>
                 {
                     b.Navigation("ExperimentRuns");
@@ -3504,11 +4068,15 @@ namespace TestMap.Migrations
 
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.GeneratedTestExecutionEntity", b =>
                 {
+                    b.Navigation("AssertionLineageSummaries");
+
                     b.Navigation("RuleDecisions");
                 });
 
             modelBuilder.Entity("TestMap.Persistence.Ef.Entities.Experiment.GenerationAttemptEntity", b =>
                 {
+                    b.Navigation("AssertionLineageMeasurements");
+
                     b.Navigation("GenerationSteps");
 
                     b.Navigation("RuleDecisions");

@@ -4,6 +4,7 @@ using System.Text.Json;
 using TestMap.Models.Configuration;
 using TestMap.Models.Experiment;
 using TestMap.Models.Targets;
+using TestMap.Services.StaticAnalysis.Assertions;
 
 namespace TestMap.Services.Experiment.Reporting;
 
@@ -122,6 +123,19 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         "impact_measurement_status",
         "impact_attribution",
         "measurement_policy_version",
+        "assertion_measurement_status",
+        "assertion_measurement_reason",
+        "assertion_policy_version",
+        "assertion_catalog_version",
+        "assertion_max_depth",
+        "recognized_assertion_count",
+        "unrecognized_assertion_count",
+        "traced_assertion_count",
+        "trivial_assertion_count",
+        "unresolved_assertion_count",
+        "no_recognized_assertions",
+        "assertion_analysis_duration_ms",
+        "assertion_attribution",
         "tool_observed_outcome",
         "failure_kind",
         "failure_stage",
@@ -159,7 +173,6 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         IReadOnlyList<ExperimentResultFileRow> rows,
         CancellationToken cancellationToken = default)
     {
-        ValidateRows(rows);
         var attemptRows = rows.Where(x => x.RowKind == "attempt").ToList();
         var duplicateAttemptIds = attemptRows
             .GroupBy(x => x.AttemptId, StringComparer.Ordinal)
@@ -169,6 +182,7 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         if (duplicateAttemptIds.Count > 0)
             throw new InvalidOperationException(
                 $"Attempt output contains duplicate attempt_id values: {string.Join(", ", duplicateAttemptIds.Take(5))}.");
+        ValidateRows(rows);
         var generatedRows = rows
             .Where(x => x.RowKind == "generated_test" ||
                         x.RowKind == "attempt" &&
@@ -181,7 +195,7 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
         await WriteRowsAsync(ResolvePath(experimentRun), attemptRows, "attempt", cancellationToken);
         await WriteRowsAsync(ResolveGeneratedTestsPath(experimentRun), generatedRows, "generated_test", cancellationToken);
         await WriteRowsAsync(ResolveTestResultsPath(experimentRun), testResultRows, "test_result", cancellationToken);
-        await WriteManifestAsync(experimentRun, cancellationToken);
+        await WriteManifestAsync(experimentRun, rows, cancellationToken);
     }
 
     public async Task AppendAsync(
@@ -205,7 +219,7 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
             await AppendRowAsync(ResolveTestResultsPath(experimentRun), row, "test_result", cancellationToken);
         }
 
-        await WriteManifestAsync(experimentRun, cancellationToken);
+        await WriteManifestAsync(experimentRun, [row], cancellationToken);
     }
 
     public static string ResolvePath(ExperimentRun experimentRun)
@@ -220,6 +234,9 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
 
     public static string ResolveTestResultsPath(ExperimentRun experimentRun) =>
         AddSuffix(ResolvePath(experimentRun), "test-results");
+
+    public static string ResolveAssertionsPath(ExperimentRun experimentRun) =>
+        Path.ChangeExtension(ResolvePath(experimentRun), ".assertions.csv");
 
     public static string ResolveManifestPath(ExperimentRun experimentRun) =>
         Path.ChangeExtension(ResolvePath(experimentRun), ".manifest.json");
@@ -348,6 +365,19 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
             Escape(row.ImpactMeasurementStatus),
             Escape(row.ImpactAttribution),
             Escape(row.MeasurementPolicyVersion),
+            Escape(row.AssertionMeasurementStatus),
+            Escape(row.AssertionMeasurementReason),
+            Escape(row.AssertionPolicyVersion),
+            Escape(row.AssertionCatalogVersion),
+            Escape(FormatNullable(row.AssertionMaxDepth)),
+            Escape(FormatNullable(row.RecognizedAssertionCount)),
+            Escape(FormatNullable(row.UnrecognizedAssertionCount)),
+            Escape(FormatNullable(row.TracedAssertionCount)),
+            Escape(FormatNullable(row.TrivialAssertionCount)),
+            Escape(FormatNullable(row.UnresolvedAssertionCount)),
+            Escape(row.NoRecognizedAssertions?.ToString() ?? string.Empty),
+            Escape(FormatNullable(row.AssertionAnalysisDurationMs)),
+            Escape(row.AssertionAttribution),
             Escape(row.ToolObservedOutcome),
             Escape(row.FailureKind),
             Escape(row.FailureStage),
@@ -534,21 +564,58 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
 
     private static async Task WriteManifestAsync(
         ExperimentRun experimentRun,
+        IReadOnlyCollection<ExperimentResultFileRow> rows,
         CancellationToken cancellationToken)
     {
+        var assertionRow = rows.FirstOrDefault(x =>
+            !string.IsNullOrWhiteSpace(x.AssertionPolicyVersion) &&
+            !string.IsNullOrWhiteSpace(x.AssertionCatalogVersion) &&
+            x.AssertionMaxDepth is > 0);
+        var assertionPolicyVersion =
+            assertionRow?.AssertionPolicyVersion ?? AssertionLineagePolicy.CurrentPolicyVersion;
+        var assertionCatalogVersion =
+            assertionRow?.AssertionCatalogVersion ?? AssertionLineagePolicy.CurrentCatalogVersion;
+        var assertionMaxDepth = assertionRow?.AssertionMaxDepth ?? 4;
         var manifest = new
         {
-            results_schema_version = "3.0",
+            results_schema_version = "4.0",
+            assertion_schema_version = "1.0",
             experiment_run_uid = experimentRun.RunUid,
             experiment_series_id = experimentRun.ExperimentSeriesId,
             attempt_file = ResolvePath(experimentRun),
             generated_test_file = ResolveGeneratedTestsPath(experimentRun),
             test_result_file = ResolveTestResultsPath(experimentRun),
+            assertion_observation_file = ResolveAssertionsPath(experimentRun),
             coverage_unit = "fraction",
             mutation_score_unit = "percentage_points",
             coverage_noise_floor = EvaluationImpactPolicy.CoverageNoiseFloor,
             mutation_noise_floor = EvaluationImpactPolicy.MutationNoiseFloor,
             measurement_policy_version = EvaluationImpactPolicy.Version
+            ,assertion_policy_version = assertionPolicyVersion
+            ,assertion_catalog_version = assertionCatalogVersion
+            ,assertion_effective_max_depth = assertionMaxDepth
+            ,assertion_effective_path_cap = AssertionLineagePolicy.DefaultPathCap
+            ,assertion_category_definitions = new
+            {
+                Traced = "At least one observed operand has definite data lineage to a uniquely resolved production member.",
+                Trivial = "All observed operands completely terminate in literals or test-local computation.",
+                Unresolved = "No operand is definitely traced and at least one required path is incomplete or ambiguous."
+            }
+            ,assertion_status_definitions = new
+            {
+                Complete = "All eligible generated tests were analyzed.",
+                Partial = "Some eligible generated tests have unavailable evidence.",
+                Unavailable = "No trustworthy assertion classification is available.",
+                NotApplicable = "The attempt produced no eligible generated or modified test.",
+                NotMeasured = "Historical evidence predates this measurement."
+            }
+            ,assertion_scope = "data-dependence-only"
+            ,assertion_control_dependence_credited = false
+            ,assertion_non_claim =
+                "Traced lineage does not establish logical strength, mutation sensitivity, or assertion-caused mutant kills."
+            ,dynamic_measurement_scope =
+                "Coverage and mutation retain their independently declared attempt-level attribution."
+            ,strict_assertion_publication_audit_passed = (bool?)null
             ,target_id = experimentRun.TargetId
             ,repository_identity = experimentRun.RepositoryIdentity
             ,requested_commit = experimentRun.RequestedCommit
@@ -584,24 +651,81 @@ public sealed class ExperimentResultsWriter : IExperimentResultsWriter
                 throw new InvalidOperationException("Every result row requires a canonical attempt_id.");
             if (string.IsNullOrWhiteSpace(row.ExperimentRunUid))
                 throw new InvalidOperationException("Every result row requires experiment_run_uid.");
-            if (row.ResultsSchemaVersion != "3.0")
-                throw new InvalidOperationException("Pinned evaluation output requires results schema version 3.0.");
+            if (row.ResultsSchemaVersion != "4.0")
+                throw new InvalidOperationException("Pinned evaluation output requires results schema version 4.0.");
             if (string.IsNullOrWhiteSpace(row.TargetId) ||
                 string.IsNullOrWhiteSpace(row.RepositoryIdentity) ||
                 string.IsNullOrWhiteSpace(row.TargetManifestSha256) ||
                 string.IsNullOrWhiteSpace(row.TargetSourceSha256) ||
                 string.IsNullOrWhiteSpace(row.ProvenancePolicyVersion))
-                throw new InvalidOperationException("Schema 3.0 rows require complete target provenance.");
+                throw new InvalidOperationException("Schema 4.0 rows require complete target provenance.");
             if (row.RequestedCommit.Length != 40 || row.ResolvedCommit.Length != 40 ||
                 !string.Equals(row.RequestedCommit, row.ResolvedCommit, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Schema 3.0 rows require equal full requested and resolved commits.");
+                throw new InvalidOperationException("Schema 4.0 rows require equal full requested and resolved commits.");
             if (!string.Equals(row.CommitHash, row.ResolvedCommit, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Schema 3.0 commit_hash must equal resolved_commit.");
+                throw new InvalidOperationException("Schema 4.0 commit_hash must equal resolved_commit.");
             if (!Enum.TryParse<WorkspaceIntegrityStatus>(row.WorkspaceIntegrityStatus, true, out var integrity))
-                throw new InvalidOperationException("Schema 3.0 rows require a recognized workspace integrity status.");
+                throw new InvalidOperationException("Schema 4.0 rows require a recognized workspace integrity status.");
             if ((row.ValidatedSuccess || row.PositiveImpact == true) && !integrity.IsVerified())
                 throw new InvalidOperationException("Validated success and positive impact require verified workspace integrity.");
+            ValidateAssertionFields(row);
         }
+    }
+
+    private static void ValidateAssertionFields(ExperimentResultFileRow row)
+    {
+        if (row.RowKind == "test_result")
+            return;
+
+        var validStatuses = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Complete",
+            "Partial",
+            "Unavailable",
+            "NotApplicable"
+        };
+        if (!validStatuses.Contains(row.AssertionMeasurementStatus))
+            throw new InvalidOperationException(
+                $"Schema 4.0 {row.RowKind} rows require a recognized assertion measurement status.");
+
+        if (!string.Equals(
+                row.AssertionPolicyVersion,
+                AssertionLineagePolicy.CurrentPolicyVersion,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                row.AssertionCatalogVersion,
+                AssertionLineagePolicy.CurrentCatalogVersion,
+                StringComparison.Ordinal) ||
+            row.AssertionMaxDepth is not > 0 or > AssertionLineagePolicy.MaximumSupportedDepth)
+            throw new InvalidOperationException(
+                "Assertion measurements require supported policy, catalog, and maximum depth.");
+
+        if (row.AssertionMeasurementStatus is "Complete" or "Partial")
+        {
+            if (!row.RecognizedAssertionCount.HasValue ||
+                !row.TracedAssertionCount.HasValue ||
+                !row.TrivialAssertionCount.HasValue ||
+                !row.UnresolvedAssertionCount.HasValue ||
+                row.RecognizedAssertionCount.Value !=
+                row.TracedAssertionCount.Value +
+                row.TrivialAssertionCount.Value +
+                row.UnresolvedAssertionCount.Value)
+                throw new InvalidOperationException(
+                    "Available assertion category counts must reconcile exactly.");
+        }
+
+        if (row.AssertionMeasurementStatus is "Unavailable" or "Partial" &&
+            !AssertionLineageAuditService.IsStableReasonCode(row.AssertionMeasurementReason))
+            throw new InvalidOperationException(
+                "Unavailable or partial assertion measurements require a stable reason.");
+
+        if (row.AssertionMeasurementStatus == "Unavailable" &&
+            (row.RecognizedAssertionCount.HasValue ||
+             row.TracedAssertionCount.HasValue ||
+             row.TrivialAssertionCount.HasValue ||
+             row.UnresolvedAssertionCount.HasValue))
+            throw new InvalidOperationException(
+                "Unavailable assertion category counts must be blank, never zero.");
     }
 
     private static string FormatNullable(int? value)

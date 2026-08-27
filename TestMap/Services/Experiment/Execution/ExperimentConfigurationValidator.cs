@@ -1,6 +1,7 @@
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.Testing.Generation;
+using TestMap.Services.StaticAnalysis.Assertions;
 using TestMap.Services.TestGeneration;
 
 namespace TestMap.Services.Experiment.Execution;
@@ -9,6 +10,7 @@ public static class ExperimentConfigurationValidator
 {
     public static void ValidateMatrixSettings(ExperimentConfig config)
     {
+        ArgumentNullException.ThrowIfNull(config);
         GenerationObjectivePolicy.Validate(
             config.Objective,
             config.Approaches ?? [],
@@ -41,6 +43,17 @@ public static class ExperimentConfigurationValidator
             config.CandidateCohort.RandomSeed.HasValue)
             throw new InvalidOperationException(
                 "ExperimentConfig.CandidateCohort.RandomSeed is defined by the stored cohort and must be omitted in reuse mode.");
+
+        try
+        {
+            AssertionLineagePolicy.Validate(config.Evaluation.Assertions);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new InvalidOperationException(
+                "ExperimentConfig.Evaluation.Assertions contains an invalid assertion-lineage policy.",
+                exception);
+        }
     }
 
     public static void ValidateGenerationConfig(

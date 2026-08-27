@@ -1,10 +1,10 @@
 ﻿FROM testmap-dotnet-agent-base:0.1
 
-ARG CODEX_CLI_VERSION=latest
+ARG CODEX_CLI_VERSION=0.147.0
 
 # Install Codex CLI.
-# For reproducible evaluation runs, replace "latest" with a pinned version
-# after the pilot stabilizes.
+# The version is pinned so an evaluation sweep cannot silently change tool
+# behaviour partway through; bump it deliberately.
 RUN npm install -g @openai/codex@${CODEX_CLI_VERSION}
 
 # Shared runner helper and Codex-specific execution script.

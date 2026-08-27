@@ -156,6 +156,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             attempt.CompletedAt = DateTime.UtcNow;
             attempt.JsonlLogAvailable = HasJsonlEventLog(attempt.JsonlLogPath);
             attempt.EstimatedPromptTokens = EstimatePromptTokens(taskCardContent.Prompt);
+            var observedModel = ExtractObservedModel(attempt.ArtifactPath, tool.Id);
+            if (!string.IsNullOrWhiteSpace(observedModel))
+                attempt.Model = observedModel;
             var usage = ExtractUsage(attempt.ArtifactPath, tool.Id);
             if (usage != null)
             {
@@ -705,6 +708,83 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             inputTokens,
             outputTokens,
             $"{sourceFile}:tokens-line");
+    }
+
+    /// <summary>
+    /// Reads the model the tool actually served from its telemetry, so an attempt records what ran
+    /// rather than what was requested. Copilot can substitute a model without failing the run
+    /// (quota fallback, retired id), and a configured value alone would misattribute those attempts.
+    /// Returns null when the tool emits no model telemetry, leaving the configured model in place.
+    /// </summary>
+    internal static string? ExtractObservedModel(string artifactPath, string toolId)
+    {
+        if (!toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var otelPath = Path.Combine(artifactPath, "copilot-otel.jsonl");
+        if (!File.Exists(otelPath))
+            return null;
+
+        string? latest = null;
+        try
+        {
+            foreach (var line in File.ReadLines(otelPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                using var doc = JsonDocument.Parse(line);
+                var model = TryReadCopilotSpanModel(doc.RootElement);
+                if (!string.IsNullOrWhiteSpace(model))
+                    latest = model;
+            }
+        }
+        catch (JsonException)
+        {
+            return latest;
+        }
+        catch (IOException)
+        {
+            return latest;
+        }
+
+        return latest;
+    }
+
+    private static string? TryReadCopilotSpanModel(JsonElement root)
+    {
+        string? found = null;
+        foreach (var obj in EnumerateObjects(root))
+        {
+            if (!TryReadString(obj, "type", out var type) ||
+                !type.Equals("span", StringComparison.OrdinalIgnoreCase) ||
+                !TryReadString(obj, "name", out var name) ||
+                !name.StartsWith("chat ", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Response model first: it is what the server actually billed. The span name
+            // ("chat <model>") is the last resort for exports without gen_ai model attributes.
+            if (TryReadAttributeString(obj, "gen_ai.response.model", out var responseModel) &&
+                !string.IsNullOrWhiteSpace(responseModel))
+                found = Truncate(responseModel.Trim());
+            else if (TryReadAttributeString(obj, "gen_ai.request.model", out var requestModel) &&
+                     !string.IsNullOrWhiteSpace(requestModel))
+                found = Truncate(requestModel.Trim());
+            else
+            {
+                var spanModel = name["chat ".Length..].Trim();
+                if (spanModel.Length > 0)
+                    found = Truncate(spanModel);
+            }
+        }
+
+        return found;
+    }
+
+    private static string Truncate(string value)
+    {
+        // ToolAttempt.Model is a 200 character column.
+        return value.Length <= 200 ? value : value[..200];
     }
 
     private static ToolUsageSummary? ExtractCopilotUsage(string artifactPath, string toolId)
@@ -1276,6 +1356,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         builder.AppendLine();
         builder.AppendLine("Task: add or extend tests for the target method. Keep changes focused.");
         builder.AppendLine("Do not remove existing tests. Avoid unrelated production changes.");
+        builder.AppendLine("Leave your changes uncommitted in the working tree; do not run git commit.");
         builder.AppendLine();
         builder.AppendLine($"Target method: {targetName}");
         builder.AppendLine($"Signature: {signature}");

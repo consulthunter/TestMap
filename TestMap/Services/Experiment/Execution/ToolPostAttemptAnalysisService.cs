@@ -15,6 +15,14 @@ public sealed class ToolPostAttemptAnalysisResult
     /// Reason the analysis was skipped. Empty when <see cref="Analyzed"/> is true.
     /// </summary>
     public string SkipReason { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Ids of the members this pass actually observed in the workspace. Member rows are
+    /// upserted and never removed, so the database also holds members from earlier attempts
+    /// whose declarations no longer exist. Only ids in this set are present in the workspace
+    /// the attempt produced.
+    /// </summary>
+    public IReadOnlySet<int> ObservedMemberIds { get; init; } = new HashSet<int>();
 }
 
 public interface IToolPostAttemptAnalysisService
@@ -89,7 +97,11 @@ public sealed class ToolPostAttemptAnalysisService : IToolPostAttemptAnalysisSer
                 _context.Project.DbId,
                 cancellationToken);
 
-        return new ToolPostAttemptAnalysisResult { Analyzed = true };
+        return new ToolPostAttemptAnalysisResult
+        {
+            Analyzed = true,
+            ObservedMemberIds = sharedMemberIds.Values.ToHashSet()
+        };
     }
 
     private static ToolPostAttemptAnalysisResult Skip(string reason) =>

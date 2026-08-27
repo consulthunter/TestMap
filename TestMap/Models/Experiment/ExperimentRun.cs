@@ -28,6 +28,10 @@ public class ExperimentRun
     public DateTime? MaterializedAtUtc { get; set; }
     public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
     public string ProvenancePolicyVersion { get; set; } = string.Empty;
+    public string AssertionLineagePolicyVersion { get; set; } = string.Empty;
+    public string AssertionCatalogVersion { get; set; } = string.Empty;
+    public int AssertionLineageMaxDepth { get; set; }
+    public int AssertionLineagePathCap { get; set; }
 
     public virtual ICollection<CandidateMethod> CandidateMethods { get; set; } = new List<CandidateMethod>();
 }

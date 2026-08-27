@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using TestMap.App;
 using TestMap.Models.Results;
 using TestMap.Persistence.Ef;
@@ -97,7 +97,19 @@ public class TestSmellService : ITestSmellService
         var existingSmells = await _dbContext.TestSmells
             .Where(x => x.ProjectId == projectId)
             .ToListAsync(cancellationToken);
-        var smellsByKey = existingSmells.ToDictionary(CreateSmellKey);
+
+        // Earlier passes keyed smells by position, so a method that shifted accumulated one row
+        // per pass. Those rows are duplicates under the position-independent key: keep the
+        // oldest and drop the rest so counts reflect the smells present, not how many times the
+        // file has been re-analysed.
+        var smellsByKey = new Dictionary<string, TestSmellEntity>(StringComparer.Ordinal);
+        foreach (var group in existingSmells.GroupBy(CreateSmellKey, StringComparer.Ordinal))
+        {
+            var ordered = group.OrderBy(x => x.Id).ToList();
+            smellsByKey[group.Key] = ordered[0];
+            if (ordered.Count > 1)
+                _dbContext.TestSmells.RemoveRange(ordered.Skip(1));
+        }
 
         foreach (var finding in result.Findings)
         {
@@ -139,11 +151,15 @@ public class TestSmellService : ITestSmellService
         var normalizedFindingPath = NormalizePath(finding.FileLocation.FilePath);
         var lineZeroBased = finding.TestMethod.Location.Line is int line ? line - 1 : (int?)null;
 
+        // Earlier attempts that generated a test of this name left their own member rows behind,
+        // each carrying the position it had then. Nearest line picks the version in the file being
+        // analysed now; the newest id breaks ties so a stale row cannot win outright.
         return candidates
             .Where(x => NormalizePath(x.File.FilePath) == normalizedFindingPath)
             .OrderBy(x => lineZeroBased == null
                 ? 0
                 : Math.Abs(x.Member.Location.StartLineNumber - lineZeroBased.Value))
+            .ThenByDescending(x => x.Member.Id)
             .Select(x => (int?)x.Member.Id)
             .FirstOrDefault();
     }
@@ -162,6 +178,7 @@ public class TestSmellService : ITestSmellService
             .OrderBy(x => lineZeroBased == null
                 ? 0
                 : Math.Abs(x.Object.Location.StartLineNumber - lineZeroBased.Value))
+            .ThenByDescending(x => x.Object.Id)
             .Select(x => (int?)x.Object.Id)
             .FirstOrDefault();
     }
@@ -260,6 +277,13 @@ public class TestSmellService : ITestSmellService
             model.Column);
     }
 
+    /// <summary>
+    /// Identifies a smell by what it is and what it is on, deliberately excluding line and
+    /// column. A test method moves whenever code is inserted above it, and keying on position
+    /// made every such move look like a new smell: the same duplicate assertion on the same
+    /// method accumulated a fresh row per analysis pass, inflating its reported count. Position
+    /// is still recorded on the row, it just does not establish identity.
+    /// </summary>
     private static string CreateSmellKey(
         int projectId,
         int? memberId,
@@ -275,9 +299,7 @@ public class TestSmellService : ITestSmellService
             memberId?.ToString() ?? string.Empty,
             objectId?.ToString() ?? string.Empty,
             smellId,
-            filePath,
-            line?.ToString() ?? string.Empty,
-            column?.ToString() ?? string.Empty);
+            filePath);
     }
 
     private sealed record MemberCandidate(

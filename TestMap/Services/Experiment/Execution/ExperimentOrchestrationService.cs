@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,10 +10,12 @@ using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
+using TestMap.Models.Experiment.Assertions;
 using TestMap.Models.Rules;
 using TestMap.Models.RiskScoring;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.Experiment;
+using TestMap.Persistence.Ef.Repositories.Experiment.Assertions;
 using TestMap.Persistence.Ef.Repositories.AgentTools;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
 using TestMap.Rules;
@@ -33,6 +35,7 @@ using TestMap.Services.TestGeneration.Execution;
 using TestMap.Services.TestGeneration.Strategies;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
+using TestMap.Services.StaticAnalysis.Assertions;
 using TestMap.Services.TestGeneration.Workspace;
 using TestMap.Models.Targets;
 using ExperimentTestExecution = TestMap.Models.Experiment.TestExecution;
@@ -79,8 +82,16 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
     private readonly RollbackWorkspaceService _workspace;
     private readonly IWorkspaceIntegrityService _workspaceIntegrity;
+    private readonly AssertionLineageMeasurementRepository? _assertionLineageMeasurementRepository;
+    private readonly IAssertionLineageAnalysisService? _assertionLineageAnalysisService;
+    private readonly IAssertionObservationWriter? _assertionObservationWriter;
     private ExperimentConfig? _activeExperimentConfig;
     private int? _activeExperimentRunId;
+
+    // Baseline test smells and metrics as they stood at the pinned commit, keyed by test member
+    // id. Captured before any attempt runs; see CaptureBaselineSnapshotAsync.
+    private readonly Dictionary<int, string> _baselineSmellSnapshot = new();
+    private readonly Dictionary<int, MemberCodeMetricColumns?> _baselineMetricSnapshot = new();
 
     public ExperimentOrchestrationService(
         ProjectContext context,
@@ -116,7 +127,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         IToolPostAttemptMeasurementService toolPostAttemptMeasurementService,
         IEnumerable<ITestGenerationApproach> generationApproaches,
         RollbackWorkspaceService workspace,
-        IWorkspaceIntegrityService workspaceIntegrity)
+        IWorkspaceIntegrityService workspaceIntegrity,
+        AssertionLineageMeasurementRepository? assertionLineageMeasurementRepository = null,
+        IAssertionLineageAnalysisService? assertionLineageAnalysisService = null,
+        IAssertionObservationWriter? assertionObservationWriter = null)
     {
         _context = context;
         _config = config;
@@ -152,6 +166,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         _generationApproaches = generationApproaches.ToDictionary(x => x.Strategy);
         _workspace = workspace;
         _workspaceIntegrity = workspaceIntegrity;
+        _assertionLineageMeasurementRepository = assertionLineageMeasurementRepository;
+        _assertionLineageAnalysisService = assertionLineageAnalysisService;
+        _assertionObservationWriter = assertionObservationWriter;
     }
 
     public async Task<ExperimentRun> RunExperimentAsync(
@@ -159,6 +176,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         CancellationToken cancellationToken = default)
     {
         _activeExperimentConfig = config;
+        ExperimentConfigurationValidator.ValidateMatrixSettings(config);
+        var assertionLineagePolicy = AssertionLineagePolicy.Resolve(config.Evaluation.Assertions);
         CandidateCohortService.PrepareConfiguration(config);
         await _workspace.EnsureWorkspaceReadyAsync(cancellationToken);
         var revision = _context.MaterializedRevision is { Status: MaterializationStatus.Available, ResolvedCommit: not null } materialized
@@ -198,7 +217,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             TargetSourceSha256 = revision.SourceSha256,
             MaterializedAtUtc = revision.MaterializedAtUtc?.UtcDateTime,
             WorkspaceIntegrityStatus = startIntegrity.Status.ToString(),
-            ProvenancePolicyVersion = revision.PolicyVersion
+            ProvenancePolicyVersion = revision.PolicyVersion,
+            AssertionLineagePolicyVersion = assertionLineagePolicy.PolicyVersion,
+            AssertionCatalogVersion = assertionLineagePolicy.CatalogVersion,
+            AssertionLineageMaxDepth = assertionLineagePolicy.MaxDepth,
+            AssertionLineagePathCap = assertionLineagePolicy.PathCap
         };
 
         experimentRun.Id = await _experimentRunRepo.InsertAsync(experimentRun, cancellationToken);
@@ -256,6 +279,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 method.Id = await _candidateMethodRepo.InsertAsync(method, cancellationToken);
                 await SaveRiskScoreAsync(method, cancellationToken);
             }
+
+            await CaptureBaselineSnapshotAsync(candidateMethods, cancellationToken);
 
             var matrix = new GenerationExperimentMatrix();
             if (config.Evaluation.TestMap.Enabled)
@@ -617,6 +642,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     attempt,
                     cancellationToken);
                 persistedAttemptIdsByAttemptNumber[attempt.AttemptNumber] = persistedAttemptId;
+                await PersistGenerationAssertionLineageAsync(
+                    experimentRun,
+                    candidateMethod,
+                    attempt,
+                    cancellationToken);
                 await RequireVerifiedIntegrityAsync(
                     IntegrityCheckpoint.PreResultsPublication,
                     false,
@@ -624,14 +654,18 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     workItem.StableKey,
                     attempt.AttemptNumber,
                     cancellationToken);
-                await _resultsWriter.AppendAsync(
+                var resultRow = await CreateResultFileRowAsync(
                     experimentRun,
-                    await CreateResultFileRowAsync(
-                        experimentRun,
-                        candidateMethod,
-                        attempt,
-                        workItem.StableKey,
-                        cancellationToken),
+                    candidateMethod,
+                    attempt,
+                    workItem.StableKey,
+                    cancellationToken);
+                await _resultsWriter.AppendAsync(experimentRun, resultRow, cancellationToken);
+                await AppendAssertionSidecarAsync(
+                    experimentRun,
+                    candidateMethod,
+                    attempt,
+                    resultRow.AttemptId,
                     cancellationToken);
             }
 
@@ -881,12 +915,23 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                                     result.ToolAttempt,
                                     result.ChangedFiles,
                                     _context.Project.DbId,
+                                    analysis.Analyzed ? analysis.ObservedMemberIds : null,
                                     cancellationToken);
                                 if (linkResult.LinkedCount > 0)
                                     _context.Project.Logger?.Information(
                                         "Linked {Count} test member(s) to tool attempt {ToolAttemptId}.",
                                         linkResult.LinkedCount,
                                         result.ToolAttempt.Id);
+
+                                await CaptureAndPersistToolAssertionLineageAsync(
+                                    experimentRun,
+                                    candidateMethod,
+                                    methodContext,
+                                    result.ToolAttempt,
+                                    linkResult,
+                                    analysis.Analyzed,
+                                    analysis.SkipReason,
+                                    cancellationToken);
 
                                 // Run build/test measurement on the modified workspace and reclassify outcome.
                                 var measurement = await _toolPostAttemptMeasurementService.MeasureAsync(
@@ -930,6 +975,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
                         if (result?.ToolAttempt != null)
                         {
+                            await EnsureToolAssertionMeasurementAsync(
+                                experimentRun,
+                                candidateMethod,
+                                result.ToolAttempt,
+                                cancellationToken);
                             await RequireVerifiedIntegrityAsync(
                                 IntegrityCheckpoint.PreResultsPublication,
                                 false,
@@ -947,6 +997,13 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                                 cancellationToken);
                             foreach (var toolRow in toolRows)
                                 await _resultsWriter.AppendAsync(experimentRun, toolRow, cancellationToken);
+                            if (toolRows.Count > 0)
+                                await AppendAssertionSidecarAsync(
+                                    experimentRun,
+                                    candidateMethod,
+                                    result.ToolAttempt,
+                                    toolRows[0].AttemptId,
+                                    cancellationToken);
                         }
                     }
 
@@ -1017,6 +1074,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             Notes = decision.Reason
         };
         attempt.Id = await _toolAttemptRepo.InsertAsync(attempt, cancellationToken);
+        await EnsureToolAssertionMeasurementAsync(
+            experimentRun,
+            candidateMethod,
+            attempt,
+            cancellationToken);
 
         var skippedRows = await CreateToolResultFileRowsAsync(
             experimentRun,
@@ -1097,9 +1159,9 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         var generatedTestCompiled = execution?.CompilationSuccess ?? false;
         var generatedTestExecuted = generatedTestCompiled && (execution?.TestsExecuted ?? false);
         var generatedTestPassed = generatedTestCompiled && generatedTestExecuted && (execution?.TestPassed ?? false);
-        var sourceMetrics = await GetMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
-        var baselineMetrics = await GetMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
-        var generatedMetrics = await GetMemberCodeMetricsAsync(generatedTestMemberId, cancellationToken);
+        var sourceMetrics = await QueryMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
+        var baselineMetrics = await GetBaselineMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
+        var generatedMetrics = await QueryMemberCodeMetricsAsync(generatedTestMemberId, cancellationToken);
         var baselineTestExecutionTimeMs = await GetBaselineTestExecutionTimeMsAsync(
             candidateMethod.ExistingTestMethodName,
             candidateMethod.ExistingTestMemberId,
@@ -1120,6 +1182,29 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         var failureStage = execution?.FailureStage ?? attempt.FailureStage ?? string.Empty;
         var producedChange = failureKind != TestFailureKind.Generation &&
                              !failureStage.Equals("application", StringComparison.OrdinalIgnoreCase);
+        var assertionPolicy = AssertionLineagePolicy.Resolve(
+            _activeExperimentConfig?.Evaluation.Assertions
+            ?? _config.ExperimentConfig.Evaluation.Assertions);
+        var assertionMeasurement = _assertionLineageMeasurementRepository == null
+            ? CreateNotMeasuredAssertionLineage(
+                experimentRun,
+                candidateMethod,
+                attempt.Id,
+                null,
+                "testmap",
+                assertionPolicy,
+                attempt.StartedAt,
+                attempt.CompletedAt ?? DateTime.UtcNow)
+            : await _assertionLineageMeasurementRepository.GetForGenerationAttemptOrNotMeasuredAsync(
+                attempt.Id,
+                assertionPolicy.PolicyVersion,
+                assertionPolicy.CatalogVersion,
+                assertionPolicy.MaxDepth,
+                cancellationToken);
+        var executionMemberId = execution?.MemberId;
+        var assertionSummary = assertionMeasurement.TestSummaries.FirstOrDefault(summary =>
+            !executionMemberId.HasValue || summary.TestMemberId == executionMemberId);
+        var assertionRowStatus = ResolveRowAssertionStatus(assertionMeasurement, assertionSummary);
 
         return new ExperimentResultFileRow
         {
@@ -1171,11 +1256,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             GeneratedTestDepthOfInheritance = generatedMetrics?.DepthOfInheritance,
             GeneratedTestSourceLinesOfCode = generatedMetrics?.SourceLinesOfCode,
             GeneratedTestExecutableLinesOfCode = generatedMetrics?.ExecutableLinesOfCode,
-            BaselineTestSmells = await GetTestSmellSummaryAsync(
+            BaselineTestSmells = await GetBaselineTestSmellsAsync(
                 candidateMethod.ExistingTestMethodName,
                 candidateMethod.ExistingTestMemberId,
                 cancellationToken),
-            GeneratedTestSmells = await GetTestSmellSummaryAsync(
+            GeneratedTestSmells = await QueryTestSmellSummaryAsync(
                 execution?.GeneratedTestMethodName,
                 generatedTestMemberId,
                 cancellationToken),
@@ -1228,6 +1313,28 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             ImpactMeasurementStatus = impact.CoverageEvaluable && impact.MutationEvaluable
                 ? "Complete"
                 : impact.ImpactEvaluable ? "Partial" : "Missing",
+            AssertionMeasurementStatus = assertionRowStatus,
+            AssertionMeasurementReason = ResolveRowAssertionReason(
+                assertionRowStatus,
+                assertionMeasurement,
+                assertionSummary),
+            AssertionPolicyVersion = assertionMeasurement.PolicyVersion,
+            AssertionCatalogVersion = assertionMeasurement.AssertionCatalogVersion,
+            AssertionMaxDepth = assertionMeasurement.MaxDepth,
+            RecognizedAssertionCount =
+                assertionSummary?.RecognizedAssertionCount ?? assertionMeasurement.RecognizedAssertionCount,
+            UnrecognizedAssertionCount =
+                assertionSummary?.UnrecognizedAssertionCount ?? assertionMeasurement.UnrecognizedAssertionCount,
+            TracedAssertionCount =
+                assertionSummary?.TracedAssertionCount ?? assertionMeasurement.TracedAssertionCount,
+            TrivialAssertionCount =
+                assertionSummary?.TrivialAssertionCount ?? assertionMeasurement.TrivialAssertionCount,
+            UnresolvedAssertionCount =
+                assertionSummary?.UnresolvedAssertionCount ?? assertionMeasurement.UnresolvedAssertionCount,
+            NoRecognizedAssertions =
+                assertionSummary?.Status == GeneratedTestAssertionStatus.NoRecognizedAssertions,
+            AssertionAnalysisDurationMs = assertionMeasurement.AnalysisDurationMs,
+            AssertionAttribution = "generated_test",
             ToolObservedOutcome = outcomeClassification,
             FailureKind = failureKind == TestFailureKind.None ? string.Empty : failureKind.ToString(),
             FailureStage = failureStage,
@@ -1282,12 +1389,31 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         int attemptNumber,
         CancellationToken cancellationToken)
     {
-        var sourceMetrics = await GetMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
-        var baselineMetrics = await GetMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
-        var baselineTestSmells = await GetTestSmellSummaryAsync(
+        var sourceMetrics = await QueryMemberCodeMetricsAsync(candidateMethod.MemberId, cancellationToken);
+        var baselineMetrics = await GetBaselineMemberCodeMetricsAsync(candidateMethod.ExistingTestMemberId, cancellationToken);
+        var baselineTestSmells = await GetBaselineTestSmellsAsync(
             candidateMethod.ExistingTestMethodName,
             candidateMethod.ExistingTestMemberId,
             cancellationToken);
+        var assertionPolicy = AssertionLineagePolicy.Resolve(
+            _activeExperimentConfig?.Evaluation.Assertions
+            ?? _config.ExperimentConfig.Evaluation.Assertions);
+        var assertionMeasurement = _assertionLineageMeasurementRepository == null
+            ? CreateNotMeasuredAssertionLineage(
+                experimentRun,
+                candidateMethod,
+                null,
+                attempt.Id,
+                "agent-tool",
+                assertionPolicy,
+                attempt.StartedAt,
+                attempt.CompletedAt ?? DateTime.UtcNow)
+            : await _assertionLineageMeasurementRepository.GetForToolAttemptOrNotMeasuredAsync(
+                attempt.Id,
+                assertionPolicy.PolicyVersion,
+                assertionPolicy.CatalogVersion,
+                assertionPolicy.MaxDepth,
+                cancellationToken);
         var testability = methodContext.Testability;
         var selectedAccessPath = testability?.AccessPaths.FirstOrDefault();
 
@@ -1310,8 +1436,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         var smellsByMemberId = new Dictionary<int, string>(linkedMembers.Count);
         foreach (var (memberId, memberName) in linkedMembers)
         {
-            metricsByMemberId[memberId] = await GetMemberCodeMetricsAsync(memberId, cancellationToken);
-            smellsByMemberId[memberId] = await GetTestSmellSummaryAsync(memberName, memberId, cancellationToken);
+            metricsByMemberId[memberId] = await QueryMemberCodeMetricsAsync(memberId, cancellationToken);
+            smellsByMemberId[memberId] = await QueryTestSmellSummaryAsync(memberName, memberId, cancellationToken);
         }
 
         // Match a test result name (possibly fully-qualified, e.g. "ClassName.MethodName")
@@ -1338,6 +1464,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             var memberId = memberIdOverride ?? FindMemberId(testName);
             var generatedMetrics = memberId.HasValue && metricsByMemberId.TryGetValue(memberId.Value, out var gm) ? gm : null;
             var generatedSmells = memberId.HasValue && smellsByMemberId.TryGetValue(memberId.Value, out var gs) ? gs : string.Empty;
+            var assertionSummary = memberId.HasValue
+                ? assertionMeasurement.TestSummaries.FirstOrDefault(summary =>
+                    summary.TestMemberId == memberId)
+                : null;
+            var assertionFieldsApply = !rowKind.Equals("test_result", StringComparison.Ordinal);
+            var assertionRowStatus = ResolveRowAssertionStatus(assertionMeasurement, assertionSummary);
             return new()
             {
                 RowKind = rowKind,
@@ -1451,6 +1583,54 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 MutationMeasurementStatus = attempt.MutationMeasurementStatus,
                 ImpactMeasurementStatus = attempt.ImpactMeasurementStatus,
                 MeasurementPolicyVersion = attempt.MeasurementPolicyVersion,
+                AssertionMeasurementStatus = assertionFieldsApply ? assertionRowStatus : string.Empty,
+                AssertionMeasurementReason = assertionFieldsApply
+                    ? ResolveRowAssertionReason(
+                        assertionRowStatus,
+                        assertionMeasurement,
+                        assertionSummary)
+                    : string.Empty,
+                AssertionPolicyVersion = assertionFieldsApply
+                    ? assertionMeasurement.PolicyVersion
+                    : string.Empty,
+                AssertionCatalogVersion = assertionFieldsApply
+                    ? assertionMeasurement.AssertionCatalogVersion
+                    : string.Empty,
+                AssertionMaxDepth = assertionFieldsApply ? assertionMeasurement.MaxDepth : null,
+                RecognizedAssertionCount = assertionFieldsApply
+                    ? assertionSummary != null
+                        ? assertionSummary.RecognizedAssertionCount
+                        : assertionMeasurement.RecognizedAssertionCount
+                    : null,
+                UnrecognizedAssertionCount = assertionFieldsApply
+                    ? assertionSummary != null
+                        ? assertionSummary.UnrecognizedAssertionCount
+                        : assertionMeasurement.UnrecognizedAssertionCount
+                    : null,
+                TracedAssertionCount = assertionFieldsApply
+                    ? assertionSummary != null
+                        ? assertionSummary.TracedAssertionCount
+                        : assertionMeasurement.TracedAssertionCount
+                    : null,
+                TrivialAssertionCount = assertionFieldsApply
+                    ? assertionSummary != null
+                        ? assertionSummary.TrivialAssertionCount
+                        : assertionMeasurement.TrivialAssertionCount
+                    : null,
+                UnresolvedAssertionCount = assertionFieldsApply
+                    ? assertionSummary != null
+                        ? assertionSummary.UnresolvedAssertionCount
+                        : assertionMeasurement.UnresolvedAssertionCount
+                    : null,
+                NoRecognizedAssertions = assertionFieldsApply && assertionSummary != null
+                    ? assertionSummary.Status == GeneratedTestAssertionStatus.NoRecognizedAssertions
+                    : null,
+                AssertionAnalysisDurationMs = assertionFieldsApply
+                    ? assertionMeasurement.AnalysisDurationMs
+                    : null,
+                AssertionAttribution = assertionFieldsApply
+                    ? assertionSummary == null ? "attempt_aggregate" : "generated_test"
+                    : string.Empty,
                 ToolObservedOutcome = attempt.ObservedOutcome.ToString(),
                 FailureKind = attempt.RunStatus is ToolRunStatus.Completed or ToolRunStatus.CompletedNoChange or ToolRunStatus.Skipped
                     ? string.Empty
@@ -1796,7 +1976,63 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private async Task<MemberCodeMetricColumns?> GetMemberCodeMetricsAsync(
+    /// <summary>
+    /// Records the baseline test's smells and code metrics while the workspace still matches the
+    /// pinned commit. Both are read from the database, and the tool lane re-runs project
+    /// analysis, code metrics and smell collection on the workspace an attempt produced. Reading
+    /// them later therefore describes the attempt's tests rather than the baseline: a generated
+    /// test that repeats an existing assertion makes the untouched baseline method acquire a
+    /// duplicate-assertion smell it does not have at the pinned commit. Snapshotting once keeps
+    /// the baseline identical across attempts and comparable between lanes.
+    /// </summary>
+    private async Task CaptureBaselineSnapshotAsync(
+        IReadOnlyList<CandidateMethod> candidateMethods,
+        CancellationToken cancellationToken)
+    {
+        foreach (var method in candidateMethods)
+        {
+            if (!method.ExistingTestMemberId.HasValue) continue;
+            var memberId = method.ExistingTestMemberId.Value;
+
+            if (!_baselineSmellSnapshot.ContainsKey(memberId))
+                _baselineSmellSnapshot[memberId] = await QueryTestSmellSummaryAsync(
+                    method.ExistingTestMethodName,
+                    memberId,
+                    cancellationToken);
+
+            if (!_baselineMetricSnapshot.ContainsKey(memberId))
+                _baselineMetricSnapshot[memberId] = await QueryMemberCodeMetricsAsync(
+                    memberId,
+                    cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Returns the snapshotted baseline smells when one was captured, so the value cannot drift
+    /// as later analysis passes refresh the database. Falls back to a live query.
+    /// </summary>
+    private async Task<string> GetBaselineTestSmellsAsync(
+        string? testName,
+        int? memberId,
+        CancellationToken cancellationToken)
+    {
+        if (memberId.HasValue && _baselineSmellSnapshot.TryGetValue(memberId.Value, out var snapshot))
+            return snapshot;
+
+        return await QueryTestSmellSummaryAsync(testName, memberId, cancellationToken);
+    }
+
+    private async Task<MemberCodeMetricColumns?> GetBaselineMemberCodeMetricsAsync(
+        int? memberId,
+        CancellationToken cancellationToken)
+    {
+        if (memberId.HasValue && _baselineMetricSnapshot.TryGetValue(memberId.Value, out var snapshot))
+            return snapshot;
+
+        return await QueryMemberCodeMetricsAsync(memberId, cancellationToken);
+    }
+
+    private async Task<MemberCodeMetricColumns?> QueryMemberCodeMetricsAsync(
         int? memberId,
         CancellationToken cancellationToken)
     {
@@ -1818,7 +2054,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 metric.ExecutableLinesOfCode);
     }
 
-    private async Task<string> GetTestSmellSummaryAsync(
+    private async Task<string> QueryTestSmellSummaryAsync(
         string? testName,
         int? memberId,
         CancellationToken cancellationToken)
@@ -2350,6 +2586,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             TestRunId = execution.TestRun?.DbId > 0 ? execution.TestRun.DbId : null,
             BaselineTestRunId = execution.BaselineTestRun?.DbId > 0 ? execution.BaselineTestRun.DbId : null,
             MemberId = execution.GeneratedTestMemberId,
+            IntendedSourceMemberId = execution.IntendedSourceMemberId,
+            AssertionLineageAnalysis = execution.AssertionLineageAnalysis,
             // Transient: carry patch metadata back to the orchestrator for attempt-level persistence.
             PatchApplicationOutcome = execution.PatchApplicationOutcome,
             AppliedUsingCount = execution.AppliedUsingCount,
@@ -2596,6 +2834,568 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 $"Failed to persist generation attempt {attempt.CandidateMethodId}/{attempt.Provider}/{attempt.BudgetMode}/{attempt.AttemptNumber}: {detail}",
                 ex);
         }
+    }
+
+    private async Task PersistGenerationAssertionLineageAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        GenerationAttempt attempt,
+        CancellationToken cancellationToken)
+    {
+        if (_assertionLineageMeasurementRepository == null)
+        {
+            _context.Project.Logger?.Warning(
+                "Assertion-lineage persistence is unavailable for generation attempt {GenerationAttemptId}.",
+                attempt.Id);
+            return;
+        }
+
+        var policy = AssertionLineagePolicy.Resolve(
+            _activeExperimentConfig?.Evaluation.Assertions
+            ?? _config.ExperimentConfig.Evaluation.Assertions);
+        var execution = attempt.TestExecution;
+        var analysis = execution?.AssertionLineageAnalysis;
+        var startedAt = analysis?.StartedAt ?? attempt.StartedAt;
+        var completedAt = analysis?.CompletedAt ?? attempt.CompletedAt ?? DateTime.UtcNow;
+        var measurement = new AssertionLineageMeasurement
+        {
+            ProjectId = experimentRun.ProjectId,
+            ExperimentRunId = experimentRun.Id,
+            CandidateMethodId = candidateMethod.Id,
+            GenerationAttemptId = attempt.Id,
+            ProducerLane = "testmap",
+            PolicyVersion = policy.PolicyVersion,
+            AssertionCatalogVersion = policy.CatalogVersion,
+            MaxDepth = policy.MaxDepth,
+            AnalysisDurationMs = analysis?.AnalysisDurationMs,
+            StartedAt = startedAt,
+            CompletedAt = completedAt
+        };
+
+        if (execution == null || string.IsNullOrWhiteSpace(execution.GeneratedTestCode))
+        {
+            measurement.Status = AssertionMeasurementStatus.NotApplicable;
+            measurement.FailureCode = AssertionLineageReasonCodes.NoAppliedTestArtifact;
+            measurement.FailureReason = "The attempt did not produce an eligible generated or modified test artifact.";
+        }
+        else if (analysis?.Available == true)
+        {
+            measurement.Status = AssertionMeasurementStatus.Complete;
+            foreach (var summary in analysis.TestSummaries)
+            {
+                summary.GeneratedTestExecutionId = execution.Id > 0 ? execution.Id : null;
+                summary.TestMemberId ??= execution.MemberId;
+                summary.TestMethodName = string.IsNullOrWhiteSpace(summary.TestMethodName)
+                    ? execution.GeneratedTestMethodName ?? string.Empty
+                    : summary.TestMethodName;
+                summary.TestFilePath = string.IsNullOrWhiteSpace(summary.TestFilePath)
+                    ? attempt.ModifiedFilePath ?? string.Empty
+                    : summary.TestFilePath;
+                summary.TestMemberContentHash = string.IsNullOrWhiteSpace(summary.TestMemberContentHash)
+                    ? ComputeSha256(execution.GeneratedTestCode)
+                    : summary.TestMemberContentHash;
+                summary.FallbackIdentityHash = string.IsNullOrWhiteSpace(summary.FallbackIdentityHash)
+                    ? ComputeSha256($"{attempt.Id}|{summary.TestMethodName}|{summary.TestFilePath}")
+                    : summary.FallbackIdentityHash;
+                measurement.TestSummaries.Add(summary);
+            }
+        }
+        else
+        {
+            var failureCode = analysis?.FailureCode
+                              ?? (execution.MemberId.HasValue
+                                  ? AssertionLineageReasonCodes.AnalysisFailure
+                                  : AssertionLineageReasonCodes.GeneratedTestMemberUnresolved);
+            measurement.Status = AssertionMeasurementStatus.Unavailable;
+            measurement.FailureCode = failureCode;
+            measurement.FailureReason = analysis?.FailureReason
+                                        ?? "Assertion-lineage evidence could not be captured for the generated test.";
+            measurement.TestSummaries.Add(new GeneratedTestAssertionSummary
+            {
+                GeneratedTestExecutionId = execution.Id > 0 ? execution.Id : null,
+                TestMemberId = execution.MemberId,
+                TestMethodName = execution.GeneratedTestMethodName ?? string.Empty,
+                TestFilePath = attempt.ModifiedFilePath ?? string.Empty,
+                TestMemberContentHash = ComputeSha256(execution.GeneratedTestCode),
+                FallbackIdentityHash = ComputeSha256(
+                    $"{attempt.Id}|{execution.GeneratedTestMethodName}|{attempt.ModifiedFilePath}"),
+                Status = GeneratedTestAssertionStatus.Unavailable,
+                StatusReason = failureCode
+            });
+        }
+
+        await PersistAuditableMeasurementAsync(measurement, attempt.Id, cancellationToken);
+    }
+
+    private async Task PersistAuditableMeasurementAsync(
+        AssertionLineageMeasurement measurement,
+        int attemptId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _assertionLineageMeasurementRepository!.InsertOrDegradeAsync(
+            measurement,
+            cancellationToken);
+        if (!result.Degraded) return;
+
+        _context.Project.Logger?.Warning(
+            "Assertion-lineage evidence for attempt {GenerationAttemptId} failed the integrity "
+            + "audit and was recorded as {Status}/{ReasonCode}. Coverage, mutation and outcome "
+            + "data are unaffected. Findings: {Findings}",
+            attemptId,
+            nameof(AssertionMeasurementStatus.Unavailable),
+            AssertionLineageReasonCodes.AssertionAuditFailed,
+            result.AuditFindings);
+    }
+
+    private async Task CaptureAndPersistToolAssertionLineageAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        CandidateMethodContext methodContext,
+        ToolAttempt toolAttempt,
+        ToolAttemptGeneratedTestLinkResult linkResult,
+        bool postAttemptAnalysisCompleted,
+        string? postAttemptAnalysisReason,
+        CancellationToken cancellationToken)
+    {
+        if (_assertionLineageMeasurementRepository == null)
+        {
+            _context.Project.Logger?.Warning(
+                "Assertion-lineage persistence is unavailable for tool attempt {ToolAttemptId}.",
+                toolAttempt.Id);
+            return;
+        }
+
+        var policy = AssertionLineagePolicy.Resolve(
+            _activeExperimentConfig?.Evaluation.Assertions
+            ?? _config.ExperimentConfig.Evaluation.Assertions);
+        var startedAt = DateTime.UtcNow;
+        AssertionLineageAnalysisResult analysis;
+        if (!policy.Enabled)
+        {
+            analysis = AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.AnalysisDisabled,
+                "Assertion-lineage analysis is disabled by experiment configuration.",
+                startedAt,
+                DateTime.UtcNow);
+        }
+        else if (!postAttemptAnalysisCompleted)
+        {
+            analysis = AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.PostAttemptAnalysisSkipped,
+                postAttemptAnalysisReason ?? "Post-attempt semantic analysis did not complete.",
+                startedAt,
+                DateTime.UtcNow);
+        }
+        else if (linkResult.LinkedMemberIds.Count == 0)
+        {
+            analysis = AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.GeneratedTestMemberUnresolved,
+                "No generated or modified test member could be attributed to the tool attempt.",
+                startedAt,
+                DateTime.UtcNow);
+        }
+        else if (_assertionLineageAnalysisService == null)
+        {
+            analysis = AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.SemanticProjectUnavailable,
+                "The assertion-lineage analysis service is unavailable.",
+                startedAt,
+                DateTime.UtcNow);
+        }
+        else
+        {
+            var solutionId = ResolveSolutionId(methodContext);
+            if (solutionId <= 0)
+            {
+                analysis = AssertionLineageAnalysisResult.Unavailable(
+                    policy,
+                    AssertionLineageReasonCodes.SemanticProjectUnavailable,
+                    "The persisted solution identity could not be resolved for the tool attempt.",
+                    startedAt,
+                    DateTime.UtcNow);
+            }
+            else
+            {
+                try
+                {
+                    analysis = await _assertionLineageAnalysisService.AnalyzeAsync(
+                        new AssertionLineageAnalysisRequest
+                        {
+                            ProjectId = experimentRun.ProjectId,
+                            SolutionId = solutionId,
+                            IntendedSourceMemberId = candidateMethod.MemberId,
+                            TestMemberIds = linkResult.LinkedMemberIds,
+                            Policy = policy
+                        },
+                        cancellationToken);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    _context.Project.Logger?.Warning(
+                        exception,
+                        "Assertion-lineage analysis failed for tool attempt {ToolAttemptId}.",
+                        toolAttempt.Id);
+                    analysis = AssertionLineageAnalysisResult.Unavailable(
+                        policy,
+                        AssertionLineageReasonCodes.AnalysisFailure,
+                        exception.Message,
+                        startedAt,
+                        DateTime.UtcNow);
+                }
+            }
+        }
+
+        var toolChildren = await _dbContext.ToolAttemptGeneratedTests
+            .AsNoTracking()
+            .Where(x => x.ToolAttemptId == toolAttempt.Id)
+            .Select(x => new { x.Id, x.MemberId })
+            .ToListAsync(cancellationToken);
+        var childIdByMemberId = toolChildren
+            .GroupBy(x => x.MemberId)
+            .ToDictionary(x => x.Key, x => x.First().Id);
+        var measurement = new AssertionLineageMeasurement
+        {
+            ProjectId = experimentRun.ProjectId,
+            ExperimentRunId = experimentRun.Id,
+            CandidateMethodId = candidateMethod.Id,
+            ToolAttemptId = toolAttempt.Id,
+            ProducerLane = "agent-tool",
+            Status = analysis.Available
+                ? AssertionMeasurementStatus.Complete
+                : AssertionMeasurementStatus.Unavailable,
+            FailureCode = analysis.FailureCode,
+            FailureReason = analysis.FailureReason,
+            PolicyVersion = policy.PolicyVersion,
+            AssertionCatalogVersion = policy.CatalogVersion,
+            MaxDepth = policy.MaxDepth,
+            AnalysisDurationMs = analysis.AnalysisDurationMs,
+            StartedAt = analysis.StartedAt,
+            CompletedAt = analysis.CompletedAt
+        };
+
+        if (analysis.Available)
+        {
+            foreach (var summary in analysis.TestSummaries)
+            {
+                if (summary.TestMemberId is int memberId &&
+                    childIdByMemberId.TryGetValue(memberId, out var childId))
+                    summary.ToolAttemptGeneratedTestId = childId;
+                summary.FallbackIdentityHash = string.IsNullOrWhiteSpace(summary.FallbackIdentityHash)
+                    ? ComputeSha256($"{toolAttempt.Id}|{summary.TestMemberId}|{summary.TestMethodName}")
+                    : summary.FallbackIdentityHash;
+                measurement.TestSummaries.Add(summary);
+            }
+        }
+        else
+        {
+            foreach (var memberId in linkResult.LinkedMemberIds)
+                measurement.TestSummaries.Add(new GeneratedTestAssertionSummary
+                {
+                    TestMemberId = memberId,
+                    ToolAttemptGeneratedTestId = childIdByMemberId.TryGetValue(memberId, out var childId)
+                        ? childId
+                        : null,
+                    FallbackIdentityHash = ComputeSha256($"{toolAttempt.Id}|{memberId}"),
+                    Status = GeneratedTestAssertionStatus.Unavailable,
+                    StatusReason = analysis.FailureCode ?? AssertionLineageReasonCodes.AnalysisFailure
+                });
+        }
+
+        await PersistAuditableMeasurementAsync(measurement, toolAttempt.Id, cancellationToken);
+    }
+
+    private async Task EnsureToolAssertionMeasurementAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        ToolAttempt toolAttempt,
+        CancellationToken cancellationToken)
+    {
+        if (_assertionLineageMeasurementRepository == null)
+            return;
+
+        var policy = AssertionLineagePolicy.Resolve(
+            _activeExperimentConfig?.Evaluation.Assertions
+            ?? _config.ExperimentConfig.Evaluation.Assertions);
+        var current = await _assertionLineageMeasurementRepository.GetForToolAttemptOrNotMeasuredAsync(
+            toolAttempt.Id,
+            policy.PolicyVersion,
+            policy.CatalogVersion,
+            policy.MaxDepth,
+            cancellationToken);
+        if (current.Status != AssertionMeasurementStatus.NotMeasured)
+            return;
+
+        await _assertionLineageMeasurementRepository.InsertAsync(
+            new AssertionLineageMeasurement
+            {
+                ProjectId = experimentRun.ProjectId,
+                ExperimentRunId = experimentRun.Id,
+                CandidateMethodId = candidateMethod.Id,
+                ToolAttemptId = toolAttempt.Id,
+                ProducerLane = "agent-tool",
+                Status = AssertionMeasurementStatus.NotApplicable,
+                FailureCode = AssertionLineageReasonCodes.NoAppliedTestArtifact,
+                FailureReason = "The tool attempt produced no attributable generated or modified test artifact.",
+                PolicyVersion = policy.PolicyVersion,
+                AssertionCatalogVersion = policy.CatalogVersion,
+                MaxDepth = policy.MaxDepth,
+                StartedAt = toolAttempt.StartedAt,
+                CompletedAt = toolAttempt.CompletedAt ?? DateTime.UtcNow
+            },
+            cancellationToken);
+    }
+
+    private async Task AppendAssertionSidecarAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        GenerationAttempt attempt,
+        string attemptId,
+        CancellationToken cancellationToken)
+    {
+        if (_assertionObservationWriter == null || _assertionLineageMeasurementRepository == null)
+            return;
+        var policy = AssertionLineagePolicy.Resolve(
+            _activeExperimentConfig?.Evaluation.Assertions
+            ?? _config.ExperimentConfig.Evaluation.Assertions);
+        var measurement =
+            await _assertionLineageMeasurementRepository.GetForGenerationAttemptOrNotMeasuredAsync(
+                attempt.Id,
+                policy.PolicyVersion,
+                policy.CatalogVersion,
+                policy.MaxDepth,
+                cancellationToken);
+        await AppendAssertionSidecarAsync(
+            experimentRun,
+            candidateMethod,
+            measurement,
+            attemptId,
+            attempt.ModelName ?? string.Empty,
+            string.Empty,
+            attempt.AttemptNumber,
+            cancellationToken);
+    }
+
+    private async Task AppendAssertionSidecarAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        ToolAttempt attempt,
+        string attemptId,
+        CancellationToken cancellationToken)
+    {
+        if (_assertionObservationWriter == null || _assertionLineageMeasurementRepository == null)
+            return;
+        var policy = AssertionLineagePolicy.Resolve(
+            _activeExperimentConfig?.Evaluation.Assertions
+            ?? _config.ExperimentConfig.Evaluation.Assertions);
+        var measurement = await _assertionLineageMeasurementRepository.GetForToolAttemptOrNotMeasuredAsync(
+            attempt.Id,
+            policy.PolicyVersion,
+            policy.CatalogVersion,
+            policy.MaxDepth,
+            cancellationToken);
+        await AppendAssertionSidecarAsync(
+            experimentRun,
+            candidateMethod,
+            measurement,
+            attemptId,
+            attempt.Model,
+            attempt.ToolId,
+            attempt.AttemptNumber,
+            cancellationToken);
+    }
+
+    private async Task AppendAssertionSidecarAsync(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        AssertionLineageMeasurement measurement,
+        string attemptId,
+        string model,
+        string toolId,
+        int attemptNumber,
+        CancellationToken cancellationToken)
+    {
+        var rows = measurement.TestSummaries
+            .SelectMany(summary => summary.Observations.Select(observation =>
+                new AssertionObservationFileRow
+                {
+                    ObservationId = observation.Id,
+                    AttemptId = attemptId,
+                    ExperimentRunId = experimentRun.Id,
+                    ExperimentRunUid = experimentRun.RunUid,
+                    ExperimentSeriesId = experimentRun.ExperimentSeriesId,
+                    ProducerLane = measurement.ProducerLane,
+                    Model = model,
+                    ToolId = toolId,
+                    AttemptNumber = attemptNumber,
+                    RepositoryIdentity = experimentRun.RepositoryIdentity,
+                    ResolvedCommit = experimentRun.ResolvedCommit,
+                    TargetId = experimentRun.TargetId,
+                    TargetManifestSha256 = experimentRun.TargetManifestSha256,
+                    TargetSourceSha256 = experimentRun.TargetSourceSha256,
+                    CandidateMethodId = candidateMethod.Id,
+                    IntendedSourceMemberId = candidateMethod.MemberId,
+                    GeneratedTestAssertionSummaryId = summary.Id,
+                    GeneratedTestExecutionId = summary.GeneratedTestExecutionId,
+                    ToolAttemptGeneratedTestId = summary.ToolAttemptGeneratedTestId,
+                    TestMemberId = summary.TestMemberId,
+                    TestMemberName = summary.TestMethodName,
+                    TestFilePath = summary.TestFilePath,
+                    TestMemberContentHash = summary.TestMemberContentHash,
+                    AssertionOrdinal = observation.Ordinal,
+                    StartLine = observation.StartLine,
+                    StartColumn = observation.StartColumn,
+                    EndLine = observation.EndLine,
+                    EndColumn = observation.EndColumn,
+                    Framework = observation.Framework,
+                    AssertionStyle = observation.Framework,
+                    AssertionMethod = observation.AssertionMethod,
+                    RecognitionKind = observation.RecognitionKind.ToString(),
+                    ExpressionHash = observation.ExpressionHash,
+                    Category = observation.Category.ToString(),
+                    ResolutionCode = observation.ResolutionCode,
+                    TargetRelation = observation.TargetRelation.ToString(),
+                    DepthReached = observation.DepthReached,
+                    ResolvedProductionMemberIds = string.Join(
+                        ";",
+                        observation.Steps
+                            .Where(step =>
+                                step.StepKind == AssertionLineageStepKind.ProductionMember &&
+                                step.MemberId.HasValue)
+                            .Select(step => step.MemberId!.Value)
+                            .Distinct()
+                            .Order()),
+                    PolicyVersion = measurement.PolicyVersion,
+                    AssertionCatalogVersion = measurement.AssertionCatalogVersion,
+                    MaxDepth = measurement.MaxDepth,
+                    TraceSummary = observation.TraceSummary,
+                    OrderedLineagePathsJson = JsonSerializer.Serialize(
+                        observation.Steps
+                            .OrderBy(step => step.InputIndex)
+                            .ThenBy(step => step.PathIndex)
+                            .ThenBy(step => step.StepIndex)
+                            .Select(step => new
+                            {
+                                step.InputIndex,
+                                step.PathIndex,
+                                step.StepIndex,
+                                StepKind = step.StepKind.ToString(),
+                                step.Depth,
+                                step.SymbolDisplay,
+                                step.MemberId,
+                                Outcome = step.Outcome.ToString(),
+                                step.ReasonCode,
+                                step.Summary
+                            })),
+                    AnalyzedAt = measurement.CompletedAt
+                }))
+            .ToList();
+        if (rows.Count > 0)
+            await _assertionObservationWriter!.AppendAsync(experimentRun, rows, cancellationToken);
+    }
+
+    private int ResolveSolutionId(CandidateMethodContext context)
+    {
+        static bool PathsEqual(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+                return false;
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return _context.Project.Solutions
+            .FirstOrDefault(solution => PathsEqual(solution.FilePath, context.SolutionFilePath))
+            ?.Id
+            ?? _context.Project.Projects
+                .FirstOrDefault(project => PathsEqual(project.FilePath, context.TestProjectPath))
+                ?.SolutionId
+            ?? 0;
+    }
+
+    private static AssertionLineageMeasurement CreateNotMeasuredAssertionLineage(
+        ExperimentRun experimentRun,
+        CandidateMethod candidateMethod,
+        int? generationAttemptId,
+        int? toolAttemptId,
+        string producerLane,
+        AssertionLineagePolicy policy,
+        DateTime startedAt,
+        DateTime completedAt) =>
+        new()
+        {
+            ProjectId = experimentRun.ProjectId,
+            ExperimentRunId = experimentRun.Id,
+            CandidateMethodId = candidateMethod.Id,
+            GenerationAttemptId = generationAttemptId,
+            ToolAttemptId = toolAttemptId,
+            ProducerLane = producerLane,
+            Status = AssertionMeasurementStatus.NotMeasured,
+            FailureCode = AssertionLineageReasonCodes.HistoricalNotMeasured,
+            FailureReason = "No persisted assertion-lineage measurement is available for this row.",
+            PolicyVersion = policy.PolicyVersion,
+            AssertionCatalogVersion = policy.CatalogVersion,
+            MaxDepth = policy.MaxDepth,
+            StartedAt = startedAt,
+            CompletedAt = completedAt
+        };
+
+    private static string ComputeSha256(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    /// <summary>
+    /// Resolves the assertion status for a result row in the measurement-level vocabulary.
+    /// Status and counts must describe the same subject: a row takes its counts from the
+    /// matched per-test summary when one exists, so the status has to describe that test
+    /// rather than the attempt. A summary without usable evidence carries null counts, and
+    /// publishing it under a measurement-level Complete or Partial would claim counts that
+    /// reconcile when none are present. The per-test vocabulary
+    /// (Classified/NoRecognizedAssertions/Unavailable) is mapped here because only
+    /// AssertionMeasurementStatus values are valid in the results schema.
+    /// </summary>
+    private static string ResolveRowAssertionStatus(
+        AssertionLineageMeasurement measurement,
+        GeneratedTestAssertionSummary? summary)
+    {
+        if (summary == null) return measurement.Status.ToString();
+
+        return summary.Status == GeneratedTestAssertionStatus.Unavailable
+            ? nameof(AssertionMeasurementStatus.Unavailable)
+            : nameof(AssertionMeasurementStatus.Complete);
+    }
+
+    /// <summary>
+    /// Resolves the reason code that accompanies <paramref name="rowStatus"/>. Rows published
+    /// as Unavailable or Partial must carry a stable code, so a per-test summary that records
+    /// no usable reason falls back to the same code the summary service uses for a test whose
+    /// evidence could not be attributed.
+    /// </summary>
+    private static string ResolveRowAssertionReason(
+        string rowStatus,
+        AssertionLineageMeasurement measurement,
+        GeneratedTestAssertionSummary? summary)
+    {
+        var reason = NormalizeAssertionReasonCode(summary?.StatusReason ?? measurement.FailureCode);
+        if (rowStatus is not (nameof(AssertionMeasurementStatus.Unavailable)
+            or nameof(AssertionMeasurementStatus.Partial)))
+            return reason;
+
+        return AssertionLineageAuditService.IsStableReasonCode(reason)
+            ? reason
+            : AssertionLineageReasonCodes.GeneratedTestMemberUnresolved;
+    }
+
+    private static string NormalizeAssertionReasonCode(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return string.Empty;
+        var separator = reason.IndexOf(':');
+        return separator < 0 ? reason : reason[..separator];
     }
 
     private async Task RecordSnapshotDecisionsAsync(

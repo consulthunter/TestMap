@@ -93,6 +93,10 @@ public class ExperimentRunRepository
         trackedEntity.MaterializedAtUtc = run.MaterializedAtUtc;
         trackedEntity.WorkspaceIntegrityStatus = run.WorkspaceIntegrityStatus;
         trackedEntity.ProvenancePolicyVersion = run.ProvenancePolicyVersion;
+        trackedEntity.AssertionLineagePolicyVersion = run.AssertionLineagePolicyVersion;
+        trackedEntity.AssertionCatalogVersion = run.AssertionCatalogVersion;
+        trackedEntity.AssertionLineageMaxDepth = run.AssertionLineageMaxDepth;
+        trackedEntity.AssertionLineagePathCap = run.AssertionLineagePathCap;
 
         await _context.SaveChangesAsync(cancellationToken);
     }

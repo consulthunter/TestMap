@@ -2,12 +2,14 @@ using TestMap.App;
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
+using TestMap.Models.Experiment.Assertions;
 using TestMap.Models.Results;
 using TestMap.Models.Testing;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models.Code;
 using TestMap.Services.StaticAnalysis;
+using TestMap.Services.StaticAnalysis.Assertions;
 using TestMap.Services.StaticAnalysis.Enrichment;
 using TestMap.Services.TestExecution;
 using TestMap.Services.TestGeneration;
@@ -32,6 +34,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
     private readonly TestRunRepository _testRunRepository;
     private readonly MutationTestingReportRepository _mutationTestingReportRepository;
     private readonly MemberRepository _memberRepository;
+    private readonly IAssertionLineageAnalysisService? _assertionLineageAnalysisService;
 
     public GeneratedTestExecutionService(
         ProjectContext context,
@@ -44,7 +47,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         ITestSmellService testSmellService,
         TestRunRepository testRunRepository,
         MutationTestingReportRepository mutationTestingReportRepository,
-        MemberRepository memberRepository)
+        MemberRepository memberRepository,
+        IAssertionLineageAnalysisService? assertionLineageAnalysisService = null)
     {
         _context = context;
         _config = config;
@@ -57,6 +61,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         _testRunRepository = testRunRepository;
         _mutationTestingReportRepository = mutationTestingReportRepository;
         _memberRepository = memberRepository;
+        _assertionLineageAnalysisService = assertionLineageAnalysisService;
     }
 
     public async Task<GeneratedTestExecutionResult> ExecuteAsync(
@@ -287,6 +292,10 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             // so its invocations/assertions can be linked back to this execution.
             var generatedTestMemberId = await _memberRepository.ResolveAndMarkGeneratedTestMemberAsync(
                 testMethodName, actionResult.AppliedFilePath);
+            var assertionLineageAnalysis = await CaptureAssertionLineageAsync(
+                context,
+                generatedTestMemberId,
+                cancellationToken);
 
             var buildResult = await RunScopedValidationMetricsAsync(
                 context,
@@ -304,7 +313,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 ResolveScopedMethodCoverage(baselineRun),
                 baselineRun.MutationScore,
                 baselineRun,
-                generatedTestMemberId);
+                generatedTestMemberId,
+                assertionLineageAnalysis);
         }
         catch (Exception ex)
         {
@@ -336,7 +346,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         double? baselineCoverage,
         double? baselineMutationScore,
         TestRunModel baselineRun,
-        int? generatedTestMemberId)
+        int? generatedTestMemberId,
+        AssertionLineageAnalysisResult assertionLineageAnalysis)
     {
         var compilationSucceeded = DidCompilationSucceed(buildResult);
         var failedTests = buildResult.Results.Where(x => x.Outcome != "Passed").ToList();
@@ -387,6 +398,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             TestRun = buildResult,
             BaselineTestRun = baselineRun,
             GeneratedTestMemberId = generatedTestMemberId,
+            IntendedSourceMemberId = context.Method.MemberId,
+            AssertionLineageAnalysis = assertionLineageAnalysis,
             FailureKind = TestFailureKind.None
         };
 
@@ -427,6 +440,95 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         }
 
         return result;
+    }
+
+    private async Task<AssertionLineageAnalysisResult> CaptureAssertionLineageAsync(
+        CandidateMethodContext context,
+        int? generatedTestMemberId,
+        CancellationToken cancellationToken)
+    {
+        var policy = AssertionLineagePolicy.Resolve(_config.ExperimentConfig.Evaluation.Assertions);
+        var startedAt = DateTime.UtcNow;
+        if (!policy.Enabled)
+            return AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.AnalysisDisabled,
+                "Assertion-lineage analysis is disabled by experiment configuration.",
+                startedAt,
+                DateTime.UtcNow);
+
+        if (_assertionLineageAnalysisService == null)
+            return AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.SemanticProjectUnavailable,
+                "The assertion-lineage analysis service is unavailable.",
+                startedAt,
+                DateTime.UtcNow);
+
+        if (generatedTestMemberId is not > 0)
+            return AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.GeneratedTestMemberUnresolved,
+                "The applied generated test could not be resolved to a persisted member.",
+                startedAt,
+                DateTime.UtcNow);
+
+        var solutionId = ResolveSolutionId(context);
+        if (solutionId <= 0)
+            return AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.SemanticProjectUnavailable,
+                "The persisted solution identity could not be resolved for the generated test.",
+                startedAt,
+                DateTime.UtcNow);
+
+        try
+        {
+            return await _assertionLineageAnalysisService.AnalyzeAsync(
+                new AssertionLineageAnalysisRequest
+                {
+                    ProjectId = _context.Project.DbId,
+                    SolutionId = solutionId,
+                    IntendedSourceMemberId = context.Method.MemberId,
+                    TestMemberIds = [generatedTestMemberId.Value],
+                    Policy = policy
+                },
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _context.Project.Logger?.Warning(
+                exception,
+                "Assertion-lineage analysis failed for generated test member {GeneratedTestMemberId}.",
+                generatedTestMemberId);
+            return AssertionLineageAnalysisResult.Unavailable(
+                policy,
+                AssertionLineageReasonCodes.AnalysisFailure,
+                exception.Message,
+                startedAt,
+                DateTime.UtcNow);
+        }
+    }
+
+    private int ResolveSolutionId(CandidateMethodContext context)
+    {
+        static bool PathsEqual(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+                return false;
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return _context.Project.Solutions
+            .FirstOrDefault(solution => PathsEqual(solution.FilePath, context.SolutionFilePath))
+            ?.Id
+            ?? _context.Project.Projects
+                .FirstOrDefault(project => PathsEqual(project.FilePath, context.TestProjectPath))
+                ?.SolutionId
+            ?? 0;
     }
 
     internal static double? ResolveGeneratedTestExecutionTimeMs(
@@ -641,6 +743,8 @@ internal static class GeneratedTestExecutionResultExtensions
             TestRun = result.TestRun,
             BaselineTestRun = result.BaselineTestRun,
             GeneratedTestMemberId = result.GeneratedTestMemberId,
+            IntendedSourceMemberId = result.IntendedSourceMemberId,
+            AssertionLineageAnalysis = result.AssertionLineageAnalysis,
             ExecutedAt = result.ExecutedAt
         };
     }

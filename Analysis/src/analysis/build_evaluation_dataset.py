@@ -17,13 +17,23 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.files import ensure_output_dir, read_result_grains
+from analysis.files import (
+    ensure_output_dir,
+    read_result_grains,
+    read_schema4_result_bundle,
+)
 from analysis.normalize import (
+    build_traced_assertions_dataset,
     build_candidate_summary,
     build_generated_tests_dataset,
     build_repository_summary,
     build_repository_family_summary,
+    normalize_assertion_observations,
     normalize_attempts,
+)
+from analysis.schema import (
+    ASSERTION_RESULTS_SCHEMA_VERSION,
+    LEGACY_RESULTS_SCHEMA_VERSION,
 )
 from analysis.summaries import build_overview
 
@@ -130,7 +140,7 @@ def _count_assertions(code: object) -> int:
 def build_assertion_counts(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """Per-attempt assertion counts of the generated tests (RQ3 guard + density).
+    """Legacy per-attempt assertion inventory (never classified lineage).
 
     A generated test is persisted as a member and parsed into the ``invocations``
     table (with ``is_assertion``) only when it *validates*. The agentic lane links
@@ -140,6 +150,7 @@ def build_assertion_counts(
     members, so it falls back to a heuristic regex over the stored
     ``generated_test_code``. ``assertion_source`` records which method was used.
 
+    Results from this function cannot populate Traced, Trivial, or Unresolved.
     Returns one row per ``attempt_id`` with ``assertion_count``, ``invocation_count``
     (NA for the regex lane), ``generated_test_n``, and ``assertion_source``.
     """
@@ -411,6 +422,8 @@ def save_datasets(
     output_dir: Path,
     tool_generated_test_links: pd.DataFrame | None = None,
     mutation_operators: pd.DataFrame | None = None,
+    assertion_observations: pd.DataFrame | None = None,
+    traced_assertions: pd.DataFrame | None = None,
 ) -> None:
     """Write all datasets to *output_dir*."""
     attempts.to_csv(output_dir / "evaluation_attempts.csv", index=False)
@@ -422,6 +435,12 @@ def save_datasets(
         tool_generated_test_links.to_csv(output_dir / "tool_generated_test_links.csv", index=False)
     if mutation_operators is not None and not mutation_operators.empty:
         mutation_operators.to_csv(output_dir / "mutation_operators.csv", index=False)
+    if assertion_observations is not None:
+        assertion_observations.to_csv(
+            output_dir / "assertion_observations.csv", index=False
+        )
+    if traced_assertions is not None:
+        traced_assertions.to_csv(output_dir / "traced_assertions.csv", index=False)
 
     with open(output_dir / "evaluation_overview.json", "w", encoding="utf-8") as f:
         json.dump(overview, f, indent=2, default=str)
@@ -439,12 +458,26 @@ def run(
     db_paths: list[str] | tuple[str, ...],
     artifacts_root: str | None,
     output_dir: str,
+    results_schema_version: str = ASSERTION_RESULTS_SCHEMA_VERSION,
 ) -> None:
-    """Entry point for the ``build-datasets`` CLI command."""
+    """Build datasets for schema 4, or the explicit legacy schema-3 path."""
     out = ensure_output_dir(output_dir)
 
     print("Loading raw attempts...")
-    raw, raw_generated_tests, _ = read_result_grains(list(results))
+    if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
+        raw, raw_generated_tests, _, raw_assertions = read_schema4_result_bundle(
+            list(results), require_assertion_sidecar=True
+        )
+    elif results_schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        raw, raw_generated_tests, _ = read_result_grains(
+            list(results),
+            expected_schema_version=LEGACY_RESULTS_SCHEMA_VERSION,
+        )
+        raw_assertions = pd.DataFrame()
+    else:
+        raise ValueError(
+            f"Unsupported results_schema_version: {results_schema_version}."
+        )
     print(f"  {len(raw)} raw rows loaded.")
 
     # Normalize child rows separately so attempt counts cannot be inflated.
@@ -453,10 +486,17 @@ def run(
 
     attempts = build_attempts_dataset(raw, raw_generated_tests)
 
-    # RQ3 assertion guard: attach generated-test assertion counts from the DB.
-    assertion_counts = build_assertion_counts(db_paths)
-    if not assertion_counts.empty and "attempt_id" in attempts.columns:
-        attempts = attempts.merge(assertion_counts, on="attempt_id", how="left")
+    assertions = normalize_assertion_observations(raw_assertions)
+    traced_assertions = build_traced_assertions_dataset(assertions)
+
+    # Schema 3 retains its explicitly labelled inventory-only fallback. Schema 4
+    # uses persisted/exported semantic evidence and never derives categories from
+    # regexes or invocation counts.
+    assertion_counts = pd.DataFrame()
+    if results_schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        assertion_counts = build_assertion_counts(db_paths)
+        if not assertion_counts.empty and "attempt_id" in attempts.columns:
+            attempts = attempts.merge(assertion_counts, on="attempt_id", how="left")
 
     # RQ6 before/after diffs: coverage lines closed + mutants newly killed.
     metric_diffs = build_metric_diffs(db_paths)
@@ -481,6 +521,8 @@ def run(
         out,
         tool_generated_test_links=tool_generated_test_links,
         mutation_operators=mutation_operators,
+        assertion_observations=assertions if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION else None,
+        traced_assertions=traced_assertions if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION else None,
     )
     if not repository_families.empty:
         repository_families.to_csv(out / "evaluation_repository_families.csv", index=False)
@@ -492,5 +534,7 @@ def run(
     print(f"  repo families: {len(repository_families):,}")
     print(f"  gen. tests:   {len(generated_tests):,}")
     print(f"  tool links:   {len(tool_generated_test_links):,}")
-    print(f"  assertion rows: {len(assertion_counts):,}")
+    print(f"  assertion observations: {len(assertions):,}")
+    if results_schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        print(f"  legacy assertion inventory rows: {len(assertion_counts):,}")
     print(f"  mutation ops:   {len(mutation_operators):,}")

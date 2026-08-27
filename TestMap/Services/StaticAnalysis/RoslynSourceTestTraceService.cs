@@ -41,7 +41,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         var memberRows = await LoadMemberRowsAsync(solutionId, cancellationToken);
         if (memberRows.Count == 0) return [];
 
-        var index = new MemberSymbolIndex(memberRows);
+        var index = new RoslynMemberSymbolIndex(memberRows);
         var solution = await _workspace.OpenSolutionAsync(solutionEntity.FilePath, cancellationToken);
         var testMembers = memberRows
             .Where(x => x.IsTestMember && x.Kind == "method")
@@ -53,14 +53,14 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         foreach (var testMember in testMembers)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var document = FindDocumentByPath(solution, testMember.FilePath);
+            var document = RoslynAnalysisUtilities.FindDocumentByPath(solution, testMember.FilePath);
             if (document == null) continue;
 
             var root = await document.GetSyntaxRootAsync(cancellationToken);
             var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
             if (root == null || semanticModel == null) continue;
 
-            var declaration = FindMemberDeclaration(root, testMember);
+            var declaration = RoslynAnalysisUtilities.FindMemberDeclaration(root, testMember);
             if (declaration == null) continue;
 
             foreach (var path in TraceDeclaration(
@@ -86,7 +86,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         MemberDeclarationSyntax declaration,
         SemanticModel semanticModel,
         Solution solution,
-        MemberSymbolIndex index,
+        RoslynMemberSymbolIndex index,
         TracePath path,
         int maxTestDepth,
         CancellationToken cancellationToken)
@@ -139,32 +139,11 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         }
     }
 
-    private async Task<List<MemberSymbolRow>> LoadMemberRowsAsync(
+    private Task<List<RoslynMemberSymbolRow>> LoadMemberRowsAsync(
         int solutionId,
         CancellationToken cancellationToken)
     {
-        return await (
-                from member in _dbContext.Members.AsNoTracking()
-                join sourceObject in _dbContext.Objects.AsNoTracking() on member.ObjectEntityId equals sourceObject.Id
-                join sourceFile in _dbContext.Files.AsNoTracking() on sourceObject.FileId equals sourceFile.Id
-                join sourceProject in _dbContext.CSharpProjects.AsNoTracking() on sourceFile.CSharpProjectId equals sourceProject.Id
-                where sourceProject.SolutionId == solutionId
-                select new MemberSymbolRow(
-                    member.Id,
-                    member.Name,
-                    member.Kind,
-                    member.FullString,
-                    member.Modifiers,
-                    member.IsTestMember,
-                    member.IsGenerated,
-                    sourceObject.Name,
-                    sourceObject.Namespace,
-                    sourceObject.IsTestObject,
-                    sourceFile.FilePath,
-                    sourceProject.FilePath,
-                    sourceProject.BuildMetadata.IsTestProject,
-                    member.Location))
-            .ToListAsync(cancellationToken);
+        return RoslynMemberSymbolIndex.LoadRowsAsync(_dbContext, solutionId, cancellationToken);
     }
 
     private static IEnumerable<SyntaxNode> GetTraceNodes(MemberDeclarationSyntax declaration)
@@ -183,7 +162,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         int projectId,
         int testMemberId,
         IReadOnlyList<int> path,
-        MemberSymbolIndex index)
+        RoslynMemberSymbolIndex index)
     {
         var sourceMemberId = path[^1];
         var evidenceKind = ResolveEvidenceKind(path, index);
@@ -207,28 +186,6 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         };
     }
 
-    private static MemberDeclarationSyntax? FindMemberDeclaration(SyntaxNode root, MemberSymbolRow member)
-    {
-        var candidates = root.DescendantNodes()
-            .OfType<MemberDeclarationSyntax>()
-            .Where(x => x is MethodDeclarationSyntax or ConstructorDeclarationSyntax or PropertyDeclarationSyntax)
-            .Where(x => x switch
-            {
-                MethodDeclarationSyntax method => method.Identifier.Text == member.Name,
-                ConstructorDeclarationSyntax constructor => constructor.Identifier.Text == member.ObjectName ||
-                                                            member.Kind == "constructor",
-                PropertyDeclarationSyntax property => property.Identifier.Text == member.Name,
-                _ => false
-            })
-            .ToList();
-
-        return candidates.FirstOrDefault(x =>
-            {
-                var span = x.GetLocation().GetLineSpan();
-                return span.StartLinePosition.Line == member.Location.StartLineNumber;
-            }) ?? candidates.FirstOrDefault();
-    }
-
     private static MemberDeclarationSyntax? TryGetTargetDeclaration(
         ISymbol symbol,
         Solution solution,
@@ -245,7 +202,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
     {
         var info = semanticModel.GetSymbolInfo(node);
         var symbol = info.Symbol ?? info.CandidateSymbols.FirstOrDefault();
-        return NormalizeSymbol(symbol);
+        return RoslynAnalysisUtilities.NormalizeSymbol(symbol);
     }
 
     private static ISymbol? NormalizeSymbol(ISymbol? symbol)
@@ -264,7 +221,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
     private static IEnumerable<ISymbol> ResolveCandidateTargets(
         ISymbol symbol,
         Compilation compilation,
-        MemberSymbolIndex index)
+        RoslynMemberSymbolIndex index)
     {
         yield return symbol;
 
@@ -274,7 +231,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         foreach (var type in EnumerateCompilationTypes(compilation))
         foreach (var implementation in GetImplementationCandidates(type, target))
         {
-            var normalized = NormalizeSymbol(implementation);
+            var normalized = RoslynAnalysisUtilities.NormalizeSymbol(implementation);
             if (normalized != null && !SymbolEqualityComparer.Default.Equals(normalized, target) && index.TryResolve(normalized) != null)
                 yield return normalized;
         }
@@ -367,7 +324,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
         return steps;
     }
 
-    private static string ResolveEvidenceKind(IReadOnlyList<int> path, MemberSymbolIndex index)
+    private static string ResolveEvidenceKind(IReadOnlyList<int> path, RoslynMemberSymbolIndex index)
     {
         var target = index[path[^1]];
         if (path.Count == 2)
@@ -388,7 +345,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
             : "DeepProductionMethodPath";
     }
 
-    private static string ResolveAccessPathStrategy(IReadOnlyList<int> path, MemberSymbolIndex index)
+    private static string ResolveAccessPathStrategy(IReadOnlyList<int> path, RoslynMemberSymbolIndex index)
     {
         var evidenceKind = ResolveEvidenceKind(path, index);
         if (evidenceKind == "HelperMediatedPath") return TestAccessStrategy.HelperMediatedPath.ToString();
@@ -428,14 +385,14 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
 
     private static string BuildSummary(
         IReadOnlyList<int> path,
-        MemberSymbolIndex index,
+        RoslynMemberSymbolIndex index,
         string evidenceKind)
     {
         var names = path.Select(id => $"{index[id].Name}({id})");
         return $"{evidenceKind} Roslyn trace: {string.Join(" -> ", names)}.";
     }
 
-    private static MemberVisibility ResolveVisibility(MemberSymbolRow member)
+    private static MemberVisibility ResolveVisibility(RoslynMemberSymbolRow member)
     {
         if (member.Modifiers.Any(x => x.Equals("public", StringComparison.OrdinalIgnoreCase)) ||
             member.FullString.Contains("public ", StringComparison.Ordinal))

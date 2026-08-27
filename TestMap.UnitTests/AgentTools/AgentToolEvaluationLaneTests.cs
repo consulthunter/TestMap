@@ -714,6 +714,69 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ExtractObservedModel_CopilotOtelResponseModel_WinsOverRequestModel()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot-otel.jsonl"),
+                """
+                {"type":"span","name":"chat gpt-5.2","attributes":{"gen_ai.request.model":"gpt-5.2","gen_ai.response.model":"gpt-5.2-2026-05-01"}}
+                """);
+
+            Assert.Equal(
+                "gpt-5.2-2026-05-01",
+                AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "copilot"));
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractObservedModel_CopilotOtelSpanNameOnly_ReadsModelFromSpanName()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot-otel.jsonl"),
+                """
+                {"type":"span","name":"chat gpt-5.2","attributes":{"gen_ai.usage.input_tokens":100}}
+                {"type":"span","name":"chat claude-haiku-4.5","attributes":{"gen_ai.usage.input_tokens":200}}
+                """);
+
+            Assert.Equal(
+                "claude-haiku-4.5",
+                AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "copilot"));
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractObservedModel_NoTelemetry_ReturnsNull()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            Assert.Null(AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "copilot"));
+            Assert.Null(AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "codex"));
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ExtractUsage_CopilotStderrTokenFooter_ReturnsInputAndOutputTokens()
     {
         var artifactPath = CreateTempArtifactDirectory();

@@ -1,4 +1,4 @@
-using LibGit2Sharp;
+﻿using LibGit2Sharp;
 using System.Security.Cryptography;
 using System.Text;
 using TestMap.App;

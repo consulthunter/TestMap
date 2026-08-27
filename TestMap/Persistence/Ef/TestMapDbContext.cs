@@ -4,6 +4,7 @@ using TestMap.Persistence.Ef.Entities.AgentTools;
 using TestMap.Persistence.Ef.Entities.Code;
 using TestMap.Persistence.Ef.Entities.Coverage;
 using TestMap.Persistence.Ef.Entities.Experiment;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 using TestMap.Persistence.Ef.Entities.FlakyTestDetection;
 using TestMap.Persistence.Ef.Entities.MutationTesting;
 using TestMap.Persistence.Ef.Entities.RiskScoring;
@@ -58,6 +59,12 @@ public class TestMapDbContext : DbContext
     public DbSet<ToolAttemptEntity> ToolAttempts => Set<ToolAttemptEntity>();
     public DbSet<ToolAttemptGeneratedTestEntity> ToolAttemptGeneratedTests => Set<ToolAttemptGeneratedTestEntity>();
     public DbSet<WorkspaceIntegrityObservationEntity> WorkspaceIntegrityObservations => Set<WorkspaceIntegrityObservationEntity>();
+    public DbSet<AssertionLineageMeasurementEntity> AssertionLineageMeasurements =>
+        Set<AssertionLineageMeasurementEntity>();
+    public DbSet<GeneratedTestAssertionSummaryEntity> GeneratedTestAssertionSummaries =>
+        Set<GeneratedTestAssertionSummaryEntity>();
+    public DbSet<AssertionObservationEntity> AssertionObservations => Set<AssertionObservationEntity>();
+    public DbSet<AssertionLineageStepEntity> AssertionLineageSteps => Set<AssertionLineageStepEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

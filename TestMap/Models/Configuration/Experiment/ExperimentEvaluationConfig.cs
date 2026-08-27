@@ -22,4 +22,5 @@ public sealed class ExperimentEvaluationConfig
 {
     public TestMapEvaluationConfig TestMap { get; init; } = new();
     public ToolEvaluationConfig Tools { get; init; } = new() { Enabled = false };
+    public AssertionLineageEvaluationConfig Assertions { get; init; } = new();
 }

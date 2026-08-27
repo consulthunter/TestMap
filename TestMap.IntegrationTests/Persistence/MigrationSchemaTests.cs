@@ -55,6 +55,10 @@ public sealed class MigrationSchemaTests
             Assert.Contains("tool_attempts", tables);
             Assert.Contains("source_test_mappings", tables);
             Assert.Contains("source_test_mapping_trace_steps", tables);
+            Assert.Contains("assertion_lineage_measurements", tables);
+            Assert.Contains("generated_test_assertion_summaries", tables);
+            Assert.Contains("assertion_observations", tables);
+            Assert.Contains("assertion_lineage_steps", tables);
 
             // Rules and risk
             Assert.Contains("rule_definitions", tables);
@@ -89,7 +93,7 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Equal(15, applied.Count);
+            Assert.Equal(16, applied.Count);
             Assert.Contains(applied, x => x.Contains("InitialCreate"));
             Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
@@ -105,6 +109,7 @@ public sealed class MigrationSchemaTests
             Assert.Contains(applied, x => x.Contains("AddToolAttemptNumber"));
             Assert.Contains(applied, x => x.Contains("AddPinnedProjectProvenance"));
             Assert.Contains(applied, x => x.Contains("AddPinnedExperimentProvenanceAndIntegrity"));
+            Assert.Contains(applied, x => x.Contains("AddAssertionLineageEvidence"));
         });
     }
 

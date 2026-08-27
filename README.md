@@ -81,6 +81,28 @@ anything you intend to measure or report.
 For Basic Extension generation, keep `EnableSpeculativePlanning` disabled unless you are deliberately
 running an ablation. The one-shot structured patch path is the recommended default.
 
+## Assertion-Lineage Evidence
+
+Experiment result schema 4.0 can report whether each recognized generated-test assertion has a
+backward data-flow connection to production code. The classifier uses three categories:
+
+- `Traced`: at least one observed assertion operand reaches a uniquely resolved production member;
+- `Trivial`: every observed operand is fully explained by literals or test-local computation;
+- `Unresolved`: no production lineage is confirmed and at least one required path is ambiguous,
+  unsupported, cyclic, missing, or beyond the configured depth.
+
+`Unavailable`, `NotApplicable`, and historical `NotMeasured` are measurement statuses, not assertion
+categories. Counts remain blank when evidence is unavailable, so missing analysis is never presented
+as zero assertions. Raw per-assertion evidence is written beside a results CSV as
+`*.assertions.csv`; downstream tooling derives traced-only views without deleting trivial or
+unresolved observations.
+
+The analysis is intentionally data-dependence-only. A production-derived branch condition does not,
+by itself, make an assertion traced. Likewise, `Traced` establishes connection to production code,
+not logical oracle strength, mutation sensitivity, or proof that an assertion caused a mutant kill.
+Assertion lineage is complementary to coverage and mutation evidence and does not alter generation
+acceptance, retries, repair stopping, or dynamic metric calculation.
+
 ## Why?
 
 Originally, this started a an MSR (mining software repositories) tool. I wanted to get source <-> test pairs for fine-tuning an LLM for software testing in C#.

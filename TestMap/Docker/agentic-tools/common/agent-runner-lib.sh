@@ -29,11 +29,36 @@ capture_git_before() {
 
 capture_git_after() {
   configure_git_workspace
+
+  # Diff against the commit the workspace started on, not the working tree.
+  # Agents frequently stage or commit their work, and a bare "git diff" reports
+  # only unstaged changes, so a committed result reads as though the agent
+  # produced nothing. Diffing from the base commit captures committed, staged
+  # and unstaged changes alike; untracked files are appended separately below.
+  local base_commit=""
+  if [ -s /attempt/base-commit.txt ]; then
+    base_commit="$(tr -d '[:space:]' < /attempt/base-commit.txt)"
+  fi
+  if [ -z "$base_commit" ] || ! git -C /workspace cat-file -e "${base_commit}^{commit}" 2>/dev/null; then
+    base_commit=""
+  fi
+
   git -C /workspace status --short > /attempt/git-after.txt || true
-  git -C /workspace diff --binary > /attempt/patch.diff || true
+  git -C /workspace rev-parse HEAD > /attempt/head-commit.txt 2>/dev/null || true
+
+  if [ -n "$base_commit" ]; then
+    git -C /workspace diff --binary "$base_commit" > /attempt/patch.diff || true
+  else
+    git -C /workspace diff --binary HEAD > /attempt/patch.diff \
+      || git -C /workspace diff --binary > /attempt/patch.diff || true
+  fi
 
   {
-    git -C /workspace diff --name-only || true
+    if [ -n "$base_commit" ]; then
+      git -C /workspace diff --name-only "$base_commit" || true
+    else
+      git -C /workspace diff --name-only HEAD || git -C /workspace diff --name-only || true
+    fi
     git -C /workspace ls-files --others --exclude-standard || true
   } | awk 'NF' | sort -u > /attempt/changed-files.txt
 

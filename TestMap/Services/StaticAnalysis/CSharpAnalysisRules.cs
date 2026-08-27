@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using TestMap.Services.StaticAnalysis.Assertions;
 
 namespace TestMap.Services.StaticAnalysis;
 
@@ -17,16 +18,7 @@ internal static class CSharpAnalysisRules
 
     public static bool IsAssertionInvocation(InvocationExpressionSyntax invocation, ISymbol? symbol)
     {
-        var methodSymbol = symbol as IMethodSymbol;
-        var containingTypeName = methodSymbol?.ContainingType?.Name ?? string.Empty;
-        var containingNamespace = methodSymbol?.ContainingNamespace?.ToDisplayString() ?? string.Empty;
-        var methodName = methodSymbol?.Name ?? ExtractInvocationMethodName(invocation);
-
-        return IsAssertionInvocation(
-            methodName,
-            containingTypeName,
-            containingNamespace,
-            invocation.ToFullString());
+        return AssertionPatternCatalog.Shared.Match(invocation, symbol) != null;
     }
 
     public static bool IsAssertionInvocation(
@@ -35,50 +27,11 @@ internal static class CSharpAnalysisRules
         string containingNamespace = "",
         string invocationText = "")
     {
-        if (containingTypeName.Contains("Assert", StringComparison.OrdinalIgnoreCase) ||
-            containingTypeName.Contains("Assertion", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (containingNamespace.Contains("FluentAssertions", StringComparison.OrdinalIgnoreCase) ||
-            containingNamespace.Contains("Shouldly", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return methodName switch
-        {
-            "True" or
-                "False" or
-                "Equal" or
-                "NotEqual" or
-                "Same" or
-                "NotSame" or
-                "Null" or
-                "NotNull" or
-                "Empty" or
-                "NotEmpty" or
-                "Contains" or
-                "DoesNotContain" or
-                "StartsWith" or
-                "EndsWith" or
-                "Matches" or
-                "Throws" or
-                "ThrowsAsync" or
-                "Throw" or
-                "ThrowAsync" or
-                "Fail" or
-                "That" or
-                "ShouldBe" or
-                "ShouldNotBe" or
-                "ShouldContain" or
-                "ShouldNotContain" or
-                "Be" or
-                "BeTrue" or
-                "BeFalse" or
-                "BeNull" or
-                "NotBeNull" or
-                "BeEquivalentTo" or
-                "ContainSingle" => true,
-            _ => invocationText.Contains("Assert.", StringComparison.Ordinal)
-        };
+        return AssertionPatternCatalog.Shared.MatchLegacy(
+            methodName,
+            containingTypeName,
+            containingNamespace,
+            invocationText) != null;
     }
 
     public static string ExtractInvocationMethodName(InvocationExpressionSyntax invocation)

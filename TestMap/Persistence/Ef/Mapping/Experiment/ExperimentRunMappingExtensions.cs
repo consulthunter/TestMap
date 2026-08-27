@@ -31,7 +31,11 @@ public static class ExperimentRunMappingExtensions
             TargetSourceSha256 = entity.TargetSourceSha256,
             MaterializedAtUtc = entity.MaterializedAtUtc,
             WorkspaceIntegrityStatus = entity.WorkspaceIntegrityStatus,
-            ProvenancePolicyVersion = entity.ProvenancePolicyVersion
+            ProvenancePolicyVersion = entity.ProvenancePolicyVersion,
+            AssertionLineagePolicyVersion = entity.AssertionLineagePolicyVersion,
+            AssertionCatalogVersion = entity.AssertionCatalogVersion,
+            AssertionLineageMaxDepth = entity.AssertionLineageMaxDepth,
+            AssertionLineagePathCap = entity.AssertionLineagePathCap
         };
     }
 
@@ -60,7 +64,11 @@ public static class ExperimentRunMappingExtensions
             TargetSourceSha256 = run.TargetSourceSha256,
             MaterializedAtUtc = run.MaterializedAtUtc,
             WorkspaceIntegrityStatus = run.WorkspaceIntegrityStatus,
-            ProvenancePolicyVersion = run.ProvenancePolicyVersion
+            ProvenancePolicyVersion = run.ProvenancePolicyVersion,
+            AssertionLineagePolicyVersion = run.AssertionLineagePolicyVersion,
+            AssertionCatalogVersion = run.AssertionCatalogVersion,
+            AssertionLineageMaxDepth = run.AssertionLineageMaxDepth,
+            AssertionLineagePathCap = run.AssertionLineagePathCap
         };
     }
 }

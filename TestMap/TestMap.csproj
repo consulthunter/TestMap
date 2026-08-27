@@ -16,6 +16,7 @@
         <Content Include="Docker\**\*">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
+        <Folder Remove="Logs\2026-07-20\**" />
     </ItemGroup>
 
     <ItemGroup>
@@ -79,14 +80,17 @@
     
     <ItemGroup>
         <Compile Remove="Temp\TestMap-Example\**" />
+        <Compile Remove="Logs\2026-07-20\**" />
     </ItemGroup>
 
     <ItemGroup>
         <EmbeddedResource Remove="Temp\TestMap-Example\**" />
+        <EmbeddedResource Remove="Logs\2026-07-20\**" />
     </ItemGroup>
 
     <ItemGroup>
         <None Remove="Temp\TestMap-Example\**" />
+        <None Remove="Logs\2026-07-20\**" />
     </ItemGroup>
 
 </Project>

@@ -37,6 +37,107 @@ def build_datasets(results, db, artifacts, out) -> None:
     run(results=results, db_paths=db, artifacts_root=artifacts, output_dir=out)
 
 
+@main.command("msr-population")
+@click.option("--total", "total_dir", required=True,
+              help="Directory holding finished/failed manifests and the total CSV reports.")
+@click.option("--data", "data_dir", required=True,
+              help="Run data directory containing Output/<owner>/<repo>/<sha>/.")
+@click.option("--out", required=True, help="Output directory for population reports.")
+@click.option("--copy-to", default=None,
+              help="Copy the selected repositories' output folders here.")
+@click.option("--db-only", is_flag=True, default=False,
+              help="Copy only analysis.db rather than the whole output folder.")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Report what would be copied without writing anything.")
+def msr_population(total_dir, data_dir, out, copy_to, db_only, dry_run) -> None:
+    """Select the MSR validation population from execution and validation reports.
+
+    Reports target outcomes (completed / timeout / failed with reason), pipeline
+    capability shares, and the eligible populations; optionally copies the
+    selected repositories into a validation corpus.
+    """
+    from analysis.msr_population import run
+    run(total_dir=total_dir, data_dir=data_dir, output_dir=out,
+        copy_to=copy_to, db_only=db_only, dry_run=dry_run)
+
+
+@main.command("msr-validate")
+@click.option("--frames", "frames_dir", required=True,
+              help="Frames directory from build-msr-datasets.")
+@click.option("--data", "data_dir", required=True,
+              help="Corpus directory; source text is read from its analysis.db files.")
+@click.option("--out", required=True, help="Output directory for the sample.")
+@click.option("--seed", type=int, default=20260823, help="Sampling seed.")
+@click.option("--n-per-sheet", type=int, default=50, help="Units drawn per sheet.")
+@click.option("--rater", "raters", multiple=True, default=("rater_a", "rater_b"),
+              help="Rater id. Repeat for more than two.")
+@click.option("--sheet", "sheets", multiple=True, default=None,
+              help="Limit to these sheets. Repeatable.")
+def msr_validate(frames_dir, data_dir, out, seed, n_per_sheet, raters, sheets) -> None:
+    """Draw the human-judged validation sample and write rater artifacts.
+
+    Writes sample units with self-contained code excerpts, per-sheet codebooks,
+    per-rater rating forms, and TestMap's own answers held separately.
+    """
+    from analysis.build_msr_validation import run
+    run(frames_dir=frames_dir, data_dir=data_dir, output_dir=out, seed=seed,
+        n_per_sheet=n_per_sheet, raters=tuple(raters),
+        sheets=tuple(sheets) if sheets else None)
+
+
+@main.command("msr-collect")
+@click.option("--sample", "sample_dir", required=True,
+              help="Sample directory produced by msr-validate.")
+@click.option("--out", required=True, help="Output directory for agreement results.")
+def msr_collect(sample_dir, out) -> None:
+    """Collect filled rating forms and compute inter-rater agreement.
+
+    Reports form completion, Cohen's kappa (or per-label kappa and Krippendorff's
+    alpha for multi-label sheets), and agreement with TestMap's own output.
+    """
+    from analysis.msr_agreement import run
+    run(sample_dir=sample_dir, output_dir=out)
+
+
+@main.command("msr-coverage-audit")
+@click.option("--population", "population_csv", required=True,
+              help="Path to msr_population.csv from msr-population.")
+@click.option("--data", "data_dir", required=True,
+              help="Corpus directory containing Output/<owner>/<repo>/<sha>/.")
+@click.option("--logs", "logs_root", required=True,
+              help="Run root holding the dated log directories.")
+@click.option("--out", required=True, help="Output directory for the audit.")
+def msr_coverage_audit(population_csv, data_dir, logs_root, out) -> None:
+    """Audit repositories claiming coverage that persisted no coverage rows.
+
+    Classifies each failure from the run logs and writes an exclusion list plus a
+    findings note.
+    """
+    from analysis.msr_coverage_audit import run
+    run(population_csv=population_csv, data_dir=data_dir,
+        logs_root=logs_root, output_dir=out)
+
+
+@main.command("build-msr-datasets")
+@click.option("--db", "db_paths", multiple=True, required=True,
+              help="Glob patterns for per-repository analysis.db paths.")
+@click.option("--out", required=True,
+              help="Output directory for MSR validation datasets.")
+@click.option("--limit", type=int, default=None,
+              help="Read at most N databases. Useful for a first pass.")
+@click.option("--exclude", "exclude_csv", default=None,
+              help="CSV with a repo_key column; those repositories are skipped.")
+def build_msr_datasets(db_paths, out, limit, exclude_csv) -> None:
+    """Consolidate per-repository analysis.db files into MSR validation frames.
+
+    Outputs into <out>/frames/: msr_repositories.csv, msr_entities.csv,
+    msr_code_metrics.csv, msr_test_smells.csv, msr_coverage.csv,
+    msr_mutants.csv, msr_mappings.csv, msr_structural_checks.csv.
+    """
+    from analysis.build_msr_datasets import run
+    run(db_paths=db_paths, output_dir=out, limit=limit, exclude_csv=exclude_csv)
+
+
 @main.command("overview")
 @click.option("--input", "input_path", required=True,
               help="Path to evaluation_attempts.csv.")

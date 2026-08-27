@@ -68,7 +68,7 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
         }
 
         var canonicalSecretName = ResolveCanonicalSecretNames(effectiveProvider).FirstOrDefault() ?? string.Empty;
-        if (RequiresNormalizedApiKey(tool.Id) &&
+        if (RequiresNormalizedApiKey(tool.Id, !string.IsNullOrWhiteSpace(baseUrl)) &&
             string.IsNullOrEmpty(apiKey) &&
             !string.IsNullOrEmpty(canonicalSecretName) &&
             !AnyConfiguredEnvironmentVariable(ResolveCanonicalSecretNames(effectiveProvider)) &&
@@ -160,8 +160,15 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
         }
     }
 
-    private static bool RequiresNormalizedApiKey(string toolId)
+    private static bool RequiresNormalizedApiKey(string toolId, bool usesCustomEndpoint)
     {
+        // Copilot authenticates the CLI with GITHUB_COPILOT_TOKEN and needs no provider key for
+        // GitHub-hosted models. In BYOK mode the model calls go to the configured endpoint instead,
+        // so the provider key becomes a real requirement — unless the provider has no canonical
+        // secret at all (Ollama), which the caller's canonical-name check already allows through.
+        if (toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+            return usesCustomEndpoint;
+
         return toolId.Equals("codex", StringComparison.OrdinalIgnoreCase) ||
                toolId.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
                toolId.Equals("aider", StringComparison.OrdinalIgnoreCase) ||

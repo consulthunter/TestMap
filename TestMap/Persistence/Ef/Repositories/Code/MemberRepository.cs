@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using TestMap.Models.Code;
 using TestMap.Persistence.Ef.Mapping.Code;
 
@@ -43,11 +43,15 @@ public class MemberRepository
         if (string.IsNullOrWhiteSpace(methodName))
             return null;
 
+        // Newest first. A member is identified partly by its body, so earlier attempts that
+        // generated a test of this name left their own rows behind; the one this attempt just
+        // wrote is the highest id.
         var candidates = await (
             from member in _context.Members
             join obj in _context.Objects on member.ObjectEntityId equals obj.Id
             join file in _context.Files on obj.FileId equals file.Id
             where member.IsTestMember && member.Kind == "method" && member.Name == methodName
+            orderby member.Id descending
             select new { Member = member, file.FilePath }
         ).ToListAsync();
 

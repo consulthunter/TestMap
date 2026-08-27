@@ -6,7 +6,7 @@ namespace TestMap.Services.Experiment.Reporting;
 
 public sealed class ExperimentResultFileRow
 {
-    public string ResultsSchemaVersion { get; init; } = "3.0";
+    public string ResultsSchemaVersion { get; init; } = "4.0";
     public string RowKind { get; init; } = "attempt";
     public string AttemptId { get; init; } = string.Empty;
     public int ExperimentRunId { get; init; }
@@ -111,6 +111,19 @@ public sealed class ExperimentResultFileRow
     public string ImpactMeasurementStatus { get; init; } = string.Empty;
     public string ImpactAttribution { get; init; } = "attempt_level";
     public string MeasurementPolicyVersion { get; init; } = EvaluationImpactPolicy.Version;
+    public string AssertionMeasurementStatus { get; init; } = string.Empty;
+    public string AssertionMeasurementReason { get; init; } = string.Empty;
+    public string AssertionPolicyVersion { get; init; } = string.Empty;
+    public string AssertionCatalogVersion { get; init; } = string.Empty;
+    public int? AssertionMaxDepth { get; init; }
+    public int? RecognizedAssertionCount { get; init; }
+    public int? UnrecognizedAssertionCount { get; init; }
+    public int? TracedAssertionCount { get; init; }
+    public int? TrivialAssertionCount { get; init; }
+    public int? UnresolvedAssertionCount { get; init; }
+    public bool? NoRecognizedAssertions { get; init; }
+    public double? AssertionAnalysisDurationMs { get; init; }
+    public string AssertionAttribution { get; init; } = string.Empty;
     public string ToolObservedOutcome { get; init; } = string.Empty;
     public string FailureKind { get; init; } = string.Empty;
     public string FailureStage { get; init; } = string.Empty;

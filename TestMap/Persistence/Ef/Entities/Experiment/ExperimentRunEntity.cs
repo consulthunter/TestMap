@@ -27,6 +27,10 @@ public class ExperimentRunEntity
     public DateTime? MaterializedAtUtc { get; set; }
     [MaxLength(50)] public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
     [MaxLength(64)] public string ProvenancePolicyVersion { get; set; } = string.Empty;
+    [MaxLength(64)] public string AssertionLineagePolicyVersion { get; set; } = string.Empty;
+    [MaxLength(64)] public string AssertionCatalogVersion { get; set; } = string.Empty;
+    public int AssertionLineageMaxDepth { get; set; }
+    public int AssertionLineagePathCap { get; set; }
 
     public virtual CandidateCohortEntity? CandidateCohort { get; set; }
 

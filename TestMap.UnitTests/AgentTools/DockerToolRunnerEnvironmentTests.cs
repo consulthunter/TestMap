@@ -150,6 +150,193 @@ public sealed class DockerToolRunnerEnvironmentTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_Copilot_MapsModelWithoutProviderPrefix()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "copilot" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "gpt-5.2",
+                ["GITHUB_COPILOT_TOKEN"] = "copilot-token"
+            }
+        });
+
+        Assert.Equal("gpt-5.2", env["COPILOT_MODEL"]);
+        Assert.False(env.ContainsKey("CODEX_MODEL"));
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_Copilot_ToolEnvironmentOverridesModel()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig
+            {
+                Id = "copilot",
+                Environment = new Dictionary<string, string>
+                {
+                    ["COPILOT_MODEL"] = "claude-sonnet-4.6"
+                }
+            },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "gpt-5.2"
+            }
+        });
+
+        Assert.Equal("claude-sonnet-4.6", env["COPILOT_MODEL"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_CopilotCustomOpenAi_MapsByokProviderTuple()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "copilot" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "gpt-oss-120b",
+                ["TESTMAP_LLM_API_KEY"] = "custom-key",
+                ["TESTMAP_LLM_BASE_URL"] = "https://llm-api.example.test/api/"
+            }
+        });
+
+        Assert.Equal("gpt-oss-120b", env["COPILOT_MODEL"]);
+        Assert.Equal("https://llm-api.example.test/api/", env["COPILOT_PROVIDER_BASE_URL"]);
+        Assert.Equal("openai", env["COPILOT_PROVIDER_TYPE"]);
+        Assert.Equal("custom-key", env["COPILOT_PROVIDER_API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_CopilotAnthropicEndpoint_SetsAnthropicProviderType()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "copilot" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "anthropic",
+                ["TESTMAP_LLM_MODEL"] = "claude-sonnet-4-6",
+                ["TESTMAP_LLM_API_KEY"] = "sk-ant",
+                ["TESTMAP_LLM_BASE_URL"] = "https://api.anthropic.com"
+            }
+        });
+
+        Assert.Equal("anthropic", env["COPILOT_PROVIDER_TYPE"]);
+        Assert.Equal("claude-sonnet-4-6", env["COPILOT_MODEL"]);
+        Assert.Equal("sk-ant", env["COPILOT_PROVIDER_API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_CopilotOllamaWithoutKey_OmitsProviderApiKey()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "copilot" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "ollama",
+                ["TESTMAP_LLM_MODEL"] = "llama3.2",
+                ["TESTMAP_LLM_BASE_URL"] = "http://host.docker.internal:11434"
+            }
+        });
+
+        Assert.Equal("http://host.docker.internal:11434", env["COPILOT_PROVIDER_BASE_URL"]);
+        Assert.Equal("openai", env["COPILOT_PROVIDER_TYPE"]);
+        Assert.False(env.ContainsKey("COPILOT_PROVIDER_API_KEY"));
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_CopilotWithoutEndpoint_StaysOnGitHubHostedModels()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "copilot" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "gpt-5.2",
+                ["TESTMAP_LLM_API_KEY"] = "sk-openai"
+            }
+        });
+
+        Assert.False(env.ContainsKey("COPILOT_PROVIDER_BASE_URL"));
+        Assert.False(env.ContainsKey("COPILOT_PROVIDER_TYPE"));
+        Assert.False(env.ContainsKey("COPILOT_PROVIDER_API_KEY"));
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_CopilotAzureOverride_KeepsConfiguredProviderType()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig
+            {
+                Id = "copilot",
+                Environment = new Dictionary<string, string>
+                {
+                    ["COPILOT_PROVIDER_TYPE"] = "azure"
+                }
+            },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "my-deployment",
+                ["TESTMAP_LLM_BASE_URL"] = "https://res.openai.azure.com/openai/deployments/my-deployment"
+            }
+        });
+
+        Assert.Equal("azure", env["COPILOT_PROVIDER_TYPE"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_CodexOpenAi_MapsCodexModel()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "codex" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "openai",
+                ["TESTMAP_LLM_MODEL"] = "gpt-5.3-codex",
+                ["TESTMAP_LLM_API_KEY"] = "sk-openai"
+            }
+        });
+
+        Assert.Equal("gpt-5.3-codex", env["CODEX_MODEL"]);
+        Assert.Equal("sk-openai", env["OPENAI_API_KEY"]);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildContainerEnvironment_NonCodexTool_DoesNotLeakCodexModel()
+    {
+        var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest
+        {
+            ToolConfig = new ExperimentToolConfig { Id = "claude" },
+            ResolvedEnvironment = new Dictionary<string, string>
+            {
+                ["TESTMAP_LLM_PROVIDER"] = "anthropic",
+                ["TESTMAP_LLM_MODEL"] = "claude-sonnet-4-6"
+            }
+        });
+
+        Assert.False(env.ContainsKey("CODEX_MODEL"));
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void BuildContainerEnvironment_MiniSweAgentGoogle_MapsModelAndGeminiAliases()
     {
         var env = DockerToolRunner.BuildContainerEnvironment(new ToolRunRequest

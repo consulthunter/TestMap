@@ -20,9 +20,14 @@ import pandas as pd
 
 from analysis.schema import (
     AGENTIC_ATTEMPT_KEY_FIELDS,
+    ASSERTION_RESULT_FIELDS,
+    ASSERTION_RESULTS_SCHEMA_VERSION,
+    ASSERTION_SIDECAR_REQUIRED_FIELDS,
+    ASSERTION_SIDECAR_SCHEMA_VERSION,
     CANDIDATE_KEY_FIELDS,
     LANE_AGENTIC,
     LANE_LLM,
+    LEGACY_RESULTS_SCHEMA_VERSION,
     RAW_COLUMN_RENAMES,
     REPOSITORY_KEY_FIELDS,
     WINNER_LABELS,
@@ -61,6 +66,28 @@ def rename_raw_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=rename_map) if rename_map else df.copy()
 
 
+def _result_schema_version(df: pd.DataFrame) -> str:
+    if "results_schema_version" not in df.columns:
+        return ""
+    values = df["results_schema_version"].dropna().astype(str).str.strip().unique()
+    return values[0] if len(values) == 1 else ""
+
+
+def _apply_assertion_result_semantics(df: pd.DataFrame) -> None:
+    """Derive honest legacy missingness without fabricating schema-4 evidence."""
+    schema_version = _result_schema_version(df)
+    for column in ASSERTION_RESULT_FIELDS:
+        if column not in df.columns:
+            df[column] = pd.NA
+    if schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        df["assertion_measurement_status"] = "NotMeasured"
+        df["assertion_measurement_reason"] = "HistoricalNotMeasured"
+    elif schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
+        # Strict audits report missing schema-4 values. Normalization must not
+        # invent a policy, category count, or observed zero.
+        return
+
+
 # ---------------------------------------------------------------------------
 # Key construction
 # ---------------------------------------------------------------------------
@@ -91,28 +118,36 @@ def _validate_pinned_provenance(df: pd.DataFrame) -> None:
     }
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"Schema 3.0 rows are missing pinned provenance fields: {sorted(missing)}.")
+        raise ValueError(f"Result rows are missing pinned provenance fields: {sorted(missing)}.")
     versions = df["results_schema_version"].astype(str).str.strip()
-    if not versions.eq("3.0").all():
-        raise ValueError("Only results_schema_version 3.0 is supported.")
+    supported = {LEGACY_RESULTS_SCHEMA_VERSION, ASSERTION_RESULTS_SCHEMA_VERSION}
+    if not versions.isin(supported).all() or versions.nunique() != 1:
+        raise ValueError(
+            "Normalization requires one supported results schema version (3.0 or 4.0)."
+        )
+    schema_version = versions.iloc[0]
     blank_fields = required - {"results_schema_version"}
     for column in sorted(blank_fields):
         blank = df[column].isna() | df[column].astype(str).str.strip().eq("")
         if blank.any():
-            raise ValueError(f"Schema 3.0 rows require non-empty {column}.")
+            raise ValueError(f"Schema {schema_version} rows require non-empty {column}.")
     requested = df["requested_commit"].astype(str).str.strip().str.lower()
     resolved = df["resolved_commit"].astype(str).str.strip().str.lower()
     full_sha = requested.str.fullmatch(r"[0-9a-f]{40}") & resolved.str.fullmatch(r"[0-9a-f]{40}")
     if not full_sha.all() or not requested.eq(resolved).all():
-        raise ValueError("Schema 3.0 rows require equal full requested and resolved commits.")
+        raise ValueError(
+            f"Schema {schema_version} rows require equal full requested and resolved commits."
+        )
     if "commit_hash" in df.columns:
         alias = df["commit_hash"].astype(str).str.strip().str.lower()
         if not alias.eq(resolved).all():
-            raise ValueError("commit_hash must equal resolved_commit in schema 3.0.")
+            raise ValueError(
+                f"commit_hash must equal resolved_commit in schema {schema_version}."
+            )
 
 
 def _assign_attempt_ids(df: pd.DataFrame) -> None:
-    """Validate the canonical attempt IDs emitted by result schema v3."""
+    """Validate canonical attempt IDs emitted by current result schemas."""
     if "attempt_id" not in df.columns:
         raise ValueError("Current result rows require attempt_id.")
     missing = df["attempt_id"].isna() | df["attempt_id"].astype(str).str.strip().eq("")
@@ -438,6 +473,7 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("normalize_attempts requires only row_kind='attempt' rows.")
 
     out = rename_raw_columns(df)
+    _apply_assertion_result_semantics(out)
     _validate_pinned_provenance(out)
 
     # 2. Normalize lane
@@ -585,6 +621,16 @@ def _coerce_numeric(df: pd.DataFrame) -> None:
         # Generated test code metrics
         "generated_test_mi", "generated_test_cc", "generated_test_coupling",
         "generated_test_dit", "generated_test_sloc", "generated_test_eloc",
+        # Assertion-lineage schema 4.0 / sidecar 1.0
+        "assertion_max_depth", "recognized_assertion_count",
+        "unrecognized_assertion_count", "traced_assertion_count",
+        "trivial_assertion_count", "unresolved_assertion_count",
+        "assertion_analysis_duration_ms", "assertion_ordinal",
+        "start_line", "start_column", "end_line", "end_column",
+        "depth_reached", "generated_test_assertion_summary_id",
+        "observation_id", "experiment_run_id", "candidate_method_id",
+        "intended_source_member_id", "generated_test_execution_id",
+        "tool_attempt_generated_test_id", "test_member_id",
     ]
     for col in numeric_cols:
         if col in df.columns:
@@ -608,6 +654,7 @@ def _coerce_bool(df: pd.DataFrame) -> None:
         "generated_test_compiled", "generated_test_executed", "generated_test_passed",
         "roslyn_validation_succeeded", "roslyn_validation_skipped",
         "mutant_killed",
+        "no_recognized_assertions",
     ]
     for col in bool_cols:
         if col in df.columns:
@@ -633,6 +680,7 @@ def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Generated-test normalization requires row_kind='generated_test' rows.")
 
     out = rename_raw_columns(raw_df)
+    _apply_assertion_result_semantics(out)
     _validate_pinned_provenance(out)
 
     if "lane" in out.columns:
@@ -653,6 +701,69 @@ def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     _expand_smell_columns(out, "baseline_test_smells", "baseline_test_smell_count", "baseline_test_smell_types")
     _expand_smell_columns(out, "generated_test_smells", "generated_test_smell_count", "generated_test_smell_types")
 
+    return out
+
+
+def normalize_assertion_observations(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize schema-1 assertion rows while preserving one row per occurrence."""
+    if raw_df.empty:
+        return raw_df.copy()
+
+    missing = ASSERTION_SIDECAR_REQUIRED_FIELDS - set(raw_df.columns)
+    if missing:
+        raise ValueError(
+            f"Assertion observation rows are missing required fields: {sorted(missing)}."
+        )
+    versions = raw_df["assertion_schema_version"].dropna().astype(str).str.strip()
+    if versions.empty or not versions.eq(ASSERTION_SIDECAR_SCHEMA_VERSION).all():
+        raise ValueError("Assertion observations require assertion_schema_version='1.0'.")
+
+    out = rename_raw_columns(raw_df).rename(columns={
+        "policy_version": "assertion_policy_version",
+        "max_depth": "assertion_max_depth",
+        "ordered_lineage_paths_json": "lineage_paths_json",
+    })
+    if "lane" in out.columns:
+        out["lane"] = out["lane"].fillna("").apply(normalize_lane)
+
+    if "source_member_id" not in out.columns:
+        out["source_member_id"] = out["intended_source_member_id"]
+    out["candidate_key"] = out.apply(make_candidate_key, axis=1)
+    out["repository_key"] = out.apply(make_repository_key, axis=1)
+    out["repository_revision_key"] = out["repository_key"]
+    out["repository_family_key"] = out.apply(make_repository_family_key, axis=1)
+
+    _coerce_numeric(out)
+    out["is_traced"] = out["category"].eq("Traced")
+    return out
+
+
+def build_traced_assertions_dataset(assertions_df: pd.DataFrame) -> pd.DataFrame:
+    """Derive the traced-only view while leaving the canonical raw rows intact."""
+    if assertions_df.empty:
+        return assertions_df.copy()
+    if "category" not in assertions_df.columns:
+        raise ValueError("Assertion observations require a category column.")
+    return assertions_df.loc[
+        assertions_df["category"].eq("Traced")
+    ].copy().reset_index(drop=True)
+
+
+def normalize_assertion_measurements(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize additive SQLite measurement rows for downstream joins."""
+    if raw_df.empty:
+        return raw_df.copy()
+    rename = {
+        "status": "assertion_measurement_status",
+        "failure_code": "assertion_measurement_reason",
+        "policy_version": "assertion_policy_version",
+        "max_depth": "assertion_max_depth",
+        "analysis_duration_ms": "assertion_analysis_duration_ms",
+    }
+    out = raw_df.rename(
+        columns={key: value for key, value in rename.items() if key in raw_df.columns}
+    ).copy()
+    _coerce_numeric(out)
     return out
 
 

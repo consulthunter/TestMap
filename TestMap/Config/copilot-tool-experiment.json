@@ -57,7 +57,7 @@
   },
   "AiProviderConfig": {
     "OpenAi": {
-      "Model": "github-copilot",
+      "Model": "gpt-5.2",
       "OrgId": "",
       "ApiKey": "",
       "Provider": "openai"
@@ -96,7 +96,7 @@
         "Id": "copilot",
         "ImageKey": "copilot",
         "Provider": "OpenAi",
-        "Model": "github-copilot",
+        "Model": "gpt-5.2",
         "TimeoutMinutes": 45,
         "RequiredEnvironmentVariables": [ "GITHUB_COPILOT_TOKEN" ],
         "Environment": {

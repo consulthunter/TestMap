@@ -184,6 +184,13 @@ def test_attempt_dataset_has_both_lanes(attempts):
     assert set(attempts["lane"]) == {LANE_LLM, LANE_AGENTIC}
 
 
+def test_schema3_attempts_are_explicitly_not_measured_for_assertion_lineage(attempts):
+    assert set(attempts["assertion_measurement_status"]) == {"NotMeasured"}
+    assert set(attempts["assertion_measurement_reason"]) == {"HistoricalNotMeasured"}
+    assert attempts["recognized_assertion_count"].isna().all()
+    assert attempts["traced_assertion_count"].isna().all()
+
+
 def test_agentic_multi_test_attempt_collapses_once(attempts):
     agentic = attempts[attempts["tool_attempt_id"] == 101]
     assert len(agentic) == 1

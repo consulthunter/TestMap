@@ -383,6 +383,66 @@ public sealed class ToolAttemptGeneratedTestServiceTests
         });
     }
 
+    /// <summary>
+    /// Member rows are upserted and never removed, so the database keeps members from earlier
+    /// attempts. Their recorded start lines still fall inside the added-line span of a later
+    /// attempt that appended a block of tests, so an added-line match alone re-attributes them.
+    /// Only members the attempt's analysis pass observed may be linked.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task LinkAsync_StaleMemberOnAddedLine_IsNotLinkedWhenUnobserved()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var (experimentRunId, candidateId) = await SeedExperimentGraphAsync(db);
+        var attemptId = await SeedAttemptAsync(db, experimentRunId, candidateId);
+
+        var workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "testmap-unit", "StaleRepo"));
+        var testFilePath = Path.GetFullPath(Path.Combine(workspace, "Tests", "FooTests.cs"));
+        await SeedCodeGraphAsync(db, testFilePath, isTestMember: true, startLine: 1);
+        var staleMemberId = await db.Members.Select(x => x.Id).MaxAsync();
+
+        var artifactPath = CreatePatchArtifact(
+            workspace,
+            "Tests/FooTests.cs",
+            """
+             existing
+            +[Fact]
+            +public void TestFoo()
+             trailing
+            """);
+
+        var service = new ToolAttemptGeneratedTestService(
+            db, new ToolAttemptGeneratedTestRepository(db));
+        var attempt = new ToolAttempt
+        {
+            Id = attemptId,
+            WorkspacePath = workspace,
+            ArtifactPath = artifactPath
+        };
+
+        // The analysis pass saw no members, so the row on the added line is stale.
+        var unobserved = await service.LinkAsync(
+            attempt,
+            ["Tests/FooTests.cs"],
+            projectId: 1,
+            observedMemberIds: new HashSet<int>());
+
+        Assert.Equal(0, unobserved.LinkedCount);
+        Assert.Equal(0, await db.ToolAttemptGeneratedTests.CountAsync());
+
+        // The same member is linked once the pass reports it as present.
+        var observed = await service.LinkAsync(
+            attempt,
+            ["Tests/FooTests.cs"],
+            projectId: 1,
+            observedMemberIds: new HashSet<int> { staleMemberId });
+
+        Assert.Equal(1, observed.LinkedCount);
+    }
+
     private static async Task SeedCodeGraphAsync(
         TestMapDbContext db,
         string filePath,

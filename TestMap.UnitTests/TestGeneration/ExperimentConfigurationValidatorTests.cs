@@ -100,6 +100,25 @@ public sealed class ExperimentConfigurationValidatorTests
         Assert.Contains("must be omitted", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(65)]
+    [Trait("Category", "Unit")]
+    public void ValidateMatrixSettings_RejectsInvalidAssertionLineageDepth(int maxDepth)
+    {
+        var config = ValidExperimentConfig();
+        config.Evaluation = new ExperimentEvaluationConfig
+        {
+            Assertions = new AssertionLineageEvaluationConfig { MaxDepth = maxDepth }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => ExperimentConfigurationValidator.ValidateMatrixSettings(config));
+
+        Assert.Contains("assertion-lineage", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsType<ArgumentOutOfRangeException>(exception.InnerException);
+    }
+
     private static ExperimentConfig ValidExperimentConfig()
     {
         return new ExperimentConfig

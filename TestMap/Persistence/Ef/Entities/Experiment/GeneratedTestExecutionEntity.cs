@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 using TestMap.Persistence.Ef.Entities.Rules;
 
 namespace TestMap.Persistence.Ef.Entities.Experiment;
@@ -36,6 +37,8 @@ public class GeneratedTestExecutionEntity
     public string StructuredErrors { get; set; } = string.Empty;
 
     public virtual GenerationAttemptEntity? GenerationAttempt { get; set; }
+    public virtual ICollection<GeneratedTestAssertionSummaryEntity> AssertionLineageSummaries { get; set; } =
+        new List<GeneratedTestAssertionSummaryEntity>();
     public virtual ICollection<RuleDecisionEntity> RuleDecisions { get; set; } =
         new List<RuleDecisionEntity>();
 }
