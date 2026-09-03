@@ -68,7 +68,7 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
         }
 
         var canonicalSecretName = ResolveCanonicalSecretNames(effectiveProvider).FirstOrDefault() ?? string.Empty;
-        if (RequiresNormalizedApiKey(tool.Id, !string.IsNullOrWhiteSpace(baseUrl)) &&
+        if (RequiresNormalizedApiKey(tool.Family, !string.IsNullOrWhiteSpace(baseUrl)) &&
             string.IsNullOrEmpty(apiKey) &&
             !string.IsNullOrEmpty(canonicalSecretName) &&
             !AnyConfiguredEnvironmentVariable(ResolveCanonicalSecretNames(effectiveProvider)) &&
@@ -152,7 +152,7 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
         ExperimentToolConfig tool,
         IDictionary<string, string> normalized)
     {
-        if (tool.Id.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+        if (tool.Family.Equals("copilot", StringComparison.OrdinalIgnoreCase))
         {
             var token = Environment.GetEnvironmentVariable("GITHUB_COPILOT_TOKEN");
             if (!string.IsNullOrWhiteSpace(token))
@@ -160,20 +160,20 @@ public sealed class AgentToolEnvironmentResolver : IAgentToolEnvironmentResolver
         }
     }
 
-    private static bool RequiresNormalizedApiKey(string toolId, bool usesCustomEndpoint)
+    private static bool RequiresNormalizedApiKey(string toolFamily, bool usesCustomEndpoint)
     {
         // Copilot authenticates the CLI with GITHUB_COPILOT_TOKEN and needs no provider key for
         // GitHub-hosted models. In BYOK mode the model calls go to the configured endpoint instead,
         // so the provider key becomes a real requirement — unless the provider has no canonical
         // secret at all (Ollama), which the caller's canonical-name check already allows through.
-        if (toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("copilot", StringComparison.OrdinalIgnoreCase))
             return usesCustomEndpoint;
 
-        return toolId.Equals("codex", StringComparison.OrdinalIgnoreCase) ||
-               toolId.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
-               toolId.Equals("aider", StringComparison.OrdinalIgnoreCase) ||
-               toolId.Equals("openhands", StringComparison.OrdinalIgnoreCase) ||
-               toolId.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase) ||
-               toolId.Equals("gemini", StringComparison.OrdinalIgnoreCase);
+        return toolFamily.Equals("codex", StringComparison.OrdinalIgnoreCase) ||
+               toolFamily.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
+               toolFamily.Equals("aider", StringComparison.OrdinalIgnoreCase) ||
+               toolFamily.Equals("openhands", StringComparison.OrdinalIgnoreCase) ||
+               toolFamily.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase) ||
+               toolFamily.Equals("gemini", StringComparison.OrdinalIgnoreCase);
     }
 }

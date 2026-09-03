@@ -98,7 +98,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             CandidateMethodId = context.Candidate.Id,
             TargetedBaselineId = context.TargetedBaselineId,
             ToolId = tool.Id,
-            ImageKey = tool.ImageKey ?? tool.Id,
+            ImageKey = tool.Family,
             RunStatus = ToolRunStatus.Planned,
             StartedAt = DateTime.UtcNow,
             TimeoutSeconds = tool.TimeoutMinutes * 60,
@@ -120,7 +120,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             logEnvironment[item.Key] = item.Value;
         var logPaths = AgentToolLogPathResolver.Resolve(
             attempt.ArtifactPath,
-            tool.Id,
+            tool.Family,
             logEnvironment);
         attempt.StdOutLogPath = logPaths.StdOutLogPath;
         attempt.StdErrLogPath = logPaths.StdErrLogPath;
@@ -158,10 +158,10 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             attempt.CompletedAt = DateTime.UtcNow;
             attempt.JsonlLogAvailable = HasJsonlEventLog(attempt.JsonlLogPath);
             attempt.EstimatedPromptTokens = EstimatePromptTokens(taskCardContent.Prompt);
-            var observedModel = ExtractObservedModel(attempt.ArtifactPath, tool.Id);
+            var observedModel = ExtractObservedModel(attempt.ArtifactPath, tool.Family);
             if (!string.IsNullOrWhiteSpace(observedModel))
                 attempt.Model = observedModel;
-            var usage = ExtractUsage(attempt.ArtifactPath, tool.Id);
+            var usage = ExtractUsage(attempt.ArtifactPath, tool.Family);
             if (usage != null)
             {
                 attempt.UsageSource = usage.Source;
@@ -380,12 +380,12 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             : Math.Max(1, (int)Math.Ceiling(prompt.Length / 4.0));
     }
 
-    internal static ToolUsageSummary? ExtractUsage(string artifactPath, string toolId)
+    internal static ToolUsageSummary? ExtractUsage(string artifactPath, string toolFamily)
     {
         if (string.IsNullOrWhiteSpace(artifactPath) || !Directory.Exists(artifactPath))
             return null;
 
-        var preferred = Path.Combine(artifactPath, $"{toolId}.events.jsonl");
+        var preferred = Path.Combine(artifactPath, $"{toolFamily}.events.jsonl");
         var files = File.Exists(preferred)
             ? [preferred]
             : Directory.GetFiles(artifactPath, "*.events.jsonl")
@@ -401,7 +401,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
                 latest = parsed;
         }
 
-        if (latest == null && toolId.Equals("gemini", StringComparison.OrdinalIgnoreCase))
+        if (latest == null && toolFamily.Equals("gemini", StringComparison.OrdinalIgnoreCase))
         {
             var jsonPath = Path.Combine(artifactPath, "gemini.json");
             if (File.Exists(jsonPath))
@@ -410,9 +410,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
 
         return latest
                ?? ExtractOpenHandsPersistedUsage(artifactPath)
-               ?? ExtractMiniSweTrajectoryUsage(artifactPath, toolId)
-               ?? ExtractCopilotUsage(artifactPath, toolId)
-               ?? ExtractAiderStdoutUsage(artifactPath, toolId);
+               ?? ExtractMiniSweTrajectoryUsage(artifactPath, toolFamily)
+               ?? ExtractCopilotUsage(artifactPath, toolFamily)
+               ?? ExtractAiderStdoutUsage(artifactPath, toolFamily);
     }
 
     private static ToolUsageSummary? ExtractOpenHandsPersistedUsage(string artifactPath)
@@ -621,9 +621,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             $"{sourceFile}:accumulated_token_usage");
     }
 
-    private static ToolUsageSummary? ExtractMiniSweTrajectoryUsage(string artifactPath, string toolId)
+    private static ToolUsageSummary? ExtractMiniSweTrajectoryUsage(string artifactPath, string toolFamily)
     {
-        if (!toolId.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
+        if (!toolFamily.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
             return null;
 
         var trajectoryPath = Path.Combine(artifactPath, "mini-swe-agent-trajectory.json");
@@ -686,9 +686,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             $"{sourceFile}:usage");
     }
 
-    private static ToolUsageSummary? ExtractAiderStdoutUsage(string artifactPath, string toolId)
+    private static ToolUsageSummary? ExtractAiderStdoutUsage(string artifactPath, string toolFamily)
     {
-        if (!toolId.Equals("aider", StringComparison.OrdinalIgnoreCase))
+        if (!toolFamily.Equals("aider", StringComparison.OrdinalIgnoreCase))
             return null;
 
         var stdoutPath = Path.Combine(artifactPath, "aider.stdout.log");
@@ -736,9 +736,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
     /// (quota fallback, retired id), and a configured value alone would misattribute those attempts.
     /// Returns null when the tool emits no model telemetry, leaving the configured model in place.
     /// </summary>
-    internal static string? ExtractObservedModel(string artifactPath, string toolId)
+    internal static string? ExtractObservedModel(string artifactPath, string toolFamily)
     {
-        if (!toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+        if (!toolFamily.Equals("copilot", StringComparison.OrdinalIgnoreCase))
             return null;
 
         var otelPath = Path.Combine(artifactPath, "copilot-otel.jsonl");
@@ -807,9 +807,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         return value.Length <= 200 ? value : value[..200];
     }
 
-    private static ToolUsageSummary? ExtractCopilotUsage(string artifactPath, string toolId)
+    private static ToolUsageSummary? ExtractCopilotUsage(string artifactPath, string toolFamily)
     {
-        if (!toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+        if (!toolFamily.Equals("copilot", StringComparison.OrdinalIgnoreCase))
             return null;
 
         return ExtractCopilotOtelUsage(artifactPath)

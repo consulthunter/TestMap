@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -1061,7 +1061,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             TargetedBaselineId = targetedBaselineId,
             ToolId = decision.Tool.Id,
             ImageName = decision.Availability.ImageName ?? string.Empty,
-            ImageKey = decision.Tool.ImageKey ?? decision.Tool.Id,
+            ImageKey = decision.Tool.Family,
             RunStatus = ToolRunStatus.Skipped,
             ValidationOutcome = ToolValidationOutcome.Skipped,
             ObservedOutcome = ToolObservedOutcome.Skipped,

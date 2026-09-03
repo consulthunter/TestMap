@@ -211,7 +211,7 @@
     },
     "Temperature": 1,
     "IncludeProviders": [
-      "Amazon"
+      "CustomOpenAi"
     ],
     "PreferredProvider": "CustomOpenAi",
     "CandidateLimit": 1,
@@ -227,7 +227,7 @@
       },
       "Tools": {
         "Enabled": false,
-        "ToolIds": ["claude"],
+        "ToolIds": ["copilot-custom"],
         "RequireAvailabilityInSetup": true
       },
       "Assertions": {
@@ -237,15 +237,16 @@
     },
     "Tools": [
       {
-        "Id": "claude",
-        "ImageKey": "claude",
-        "Provider": "Anthropic",
-        "Model": "claude-haiku-4-5-20251001",
+        "Id": "copilot-custom",
+        "ImageKey": "copilot",
+        "Provider": "CustomOpenAi",
+        "Model": "GLM-5.3",
         "TimeoutMinutes": 45,
-        "RequiredEnvironmentVariables": ["ANTHROPIC_API_KEY"],
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "RequiredEnvironmentVariables": ["GITHUB_COPILOT_TOKEN", "CUSTOM_API_KEY"],
         "Environment": {
-          "CLAUDE_PERMISSION_MODE": "bypassPermissions",
-          "CLAUDE_MAX_TURNS": "40"
+          "COPILOT_HOME": "/tmp/testmap-copilot-home",
+          "COPILOT_ALLOW_MODE": "allow-all"
         }
       }
     ]

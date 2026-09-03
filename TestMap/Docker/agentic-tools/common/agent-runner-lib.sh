@@ -21,6 +21,28 @@ configure_git_workspace() {
   git config --global --add safe.directory /workspace >/dev/null 2>&1 || true
 }
 
+# Scaffolding written into the workspace by TestMap (.testmap) and by the agent CLIs
+# themselves. None of it is an edit to the project under test, so it must not reach
+# patch.diff or changed-files.txt: without this an attempt that did no work still reports a
+# multi-kilobyte patch. Kept in sync with ExcludedRootDirectories in
+# TestMap/Services/AgentTools/AgentToolChangedPathFilter.cs.
+SCAFFOLDING_PATHSPECS=(
+  '.'
+  ':(exclude).testmap'
+  ':(exclude).aider'
+  ':(exclude).claude'
+  ':(exclude).codex'
+  ':(exclude).copilot'
+  ':(exclude).gemini'
+  ':(exclude).openhands'
+  ':(exclude).mini-swe-agent'
+  ':(exclude).swe-agent'
+)
+
+list_untracked_files() {
+  git -C /workspace ls-files --others --exclude-standard -- "${SCAFFOLDING_PATHSPECS[@]}" || true
+}
+
 capture_git_before() {
   configure_git_workspace
   git -C /workspace rev-parse HEAD > /attempt/base-commit.txt || true
@@ -47,26 +69,29 @@ capture_git_after() {
   git -C /workspace rev-parse HEAD > /attempt/head-commit.txt 2>/dev/null || true
 
   if [ -n "$base_commit" ]; then
-    git -C /workspace diff --binary "$base_commit" > /attempt/patch.diff || true
+    git -C /workspace diff --binary "$base_commit" -- "${SCAFFOLDING_PATHSPECS[@]}" \
+      > /attempt/patch.diff || true
   else
-    git -C /workspace diff --binary HEAD > /attempt/patch.diff \
-      || git -C /workspace diff --binary > /attempt/patch.diff || true
+    git -C /workspace diff --binary HEAD -- "${SCAFFOLDING_PATHSPECS[@]}" > /attempt/patch.diff \
+      || git -C /workspace diff --binary -- "${SCAFFOLDING_PATHSPECS[@]}" > /attempt/patch.diff \
+      || true
   fi
 
   {
     if [ -n "$base_commit" ]; then
-      git -C /workspace diff --name-only "$base_commit" || true
+      git -C /workspace diff --name-only "$base_commit" -- "${SCAFFOLDING_PATHSPECS[@]}" || true
     else
-      git -C /workspace diff --name-only HEAD || git -C /workspace diff --name-only || true
+      git -C /workspace diff --name-only HEAD -- "${SCAFFOLDING_PATHSPECS[@]}" \
+        || git -C /workspace diff --name-only -- "${SCAFFOLDING_PATHSPECS[@]}" || true
     fi
-    git -C /workspace ls-files --others --exclude-standard || true
+    list_untracked_files
   } | awk 'NF' | sort -u > /attempt/changed-files.txt
 
   while IFS= read -r file_path; do
     [ -n "$file_path" ] || continue
     [ -f "/workspace/$file_path" ] || continue
     git -C /workspace diff --binary --no-index -- /dev/null "$file_path" >> /attempt/patch.diff 2>/dev/null || true
-  done < <(git -C /workspace ls-files --others --exclude-standard || true)
+  done < <(list_untracked_files)
 }
 
 write_metadata_start() {

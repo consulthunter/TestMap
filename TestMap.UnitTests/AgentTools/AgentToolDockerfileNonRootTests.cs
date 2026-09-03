@@ -1,3 +1,6 @@
+using System.Text.RegularExpressions;
+using TestMap.Services.AgentTools;
+
 namespace TestMap.UnitTests.AgentTools;
 
 public sealed class AgentToolDockerfileNonRootTests
@@ -41,6 +44,56 @@ public sealed class AgentToolDockerfileNonRootTests
         Assert.Contains("ls-files --others --exclude-standard", runner);
         Assert.Contains("changed-files.txt", runner);
         Assert.Contains("diff --binary --no-index -- /dev/null", runner);
+    }
+
+    /// <summary>
+    /// The runner library excludes scaffolding from patch.diff and changed-files.txt via git
+    /// pathspecs. That list must match AgentToolChangedPathFilter, or the patch and the changed
+    /// file list disagree about what the agent actually did.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void RunnerLibrary_ScaffoldingPathspecs_MatchChangedPathFilter()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "common", "agent-runner-lib.sh"));
+
+        var pathspecRoots = Regex
+            .Matches(runner, @"':\(exclude\)(?<root>[^']+)'")
+            .Select(x => x.Groups["root"].Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(
+            AgentToolChangedPathFilter.ExcludedRoots.ToHashSet(StringComparer.OrdinalIgnoreCase),
+            pathspecRoots);
+    }
+
+    /// <summary>
+    /// Both the tracked diff and the untracked-file enumeration must apply the exclusions —
+    /// scaffolding is untracked in practice, but a leaked pathspec on either side puts it back
+    /// into the patch.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void RunnerLibrary_AppliesScaffoldingPathspecsToDiffAndUntrackedListing()
+    {
+        var dockerRoot = ResolveAgentToolsRoot();
+        var runner = File.ReadAllText(Path.Combine(dockerRoot, "common", "agent-runner-lib.sh"));
+
+        Assert.Contains(
+            "ls-files --others --exclude-standard -- \"${SCAFFOLDING_PATHSPECS[@]}\"",
+            runner);
+        Assert.DoesNotContain("ls-files --others --exclude-standard || true", runner);
+
+        // Every whole-tree diff is scoped; the per-file --no-index append is not, by design.
+        var treeDiffs = Regex
+            .Matches(runner, @"git -C /workspace diff [^\r\n]*")
+            .Select(x => x.Value)
+            .Where(x => !x.Contains("--no-index"))
+            .ToList();
+
+        Assert.NotEmpty(treeDiffs);
+        Assert.All(treeDiffs, x => Assert.Contains("SCAFFOLDING_PATHSPECS", x));
     }
 
     [Fact]

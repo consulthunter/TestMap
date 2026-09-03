@@ -15,6 +15,12 @@ public static class AgentToolChangedPathFilter
         ".swe-agent"
     };
 
+    /// <summary>
+    /// Root directories excluded from an attempt's changed files. The container-side runner
+    /// library keeps the same list as git pathspecs so patch.diff and changed-files.txt agree.
+    /// </summary>
+    public static IReadOnlyCollection<string> ExcludedRoots => ExcludedRootDirectories;
+
     public static IReadOnlyList<string> Filter(IEnumerable<string> paths)
     {
         return paths

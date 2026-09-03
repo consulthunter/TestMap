@@ -85,7 +85,7 @@ public sealed class DockerToolRunner : IAgentToolRunner
     /// </summary>
     public string ResolveImageName(ExperimentToolConfig tool)
     {
-        var key = tool.ImageKey ?? tool.Id;
+        var key = tool.Family;
         if (!_runtimeConfig.Docker.Images.AgentTools.TryGetValue(key, out var imageName))
             throw new InvalidOperationException(
                 $"No Docker image registered for agent tool key '{key}'. " +
@@ -251,12 +251,14 @@ public sealed class DockerToolRunner : IAgentToolRunner
         ExperimentToolConfig tool,
         Dictionary<string, string> env)
     {
-        var toolId = tool.Id;
+        // Branch on the family, not the id: copilot-openai and copilot-custom are distinct
+        // entries running the same tool, and both need the copilot provider plumbing.
+        var toolFamily = tool.Family;
         var provider = ResolveProviderId(env);
         var rawModel = env.TryGetValue("TESTMAP_LLM_MODEL", out var model) ? model : string.Empty;
         var providerModel = NormalizeProviderModel(provider, rawModel);
 
-        if (toolId.Equals("openhands", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("openhands", StringComparison.OrdinalIgnoreCase))
         {
             AddIfMissing(env, "LLM_MODEL", providerModel);
             if (env.TryGetValue("TESTMAP_LLM_API_KEY", out var apiKey))
@@ -266,19 +268,19 @@ public sealed class DockerToolRunner : IAgentToolRunner
             return;
         }
 
-        if (toolId.Equals("claude", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("claude", StringComparison.OrdinalIgnoreCase))
         {
             AddIfMissing(env, "CLAUDE_MODEL", rawModel);
             return;
         }
 
-        if (toolId.Equals("codex", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("codex", StringComparison.OrdinalIgnoreCase))
         {
             AddIfMissing(env, "CODEX_MODEL", rawModel);
             return;
         }
 
-        if (toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("copilot", StringComparison.OrdinalIgnoreCase))
         {
             // Copilot CLI takes bare model ids (gpt-5.2, claude-sonnet-4.6). The runner turns this
             // into an explicit --model flag so an attempt is pinned to the configured model instead
@@ -300,13 +302,13 @@ public sealed class DockerToolRunner : IAgentToolRunner
             return;
         }
 
-        if (toolId.Equals("aider", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("aider", StringComparison.OrdinalIgnoreCase))
         {
             AddIfMissing(env, "AIDER_MODEL", providerModel);
             return;
         }
 
-        if (toolId.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
         {
             AddIfMissing(env, "MINI_MODEL", providerModel);
             AddIfMissing(env, "MINI_PROVIDER", provider);
@@ -315,7 +317,7 @@ public sealed class DockerToolRunner : IAgentToolRunner
             return;
         }
 
-        if (toolId.Equals("gemini", StringComparison.OrdinalIgnoreCase))
+        if (toolFamily.Equals("gemini", StringComparison.OrdinalIgnoreCase))
             AddIfMissing(env, "GEMINI_MODEL", rawModel);
     }
 
