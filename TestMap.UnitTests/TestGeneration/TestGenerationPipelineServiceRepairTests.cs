@@ -1,8 +1,10 @@
+using SharpToken;
 using TestMap.App;
 using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.Generation;
+using TestMap.Models.Experiment;
 using TestMap.Services.TestGeneration;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 
@@ -15,6 +17,56 @@ namespace TestMap.UnitTests.TestGeneration;
 /// </summary>
 public sealed class TestGenerationPipelineServiceRepairTests
 {
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RepairTestAsync_EmptyThenSuccess_AccumulatesRetryInputAndObservedOutput()
+    {
+        const string response = "```csharp\n[Fact] public void T() { }\n```";
+        var provider = new RecordingProvider([string.Empty, response]);
+        var service = CreateService(provider);
+        var result = await service.RepairTestAsync(CreateRepairRequest(stepErrorRetries: 1));
+
+        var step = Assert.Single(result.Steps);
+        var encoding = GptEncoding.GetEncoding("cl100k_base");
+        var singleInput = provider.TokenizableInputs[0].Sum(x => encoding.Encode(x).Count);
+        Assert.Equal(singleInput * 2, step.InputTokens);
+        Assert.Equal(encoding.Encode(response).Count, step.OutputTokens);
+        Assert.Equal(TokenUsageVocabulary.CompleteEstimated, step.UsageStatus);
+        Assert.Equal(step.InputTokens + step.OutputTokens, step.TokenCount);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RepairTestAsync_ExceptionThenSuccess_RetainsPartialUsage()
+    {
+        const string response = "```csharp\n[Fact] public void T() { }\n```";
+        var provider = new RecordingProvider(["__throw__", response]);
+        var service = CreateService(provider);
+        var result = await service.RepairTestAsync(CreateRepairRequest(stepErrorRetries: 1));
+
+        var step = Assert.Single(result.Steps);
+        Assert.True(result.Success);
+        Assert.Equal(TokenUsageVocabulary.Partial, step.UsageStatus);
+        Assert.NotNull(step.InputTokens);
+        Assert.NotNull(step.OutputTokens);
+        Assert.Null(step.TokenCount);
+        Assert.Null(result.TotalTokens);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RepairTestAsync_ObservedEmptyResponse_HasZeroOutputButCompleteUsage()
+    {
+        var provider = new RecordingProvider([string.Empty]);
+        var service = CreateService(provider);
+        var result = await service.RepairTestAsync(CreateRepairRequest());
+
+        var step = Assert.Single(result.Steps);
+        Assert.False(result.Success);
+        Assert.Equal(0, step.OutputTokens);
+        Assert.Equal(TokenUsageVocabulary.CompleteEstimated, step.UsageStatus);
+        Assert.Equal(step.InputTokens, step.TokenCount);
+    }
     // ---------------------------------------------------------------------------
     // Repair prompt branching
     // ---------------------------------------------------------------------------
@@ -208,7 +260,8 @@ public sealed class TestGenerationPipelineServiceRepairTests
         string? testFileContents = null,
         string? modifiedTestFileContents = null,
         string? structuredErrors = null,
-        string? errorLogs = null)
+        string? errorLogs = null,
+        int stepErrorRetries = 0)
     {
         return new TestRepairRequest
         {
@@ -227,7 +280,8 @@ public sealed class TestGenerationPipelineServiceRepairTests
             StructuredErrors = structuredErrors,
             ModifiedTestFileContents = modifiedTestFileContents,
             UseStructuredPatchOutput = useStructuredPatchOutput,
-            Provider = AiProvider.OpenAi
+            Provider = AiProvider.OpenAi,
+            StepErrorRetries = stepErrorRetries
         };
     }
 
@@ -242,11 +296,17 @@ public sealed class TestGenerationPipelineServiceRepairTests
 
         public AiProvider Provider => AiProvider.OpenAi;
         public List<string> Prompts { get; } = [];
+        public List<IReadOnlyList<string>> TokenizableInputs { get; } = [];
+        private AiProviderMode _mode;
 
         public Task CreateAsync(
             IAiProviderConfig providerConfig,
             AiProviderMode mode,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
+            CancellationToken cancellationToken = default)
+        {
+            _mode = mode;
+            return Task.CompletedTask;
+        }
 
         public Task<string> GenerateAsync(
             string prompt,
@@ -254,7 +314,18 @@ public sealed class TestGenerationPipelineServiceRepairTests
             CancellationToken cancellationToken = default)
         {
             Prompts.Add(prompt);
-            return Task.FromResult(_responses.Count == 0 ? string.Empty : _responses.Dequeue());
+            var response = _responses.Count == 0 ? string.Empty : _responses.Dequeue();
+            if (response == "__throw__") throw new InvalidOperationException("simulated provider failure");
+            return Task.FromResult(response);
+        }
+
+        public IReadOnlyList<string> GetTokenizableInputSegments(string prompt)
+        {
+            IReadOnlyList<string> segments = _mode == AiProviderMode.Chat
+                ? ["You are an expert software tester with experience in csharp.", prompt]
+                : [prompt];
+            TokenizableInputs.Add(segments);
+            return segments;
         }
     }
 }

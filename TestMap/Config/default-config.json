@@ -73,14 +73,14 @@
         "EnableEvidencePackage": true,
         "EnableContextGraph": true,
         "EnableContextResolution": true,
-        "EnableRoslynValidation": true,
+        "EnableRoslynValidation": false,
         "EnableSpeculativePlanning": false,
-        "EnableScenario": true,
-        "EnableMethodName": true,
-        "EnableArrangePlan": true,
-        "EnableInputPlan": true,
-        "EnableActionPlan": true,
-        "EnableAssertionPlan": true,
+        "EnableScenario": false,
+        "EnableMethodName": false,
+        "EnableArrangePlan": false,
+        "EnableInputPlan": false,
+        "EnableActionPlan": false,
+        "EnableAssertionPlan": false,
         "EnableFinalTest": true
       },
       "Acceptance": {
@@ -132,7 +132,7 @@
       "Provider": "openai"
     },
     "Amazon": {
-      "Model": "",
+      "Model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
       "AwsAccessKey": "",
       "ApiKey": "",
       "Provider": "amazon",
@@ -158,7 +158,7 @@
       "Provider": "google-cloud"
     },
     "CustomOpenAi": {
-      "Model": "gpt-oss-120b",
+      "Model": "GLM-5.3",
       "OrgId": "",
       "ApiKey": "",
       "Endpoint": "https://llm-api.arc.vt.edu/api/",
@@ -183,9 +183,7 @@
       "coverage-and-mutation"
     ],
     "BudgetModes": [
-      "pass-at1",
-      "pass-at5",
-      "pass-at1-repair-at5"
+      "pass-at1"
     ],
     "ContextMappingMode": "heuristic-with-grounded-preference",
     "CompareHistoryModes": false,
@@ -213,7 +211,7 @@
     },
     "Temperature": 1,
     "IncludeProviders": [
-      "CustomOpenAi"
+      "Amazon"
     ],
     "PreferredProvider": "CustomOpenAi",
     "CandidateLimit": 1,
@@ -225,11 +223,11 @@
     "IncludeDetailedErrors": true,
     "Evaluation": {
       "TestMap": {
-        "Enabled": false
+        "Enabled": true
       },
       "Tools": {
-        "Enabled": true,
-        "ToolIds": ["copilot"],
+        "Enabled": false,
+        "ToolIds": ["claude"],
         "RequireAvailabilityInSetup": true
       },
       "Assertions": {
@@ -239,16 +237,15 @@
     },
     "Tools": [
       {
-        "Id": "copilot",
-        "ImageKey": "copilot",
-        "Provider": "CustomOpenAi",
-        "Model": "gpt-oss-120b",
+        "Id": "claude",
+        "ImageKey": "claude",
+        "Provider": "Anthropic",
+        "Model": "claude-haiku-4-5-20251001",
         "TimeoutMinutes": 45,
-        "Endpoint": "https://llm-api.arc.vt.edu/api/",
-        "RequiredEnvironmentVariables": ["GITHUB_COPILOT_TOKEN", "CUSTOM_API_KEY"],
+        "RequiredEnvironmentVariables": ["ANTHROPIC_API_KEY"],
         "Environment": {
-          "COPILOT_HOME": "/tmp/testmap-copilot-home",
-          "COPILOT_ALLOW_MODE": "allow-all"
+          "CLAUDE_PERMISSION_MODE": "bypassPermissions",
+          "CLAUDE_MAX_TURNS": "40"
         }
       }
     ]

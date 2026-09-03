@@ -57,6 +57,8 @@ public class ToolAttemptEntityConfiguration : IEntityTypeConfiguration<ToolAttem
         builder.Property(x => x.JsonlLogAvailable).HasColumnName("jsonl_log_available").IsRequired();
         builder.Property(x => x.UsageAvailable).HasColumnName("usage_available").IsRequired();
         builder.Property(x => x.UsageSource).HasColumnName("usage_source").IsRequired();
+        builder.Property(x => x.UsageStatus).HasColumnName("usage_status").IsRequired();
+        builder.Property(x => x.UsagePolicyVersion).HasColumnName("usage_policy_version");
         builder.Property(x => x.InputTokens).HasColumnName("input_tokens");
         builder.Property(x => x.OutputTokens).HasColumnName("output_tokens");
         builder.Property(x => x.EstimatedPromptTokens).HasColumnName("estimated_prompt_tokens");

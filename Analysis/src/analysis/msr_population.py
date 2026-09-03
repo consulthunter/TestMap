@@ -17,8 +17,8 @@ written out in full for legibility rather than reduced to their last term.
 
 Two populations come out:
 
-``eligible_core``      restored, built, ran tests, and produced coverage. The frame
-                       for code metrics, test smells, coverage, and mappings.
+``eligible_core``      restored, built, and ran tests. The frame for code metrics,
+                       test smells, coverage, and mappings.
 ``eligible_mutation``  produced a mutation score. The frame for mutants only.
 
 Everything else is excluded, with the reason recorded.
@@ -44,7 +44,13 @@ VALIDATION_FLAGS = (
 )
 
 # Order matters: eligibility is reported as the first predicate that fails.
-CORE_PREDICATES = ("Restores", "Builds", "TestsRun", "HasCoverage")
+#
+# HasCoverage is deliberately absent. It is derived from a coverage_reports row
+# existing rather than from that row holding anything, so it admits repositories
+# with no coverage data at all (see msr_validation_bugs.md, bug 1). Selection
+# stops at "the tests ran"; whether coverage data actually landed is settled by
+# msr-coverage-audit against the database, not by the flag.
+CORE_PREDICATES = ("Restores", "Builds", "TestsRun")
 
 
 # ---------------------------------------------------------------------------

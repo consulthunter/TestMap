@@ -1,4 +1,5 @@
 using TestMap.Models.AgentTools;
+using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef.Entities.AgentTools;
 
 namespace TestMap.Persistence.Ef.Mapping.AgentTools;
@@ -51,8 +52,13 @@ public static class ToolAttemptMappingExtensions
         Model = entity.Model,
         ProviderId = entity.ProviderId,
         JsonlLogAvailable = entity.JsonlLogAvailable,
-        UsageAvailable = entity.UsageAvailable,
+        UsageAvailable = string.Equals(
+            entity.UsageStatus,
+            TokenUsageVocabulary.CompleteReported,
+            StringComparison.Ordinal),
         UsageSource = entity.UsageSource,
+        UsageStatus = entity.UsageStatus,
+        UsagePolicyVersion = entity.UsagePolicyVersion,
         InputTokens = entity.InputTokens,
         OutputTokens = entity.OutputTokens,
         EstimatedPromptTokens = entity.EstimatedPromptTokens,
@@ -111,8 +117,13 @@ public static class ToolAttemptMappingExtensions
         Model = attempt.Model,
         ProviderId = attempt.ProviderId,
         JsonlLogAvailable = attempt.JsonlLogAvailable,
-        UsageAvailable = attempt.UsageAvailable,
+        UsageAvailable = string.Equals(
+            attempt.UsageStatus,
+            TokenUsageVocabulary.CompleteReported,
+            StringComparison.Ordinal),
         UsageSource = attempt.UsageSource,
+        UsageStatus = attempt.UsageStatus,
+        UsagePolicyVersion = attempt.UsagePolicyVersion,
         InputTokens = attempt.InputTokens,
         OutputTokens = attempt.OutputTokens,
         EstimatedPromptTokens = attempt.EstimatedPromptTokens,

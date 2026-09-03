@@ -34,6 +34,11 @@ public abstract class SemanticKernelGenerationProviderBase : IAiGenerationProvid
             : await GenerateInferenceAsync(prompt, temperature, cancellationToken);
     }
 
+    public IReadOnlyList<string> GetTokenizableInputSegments(string prompt) =>
+        _mode == AiProviderMode.Chat
+            ? [DefaultSystemPrompt, prompt]
+            : [prompt];
+
     protected void Initialize(
         AiProviderMode mode,
         IChatCompletionService? chatCompletionService,

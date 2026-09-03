@@ -298,7 +298,6 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                 TestMethodName = extractedMethodName,
                 Steps = steps,
                 TotalDurationSeconds = overallStopwatch.Elapsed.TotalSeconds,
-                TotalTokens = steps.Sum(s => s.TokenCount),
                 ConversationTranscript = conversation.Export()
             };
         }
@@ -359,7 +358,6 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             TestMethodName = extractedMethodName,
             Steps = steps,
             TotalDurationSeconds = overallStopwatch.Elapsed.TotalSeconds,
-            TotalTokens = steps.Sum(s => s.TokenCount),
             ConversationTranscript = conversation.Export()
         };
     }
@@ -417,7 +415,6 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                 TestMethodName = testMethodName,
                 Steps = steps,
                 TotalDurationSeconds = overallStopwatch.Elapsed.TotalSeconds,
-                TotalTokens = steps.Sum(s => s.TokenCount),
                 ConversationTranscript = conversation.Export()
             };
         }
@@ -455,10 +452,15 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         CancellationToken cancellationToken)
     {
         var maxAttempts = Math.Max(1, stepErrorRetries + 1);
-        var tokenCount = _encoding.Encode(prompt).Count;
+        var inputTokens = 0;
+        var outputTokens = 0;
+        var outputComplete = true;
+        var hasObservedOutput = false;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
+            inputTokens = checked(inputTokens + provider.GetTokenizableInputSegments(prompt)
+                .Sum(segment => _encoding.Encode(segment).Count));
             var startedAt = DateTime.UtcNow;
             var stopwatch = Stopwatch.StartNew();
 
@@ -474,6 +476,8 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                         maxAttempts);
 
                 var response = await provider.GenerateAsync(prompt, temperature, cancellationToken);
+                outputTokens = checked(outputTokens + _encoding.Encode(response).Count);
+                hasObservedOutput = true;
                 stopwatch.Stop();
 
                 if (string.IsNullOrWhiteSpace(response))
@@ -500,7 +504,14 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                         ResponseFormat = GetResponseFormat(stepType),
                         PromptVersion = PromptVersion,
                         ValidationStatus = "empty",
-                        TokenCount = tokenCount,
+                        InputTokens = inputTokens,
+                        OutputTokens = outputTokens,
+                        TokenCount = outputComplete ? checked(inputTokens + outputTokens) : null,
+                        UsageStatus = outputComplete
+                            ? TokenUsageVocabulary.CompleteEstimated
+                            : TokenUsageVocabulary.Partial,
+                        UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+                        UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
                         DurationSeconds = stopwatch.Elapsed.TotalSeconds,
                         StartedAt = startedAt,
                         CompletedAt = DateTime.UtcNow,
@@ -510,7 +521,8 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                 }
 
                 _context.Project.Logger?.Information(
-                    $"Step {stepType} completed in {stopwatch.Elapsed.TotalSeconds:F2}s, {tokenCount} tokens");
+                    $"Step {stepType} completed in {stopwatch.Elapsed.TotalSeconds:F2}s, " +
+                    $"{(outputComplete ? inputTokens + outputTokens : null)} tokens");
 
                 return new GenerationStepMetadata
                 {
@@ -520,7 +532,14 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                     ResponseFormat = GetResponseFormat(stepType),
                     PromptVersion = PromptVersion,
                     ValidationStatus = GetValidationStatus(stepType, true),
-                    TokenCount = tokenCount,
+                    InputTokens = inputTokens,
+                    OutputTokens = outputTokens,
+                    TokenCount = outputComplete ? checked(inputTokens + outputTokens) : null,
+                    UsageStatus = outputComplete
+                        ? TokenUsageVocabulary.CompleteEstimated
+                        : TokenUsageVocabulary.Partial,
+                    UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+                    UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
                     DurationSeconds = stopwatch.Elapsed.TotalSeconds,
                     StartedAt = startedAt,
                     CompletedAt = DateTime.UtcNow,
@@ -530,6 +549,7 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             catch (Exception ex)
             {
                 stopwatch.Stop();
+                outputComplete = false;
 
                 if (attempt < maxAttempts)
                 {
@@ -555,7 +575,12 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                     ResponseFormat = GetResponseFormat(stepType),
                     PromptVersion = PromptVersion,
                     ValidationStatus = "failed",
-                    TokenCount = tokenCount,
+                    InputTokens = inputTokens,
+                    OutputTokens = hasObservedOutput ? outputTokens : null,
+                    TokenCount = null,
+                    UsageStatus = TokenUsageVocabulary.Partial,
+                    UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+                    UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
                     DurationSeconds = stopwatch.Elapsed.TotalSeconds,
                     StartedAt = startedAt,
                     CompletedAt = DateTime.UtcNow,
@@ -573,7 +598,14 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             ResponseFormat = GetResponseFormat(stepType),
             PromptVersion = PromptVersion,
             ValidationStatus = "failed",
-            TokenCount = tokenCount,
+            InputTokens = inputTokens,
+            OutputTokens = hasObservedOutput ? outputTokens : null,
+            TokenCount = null,
+            UsageStatus = inputTokens > 0 || hasObservedOutput
+                ? TokenUsageVocabulary.Partial
+                : TokenUsageVocabulary.Missing,
+            UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+            UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
             DurationSeconds = 0,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow,
@@ -616,6 +648,11 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             Status = metadata.Status,
             SkipReason = metadata.SkipReason,
             TokenCount = metadata.TokenCount,
+            InputTokens = metadata.InputTokens,
+            OutputTokens = metadata.OutputTokens,
+            UsageStatus = metadata.UsageStatus,
+            UsageSource = metadata.UsageSource,
+            UsagePolicyVersion = metadata.UsagePolicyVersion,
             DurationSeconds = metadata.DurationSeconds,
             StartedAt = metadata.StartedAt,
             CompletedAt = metadata.CompletedAt,
@@ -701,6 +738,7 @@ Instruction:
             ResponseFormat = "text/plain",
             PromptVersion = PromptVersion,
             ValidationStatus = "fallback",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -721,6 +759,7 @@ Instruction:
             ResponseFormat = GetResponseFormat(stepType),
             PromptVersion = PromptVersion,
             ValidationStatus = "skipped",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -746,6 +785,7 @@ Instruction:
                 StructuredResponseJson = json,
                 PromptVersion = PromptVersion,
                 ValidationStatus = "fallback",
+                UsageStatus = TokenUsageVocabulary.NotApplicable,
                 Success = true,
                 StartedAt = DateTime.UtcNow,
                 CompletedAt = DateTime.UtcNow
@@ -766,6 +806,7 @@ Instruction:
             StructuredResponseJson = json,
             PromptVersion = PromptVersion,
             ValidationStatus = "built",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -786,6 +827,7 @@ Instruction:
             StructuredResponseJson = json,
             PromptVersion = PromptVersion,
             ValidationStatus = "resolved",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -1737,7 +1779,6 @@ Rules:
             Success = false,
             Steps = steps,
             TotalDurationSeconds = stopwatch.Elapsed.TotalSeconds,
-            TotalTokens = steps.Sum(s => s.TokenCount),
             ErrorMessage = errorMessage
         };
     }

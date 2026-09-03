@@ -620,7 +620,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             // Track running cumulative for repair chains.  Resets at each independent
             // generation attempt (PassAt5) so that PassAt1RepairAt5 accumulates across
             // the whole chain while PassAt5 reports per-attempt costs.
-            var chainCumulativeTokens = 0;
+            int? chainCumulativeInputTokens = 0;
+            int? chainCumulativeOutputTokens = 0;
             foreach (var attempt in attempts)
             {
                 if (attempt.ParentAttemptNumber.HasValue &&
@@ -631,10 +632,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 attempt.ExperimentMatrixWorkItemId = workItem.Id;
 
                 // Cumulative resets at each fresh (non-repair) generation attempt.
-                if (!attempt.IsRepairAttempt)
-                    chainCumulativeTokens = 0;
-                chainCumulativeTokens += attempt.TotalTokensUsed;
-                attempt.ChainCumulativeTokensUsed = chainCumulativeTokens;
+                ApplyCumulativeTokenUsage(
+                    attempt,
+                    ref chainCumulativeInputTokens,
+                    ref chainCumulativeOutputTokens);
 
                 var persistedAttemptId = await SaveGenerationAttemptAsync(
                     experimentRun.Id,
@@ -1172,11 +1173,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             generatedTestPassed && classificationValidated,
             execution?.CoverageImprovement,
             execution?.MutationScoreImprovement);
-        var hasUsageSteps = attempt.GenerationSteps.Count > 0;
-        var inputUsageComplete = hasUsageSteps && attempt.GenerationSteps.All(x => x.InputTokens.HasValue);
-        var outputUsageComplete = hasUsageSteps && attempt.GenerationSteps.All(x => x.OutputTokens.HasValue);
-        var usageComplete = inputUsageComplete && outputUsageComplete;
-        var usagePartial = attempt.GenerationSteps.Any(x => x.InputTokens.HasValue || x.OutputTokens.HasValue);
+        var usageComplete = TokenUsageVocabulary.IsComplete(attempt.UsageStatus);
         var outcomeClassification = execution?.Classification.ToString() ?? TestClassification.ValidationFailed.ToString();
         var failureKind = execution?.FailureKind ?? attempt.FailureKind;
         var failureStage = execution?.FailureStage ?? attempt.FailureStage ?? string.Empty;
@@ -1347,14 +1344,19 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             NewRoslynDiagnosticsCount = execution?.NewRoslynDiagnosticsCount ?? 0,
             NewRoslynDiagnostics = execution?.NewRoslynDiagnostics ?? string.Empty,
             UsageAvailable = usageComplete,
-            UsageStatus = usageComplete ? "complete" : usagePartial ? "partial" : "missing",
-            UsageSource = usagePartial ? "generation_steps" : string.Empty,
-            InputTokens = inputUsageComplete ? attempt.GenerationSteps.Sum(x => x.InputTokens!.Value) : null,
-            OutputTokens = outputUsageComplete ? attempt.GenerationSteps.Sum(x => x.OutputTokens!.Value) : null,
-            TotalTokens = usageComplete ? attempt.TotalTokensUsed : null,
-            CumulativeTokens = usageComplete && attempt.ChainCumulativeTokensUsed > 0
+            UsageStatus = attempt.UsageStatus,
+            UsageSource = attempt.UsageSource ?? string.Empty,
+            UsagePolicyVersion = attempt.UsagePolicyVersion ?? string.Empty,
+            InputTokens = attempt.InputTokens,
+            OutputTokens = attempt.OutputTokens,
+            TotalTokens = attempt.TotalTokensUsed,
+            CumulativeInputTokens = attempt.ChainCumulativeInputTokens ??
+                                    (!attempt.IsRepairAttempt ? attempt.InputTokens : null),
+            CumulativeOutputTokens = attempt.ChainCumulativeOutputTokens ??
+                                     (!attempt.IsRepairAttempt ? attempt.OutputTokens : null),
+            CumulativeTokens = attempt.IsRepairAttempt
                 ? attempt.ChainCumulativeTokensUsed
-                : usageComplete ? attempt.TotalTokensUsed : null,
+                : attempt.ChainCumulativeTokensUsed ?? attempt.TotalTokensUsed,
             GenerationDurationSeconds = attempt.GenerationDurationSeconds,
             ValidationDurationSeconds = attempt.ValidationDurationSeconds,
             TotalAttemptDurationSeconds = attempt.TotalDurationSeconds,
@@ -1642,20 +1644,17 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 FailureSummary = attempt.Notes,
                 RoslynValidationSucceeded = false,
                 RoslynValidationSkipped = true,
-                UsageAvailable = attempt.UsageAvailable && attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue,
-                UsageStatus = attempt.UsageAvailable && attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue
-                    ? "complete"
-                    : attempt.InputTokens.HasValue || attempt.OutputTokens.HasValue ? "partial" : "missing",
+                UsageAvailable = attempt.UsageAvailable,
+                UsageStatus = attempt.UsageStatus,
                 UsageSource = attempt.UsageSource,
+                UsagePolicyVersion = attempt.UsagePolicyVersion ?? string.Empty,
                 InputTokens = attempt.InputTokens,
                 OutputTokens = attempt.OutputTokens,
                 EstimatedPromptTokens = attempt.EstimatedPromptTokens,
-                TotalTokens = attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue
-                    ? attempt.InputTokens.Value + attempt.OutputTokens.Value
-                    : null,
-                CumulativeTokens = attempt.InputTokens.HasValue && attempt.OutputTokens.HasValue
-                    ? attempt.InputTokens.Value + attempt.OutputTokens.Value
-                    : null,
+                TotalTokens = attempt.TotalTokens,
+                CumulativeInputTokens = attempt.InputTokens,
+                CumulativeOutputTokens = attempt.OutputTokens,
+                CumulativeTokens = attempt.TotalTokens,
                 GenerationDurationSeconds = attempt.GenerationDurationSeconds,
                 ValidationDurationSeconds = attempt.ValidationDurationSeconds,
                 TotalAttemptDurationSeconds = attempt.TotalAttemptDurationSeconds,
@@ -2252,7 +2251,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             }
 
             attempt.GenerationSteps = MapSteps(result);
+            attempt.InputTokens = result.InputTokens;
+            attempt.OutputTokens = result.OutputTokens;
             attempt.TotalTokensUsed = result.TotalTokens;
+            attempt.UsageStatus = result.UsageStatus;
+            attempt.UsageSource = result.UsageSource;
+            attempt.UsagePolicyVersion = result.UsagePolicyVersion;
             attempt.ConversationTranscript = result.ConversationTranscript;
 
             if (!result.Success || string.IsNullOrEmpty(result.GeneratedTest))
@@ -2353,7 +2357,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             }
 
             attempt.GenerationSteps = MapSteps(result);
+            attempt.InputTokens = result.InputTokens;
+            attempt.OutputTokens = result.OutputTokens;
             attempt.TotalTokensUsed = result.TotalTokens;
+            attempt.UsageStatus = result.UsageStatus;
+            attempt.UsageSource = result.UsageSource;
+            attempt.UsagePolicyVersion = result.UsagePolicyVersion;
             attempt.ConversationTranscript = result.ConversationTranscript;
 
             if (!result.Success || string.IsNullOrEmpty(result.GeneratedTest))
@@ -3586,6 +3595,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow,
             ErrorMessage = errorMessage,
+            UsageStatus = TokenUsageVocabulary.Missing,
+            UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
             TestExecution = CreateFailedExecution(TestFailureKind.Generation, errorMessage)
         };
     }
@@ -3619,6 +3630,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             PromptVersion = s.PromptVersion,
             ValidationStatus = s.ValidationStatus,
             TokenCount = s.TokenCount,
+            InputTokens = s.InputTokens,
+            OutputTokens = s.OutputTokens,
+            UsageStatus = s.UsageStatus,
+            UsageSource = s.UsageSource,
+            UsagePolicyVersion = s.UsagePolicyVersion,
             DurationSeconds = s.DurationSeconds,
             StartedAt = s.StartedAt,
             CompletedAt = s.CompletedAt,
@@ -3627,6 +3643,27 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             Status = s.Status,
             SkipReason = s.SkipReason
         }).ToList();
+    }
+
+    internal static void ApplyCumulativeTokenUsage(
+        GenerationAttempt attempt,
+        ref int? cumulativeInputTokens,
+        ref int? cumulativeOutputTokens)
+    {
+        if (!attempt.IsRepairAttempt)
+        {
+            cumulativeInputTokens = 0;
+            cumulativeOutputTokens = 0;
+        }
+
+        cumulativeInputTokens = cumulativeInputTokens.HasValue && attempt.InputTokens.HasValue
+            ? checked(cumulativeInputTokens.Value + attempt.InputTokens.Value)
+            : null;
+        cumulativeOutputTokens = cumulativeOutputTokens.HasValue && attempt.OutputTokens.HasValue
+            ? checked(cumulativeOutputTokens.Value + attempt.OutputTokens.Value)
+            : null;
+        attempt.ChainCumulativeInputTokens = cumulativeInputTokens;
+        attempt.ChainCumulativeOutputTokens = cumulativeOutputTokens;
     }
 
     private async Task<WorkspaceIntegrityObservation> RequireVerifiedIntegrityAsync(

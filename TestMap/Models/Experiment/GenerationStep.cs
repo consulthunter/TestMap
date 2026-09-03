@@ -12,7 +12,7 @@ public class GenerationStep
     public string? SkipReason { get; set; }
     public string Prompt { get; set; } = string.Empty;
     public string Response { get; set; } = string.Empty;
-    public int TokenCount { get; set; }
+    public int? TokenCount { get; set; }
     public double DurationSeconds { get; set; }
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
@@ -24,6 +24,9 @@ public class GenerationStep
     public string? ValidationStatus { get; set; }
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
+    public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    public string? UsageSource { get; set; }
+    public string? UsagePolicyVersion { get; set; }
     public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
 
     public virtual GenerationAttempt? GenerationAttempt { get; set; }

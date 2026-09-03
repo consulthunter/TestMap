@@ -14,6 +14,14 @@ LANE_LLM = "llm"
 LANE_AGENTIC = "agentic"
 LANE_VALUES = [LANE_LLM, LANE_AGENTIC]
 
+TOKEN_USAGE_STATUSES = frozenset({
+    "complete-reported",
+    "complete-estimated",
+    "partial",
+    "missing",
+    "not-applicable",
+})
+
 # ---------------------------------------------------------------------------
 # Assertion-lineage contract versions and vocabularies
 # ---------------------------------------------------------------------------
@@ -228,8 +236,20 @@ SHARED_ATTEMPT_FIELDS: list[str] = [
     "duration_seconds",
     "generation_duration_seconds",
     "validation_duration_seconds",
+    "usage_available",
+    "usage_status",
+    "usage_source",
+    "usage_policy_version",
+    "input_tokens",
+    "output_tokens",
+    "estimated_prompt_tokens",
     "total_tokens",
+    "cumulative_input_tokens",
+    "cumulative_output_tokens",
     "cumulative_tokens",
+    "effective_input_tokens",
+    "effective_output_tokens",
+    "effective_tokens",
     "changed_files_count",
     "test_files_changed",
     "production_files_changed",

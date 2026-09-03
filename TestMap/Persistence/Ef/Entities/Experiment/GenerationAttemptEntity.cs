@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 using TestMap.Persistence.Ef.Entities.Rules;
 
@@ -27,7 +28,12 @@ public class GenerationAttemptEntity
     public int? ParentAttemptId { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
-    public int TotalTokensUsed { get; set; }
+    public int? InputTokens { get; set; }
+    public int? OutputTokens { get; set; }
+    public int? TotalTokensUsed { get; set; }
+    public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    public string? UsageSource { get; set; }
+    public string? UsagePolicyVersion { get; set; }
     public double GenerationDurationSeconds { get; set; }
     public double ValidationDurationSeconds { get; set; }
     public double TotalAttemptDurationSeconds { get; set; }

@@ -21,6 +21,53 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ApplyCumulativeTokenUsage_AccumulatesRepairsAndResetsIndependentAttempt()
+    {
+        int? cumulativeInput = 0;
+        int? cumulativeOutput = 0;
+        var initial = new GenerationAttempt { InputTokens = 100, OutputTokens = 20 };
+        var repair = new GenerationAttempt { IsRepairAttempt = true, InputTokens = 60, OutputTokens = 10 };
+        var independent = new GenerationAttempt { InputTokens = 7, OutputTokens = 3 };
+
+        ExperimentOrchestrationService.ApplyCumulativeTokenUsage(
+            initial, ref cumulativeInput, ref cumulativeOutput);
+        ExperimentOrchestrationService.ApplyCumulativeTokenUsage(
+            repair, ref cumulativeInput, ref cumulativeOutput);
+
+        Assert.Equal(160, repair.ChainCumulativeInputTokens);
+        Assert.Equal(30, repair.ChainCumulativeOutputTokens);
+        Assert.Equal(190, repair.ChainCumulativeTokensUsed);
+
+        ExperimentOrchestrationService.ApplyCumulativeTokenUsage(
+            independent, ref cumulativeInput, ref cumulativeOutput);
+        Assert.Equal(7, independent.ChainCumulativeInputTokens);
+        Assert.Equal(3, independent.ChainCumulativeOutputTokens);
+        Assert.Equal(10, independent.ChainCumulativeTokensUsed);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ApplyCumulativeTokenUsage_MissingComponentInvalidatesOnlyThatComponent()
+    {
+        int? cumulativeInput = 100;
+        int? cumulativeOutput = 20;
+        var repair = new GenerationAttempt
+        {
+            IsRepairAttempt = true,
+            InputTokens = null,
+            OutputTokens = 5
+        };
+
+        ExperimentOrchestrationService.ApplyCumulativeTokenUsage(
+            repair, ref cumulativeInput, ref cumulativeOutput);
+
+        Assert.Null(repair.ChainCumulativeInputTokens);
+        Assert.Equal(25, repair.ChainCumulativeOutputTokens);
+        Assert.Null(repair.ChainCumulativeTokensUsed);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public async Task CaptureModifiedFileAsync_AppliedPatch_StoresExactSnapshotAndHash()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"testmap-snapshot-{Guid.NewGuid():N}");

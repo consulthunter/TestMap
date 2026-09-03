@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef.Entities.Experiment;
 using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 
@@ -52,6 +53,8 @@ public class ToolAttemptEntity
     public bool JsonlLogAvailable { get; set; }
     public bool UsageAvailable { get; set; }
     [MaxLength(50)] public string UsageSource { get; set; } = string.Empty;
+    [MaxLength(32)] public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    [MaxLength(64)] public string? UsagePolicyVersion { get; set; }
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
     public int? EstimatedPromptTokens { get; set; }

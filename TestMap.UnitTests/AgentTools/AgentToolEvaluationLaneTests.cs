@@ -533,6 +533,30 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ExtractUsage_GeminiJsonResult_ParsesConfiguredJsonArtifact()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "gemini.json"),
+                "{\"type\":\"result\",\"stats\":{\"input_tokens\":100,\"total_tokens\":130}}");
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "gemini");
+
+            Assert.NotNull(usage);
+            Assert.Equal(100, usage.InputTokens);
+            Assert.Equal(30, usage.OutputTokens);
+            Assert.Equal("gemini.json:result.stats", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ExtractUsage_OpenHandsPersistedState_SumsConversationMetrics()
     {
         var artifactPath = CreateTempArtifactDirectory();
@@ -572,6 +596,33 @@ public sealed class AgentToolEvaluationLaneTests
             Assert.Equal(156, usage.InputTokens);
             Assert.Equal(35, usage.OutputTokens);
             Assert.EndsWith("base_state.json:stats.usage_to_metrics", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_OpenHandsAliases_AreNotDoubleCounted()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            var statePath = Path.Combine(artifactPath, "state");
+            Directory.CreateDirectory(statePath);
+            File.WriteAllText(
+                Path.Combine(statePath, "base_state.json"),
+                """
+                {"accumulated_token_usage":{"prompt_tokens":100,"input_tokens":100,"cache_read_tokens":10,"completion_tokens":20,"output_tokens":20,"reasoning_tokens":5}}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "openhands");
+
+            Assert.NotNull(usage);
+            Assert.Equal(110, usage.InputTokens);
+            Assert.Equal(25, usage.OutputTokens);
         }
         finally
         {
@@ -892,9 +943,43 @@ public sealed class AgentToolEvaluationLaneTests
             attempt.StdErrLogPath);
         Assert.Equal(attempt.StdOutLogPath, attempt.JsonlLogPath);
         Assert.True(attempt.UsageAvailable);
+        Assert.Equal(TokenUsageVocabulary.CompleteReported, attempt.UsageStatus);
+        Assert.Equal(TokenUsageVocabulary.PolicyV1, attempt.UsagePolicyVersion);
         Assert.Equal("codex.events.jsonl:turn.completed", attempt.UsageSource);
         Assert.Equal(100, attempt.InputTokens);
         Assert.Equal(25, attempt.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ExecuteAsync_PartialUsage_PreservesComponentWithoutAvailability()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var (runId, workItemId, candidateId) = await SeedGraphAsync(db);
+        var runner = new TestAgentToolRunner
+        {
+            ChangedFiles = ["SomeTests.cs"],
+            JsonlFileName = "codex.events.jsonl",
+            JsonlContent = "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100}}"
+        };
+        var lane = new AgentToolEvaluationLane(
+            runner,
+            new AgentToolEnvironmentResolver(),
+            new ToolAttemptRepository(db),
+            [MakeToolConfig()],
+            TestBaseCommit);
+
+        var result = await lane.ExecuteAsync(MakeContext(runId, workItemId, candidateId), default);
+
+        Assert.True(result.Success);
+        db.ChangeTracker.Clear();
+        var attempt = await db.ToolAttempts.SingleAsync();
+        Assert.False(attempt.UsageAvailable);
+        Assert.Equal(TokenUsageVocabulary.Partial, attempt.UsageStatus);
+        Assert.Equal(100, attempt.InputTokens);
+        Assert.Null(attempt.OutputTokens);
     }
 
     [Fact]

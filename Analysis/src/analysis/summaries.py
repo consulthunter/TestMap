@@ -125,10 +125,22 @@ def compute_metric_movement(df: pd.DataFrame) -> dict:
 
 def compute_cost_summary(df: pd.DataFrame) -> dict:
     """Runtime and token totals."""
+    def _token_total(column: str) -> int | None:
+        if column not in df.columns:
+            return None
+        values = pd.to_numeric(df[column], errors="coerce")
+        return int(values.sum()) if values.notna().any() else None
+
     return {
         "total_duration_seconds": float(df["duration_seconds"].sum()) if "duration_seconds" in df.columns else None,
         "median_duration_seconds": float(df["duration_seconds"].median()) if "duration_seconds" in df.columns else None,
-        "total_tokens": int(df["total_tokens"].sum()) if "total_tokens" in df.columns else None,
+        "input_tokens": _token_total("input_tokens"),
+        "output_tokens": _token_total("output_tokens"),
+        "total_tokens": _token_total("total_tokens"),
+        "usage_status_counts": (
+            df["usage_status"].dropna().astype(str).value_counts().sort_index().to_dict()
+            if "usage_status" in df.columns else {}
+        ),
     }
 
 
@@ -143,6 +155,8 @@ def compute_data_completeness(df: pd.DataFrame) -> dict:
         "missing_mutation_before": _missing("mutation_score_before"),
         "missing_mutation_after": _missing("mutation_score_after"),
         "missing_tokens": _missing("total_tokens"),
+        "missing_input_tokens": _missing("input_tokens"),
+        "missing_output_tokens": _missing("output_tokens"),
         "missing_outcome_classification": _missing("outcome_classification"),
         "missing_tool_attempt_id": _missing("tool_attempt_id"),
     }

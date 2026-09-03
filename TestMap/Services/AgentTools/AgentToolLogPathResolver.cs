@@ -52,11 +52,11 @@ public static class AgentToolLogPathResolver
             .Value;
         return outputFormat?.Trim().ToLowerInvariant() switch
         {
-            "stream-json" => JsonlStdOut(artifactPath, "gemini", stderrPath),
+            null or "" or "stream-json" => JsonlStdOut(artifactPath, "gemini", stderrPath),
             "json" => new AgentToolLogPaths(
                 Path.Combine(artifactPath, "gemini.json"),
                 stderrPath,
-                string.Empty),
+                Path.Combine(artifactPath, "gemini.json")),
             _ => new AgentToolLogPaths(
                 Path.Combine(artifactPath, "gemini.stdout.log"),
                 stderrPath,

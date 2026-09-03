@@ -97,6 +97,16 @@ public sealed class ExperimentResultsWriterTests
                         GeneratedTestCompiled = true,
                         GeneratedTestExecuted = true,
                         GeneratedTestPassed = true,
+                        UsageAvailable = true,
+                        UsageStatus = TokenUsageVocabulary.CompleteEstimated,
+                        UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+                        UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
+                        InputTokens = 100,
+                        OutputTokens = 25,
+                        TotalTokens = 125,
+                        CumulativeInputTokens = 100,
+                        CumulativeOutputTokens = 25,
+                        CumulativeTokens = 125,
                         GenerationDurationSeconds = 1.25,
                         ValidationDurationSeconds = 2.5,
                         TotalAttemptDurationSeconds = 3.75,
@@ -120,6 +130,12 @@ public sealed class ExperimentResultsWriterTests
                 text);
             Assert.Contains(",1.25,2.5,3.75,,12.5,", text);
             Assert.Contains("tool_observed_outcome", text);
+            Assert.Contains(
+                "usage_available,usage_status,usage_source,usage_policy_version,input_tokens,output_tokens,estimated_prompt_tokens,total_tokens,cumulative_input_tokens,cumulative_output_tokens,cumulative_tokens",
+                text);
+            Assert.Contains(
+                "True,complete-estimated,cl100k-local-estimate,token-accounting-v1,100,25,,125,100,25,125",
+                text);
             Assert.Contains("testmap", text);
             Assert.DoesNotContain(",classification,", text);
             Assert.Contains("\"Method,WithComma\"", text);

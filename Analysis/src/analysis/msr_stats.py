@@ -178,7 +178,7 @@ def summarize_checks(checks: pd.DataFrame, by_repo: bool = False) -> pd.DataFram
     grouped["rate"] = grouped["numerator"] / grouped["denominator"].where(
         grouped["denominator"] > 0
     )
-    order = {"defect": 0, "coverage_gap": 1, "suspect": 2}
+    order = {"defect": 0, "coverage_gap": 1, "suspect": 2, "prevalence": 3}
     grouped["_order"] = grouped["severity"].map(order).fillna(3)
     return (
         grouped.sort_values(["_order", "rate"], ascending=[True, False])

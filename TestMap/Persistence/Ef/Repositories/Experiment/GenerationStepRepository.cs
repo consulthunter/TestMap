@@ -57,9 +57,13 @@ public class GenerationStepRepository
 
         var rows = await _context.GenerationSteps
             .AsNoTracking()
-            .Where(s => attempts.Contains(s.GenerationAttemptId))
+            .Where(s => attempts.Contains(s.GenerationAttemptId) &&
+                        s.UsageStatus != TokenUsageVocabulary.Partial &&
+                        s.UsageStatus != TokenUsageVocabulary.Missing &&
+                        s.UsageStatus != TokenUsageVocabulary.NotApplicable &&
+                        s.TokensUsed.HasValue)
             .GroupBy(s => s.StepName)
-            .Select(group => new { StepName = group.Key, AvgTokens = (int)group.Average(s => s.TokensUsed) })
+            .Select(group => new { StepName = group.Key, AvgTokens = (int)group.Average(s => s.TokensUsed!.Value) })
             .ToListAsync(cancellationToken);
 
         return rows.ToDictionary(

@@ -65,8 +65,10 @@ public class ProviderPerformance
     public int SuccessfulTests { get; init; }
     public double SuccessRate => TotalAttempts > 0 ? (double)SuccessfulTests / TotalAttempts : 0.0;
     public double AverageCoverageImprovement { get; init; }
-    public int TotalTokensUsed { get; init; }
-    public double AverageTokensPerAttempt => TotalAttempts > 0 ? (double)TotalTokensUsed / TotalAttempts : 0.0;
+    public int? TotalTokensUsed { get; init; }
+    public double? AverageTokensPerAttempt => TotalAttempts > 0 && TotalTokensUsed.HasValue
+        ? (double)TotalTokensUsed.Value / TotalAttempts
+        : null;
     public double AverageDurationSeconds { get; init; }
     public int CompilationFailures { get; init; }
     public int TestFailures { get; init; }
@@ -82,8 +84,10 @@ public class BudgetModePerformance
     public int SuccessfulTests { get; init; }
     public double SuccessRate => TotalAttempts > 0 ? (double)SuccessfulTests / TotalAttempts : 0.0;
     public double AverageCoverageImprovement { get; init; }
-    public int TotalTokensUsed { get; init; }
-    public double AverageTokensPerAttempt => TotalAttempts > 0 ? (double)TotalTokensUsed / TotalAttempts : 0.0;
+    public int? TotalTokensUsed { get; init; }
+    public double? AverageTokensPerAttempt => TotalAttempts > 0 && TotalTokensUsed.HasValue
+        ? (double)TotalTokensUsed.Value / TotalAttempts
+        : null;
     public double AverageDurationSeconds { get; init; }
 }
 
@@ -96,7 +100,7 @@ public class ExperimentSummary
     public int TotalAttempts { get; init; }
     public int TotalSuccesses { get; init; }
     public double OverallSuccessRate => TotalAttempts > 0 ? (double)TotalSuccesses / TotalAttempts : 0.0;
-    public int TotalTokensUsed { get; init; }
+    public int? TotalTokensUsed { get; init; }
     public double TotalDurationSeconds { get; init; }
     public AiProvider? BestProvider { get; init; }
     public GenerationBudgetMode? BestBudgetMode { get; init; }
@@ -135,7 +139,7 @@ public class ExperimentResultRow
     public double? BaselineMutationScore { get; init; }
     public double? MutationScoreAfter { get; init; }
     public double? MutationScoreImprovement { get; init; }
-    public int TotalTokens { get; init; }
+    public int? TotalTokens { get; init; }
     public double DurationSeconds { get; init; }
     public string ErrorLogs { get; init; } = string.Empty;
 }

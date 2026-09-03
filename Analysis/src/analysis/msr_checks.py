@@ -41,17 +41,30 @@ CHECK_SEVERITY = {
         "members_missing_metrics",
         "objects_missing_metrics",
         "members_missing_coverage",
+        "objects_missing_coverage",
         "members_missing_mutants",
         "smells_unattributed",
         "mutants_unattributed",
         "smells_line_missing",
         "mutants_location_unparsed",
+        "test_results_unattributed",
+        "test_members_missing_results",
+        "mappings_unattributed",
+        "test_members_missing_mappings",
+        "production_members_missing_mappings",
+    ),
+    # Expected to be non-zero: reported so the linkage table is symmetric, not
+    # because the absence is a fault. A test method with no smell is a clean test
+    # method, unlike a member with no coverage row.
+    "prevalence": (
+        "test_members_missing_smells",
     ),
     # Worth a look, not necessarily wrong.
     "suspect": (
         "metrics_cc_zero_on_method",
         "metrics_sloc_zero_on_method",
         "smells_on_non_test_member",
+        "test_results_on_non_test_member",
         "smells_containment_base_ambiguous",
         "coverage_lines_valid_zero",
         "coverage_counts_missing_with_rate",
@@ -62,6 +75,10 @@ CHECK_SEVERITY = {
         "mappings_test_not_test_member",
     ),
 }
+
+# Kinds a source-to-test mapping can point at. Mapping evidence is direct method
+# and constructor invocation, so no other kind is reachable by construction.
+MAPPABLE_KINDS = ("method", "constructor", "static_constructor")
 
 _SEVERITY_BY_CHECK = {
     check: severity for severity, checks in CHECK_SEVERITY.items() for check in checks
@@ -165,6 +182,16 @@ def check_test_smells(rows, repo_key, entities, smells) -> None:
             int(smells["claimed_line"].isna().sum()), total)
 
     members = entities[entities["entity_kind"] == "member"]
+
+    # The entity-side complement: how many test members carry at least one smell.
+    # This is prevalence, not a gap — the detector is expected to stay silent on a
+    # clean test — but without it the linkage table has no cell for test smells.
+    test_members = set(members.loc[members["is_test"] == 1, "entity_id"].dropna().astype(int))
+    if test_members:
+        smelly = set(smells["member_id"].dropna().astype(int))
+        _record(rows, repo_key, "test_smells", "test_members_missing_smells",
+                len(test_members - smelly), len(test_members))
+
     joined = attributed.merge(
         members[["entity_id", "start_line", "end_line", "is_test"]],
         left_on="member_id", right_on="entity_id", how="inner",
@@ -190,7 +217,9 @@ def check_coverage(rows, repo_key, entities, coverage, has_report: bool) -> None
     if coverage.empty:
         if has_report:
             members = _known(entities, "member")
+            objects = _known(entities, "object")
             _record(rows, repo_key, "coverage", "members_missing_coverage", len(members), len(members))
+            _record(rows, repo_key, "coverage", "objects_missing_coverage", len(objects), len(objects))
         return
 
     total = len(coverage)
@@ -230,10 +259,18 @@ def check_coverage(rows, repo_key, entities, coverage, has_report: bool) -> None
         _record(rows, repo_key, "coverage", "coverage_rate_inconsistent",
                 int(drift.sum()), len(measurable))
 
+    # Coverage is persisted at both grains, so both need a linkage row. Reporting
+    # only the member side leaves the object-level rows unaccounted for.
     member_ids = _known(entities, "member")
     covered = set(coverage.loc[coverage["entity_kind"] == "member", "entity_id"].astype(int))
     _record(rows, repo_key, "coverage", "members_missing_coverage",
             len(member_ids - covered), len(member_ids))
+
+    object_ids = _known(entities, "object")
+    covered_objects = set(coverage.loc[coverage["entity_kind"] == "object", "entity_id"].astype(int))
+    if object_ids:
+        _record(rows, repo_key, "coverage", "objects_missing_coverage",
+                len(object_ids - covered_objects), len(object_ids))
 
 
 def check_mutants(rows, repo_key, entities, mutant_locations, has_report: bool) -> None:
@@ -276,6 +313,43 @@ def check_mutants(rows, repo_key, entities, mutant_locations, has_report: bool) 
             len(member_ids - mutated), len(member_ids))
 
 
+def check_test_results(rows, repo_key, entities, test_results) -> None:
+    """Attribution for executed tests.
+
+    ``method_id`` is NOT NULL, so an unresolved test name is stored as 0 rather
+    than as a null. That makes the gap visible from the database — unlike the
+    coverage mapper, which drops unmatched entries entirely.
+    """
+    if test_results.empty:
+        return
+
+    total = len(test_results)
+    member_ids = _known(entities, "member")
+    method_id = test_results["method_id"].fillna(0).astype(int)
+
+    unattributed = (method_id == 0) | (~method_id.isin(member_ids))
+    _record(rows, repo_key, "test_results", "test_results_unattributed",
+            int(unattributed.sum()), total)
+
+    members = entities[entities["entity_kind"] == "member"]
+    test_flag = dict(zip(members["entity_id"].astype(int), members["is_test"]))
+    attributed = method_id[~unattributed]
+    if not attributed.empty:
+        _record(rows, repo_key, "test_results", "test_results_on_non_test_member",
+                int(attributed.map(test_flag).fillna(1).eq(0).sum()), len(attributed))
+
+    # The complement: test members the runner never reported a result for. The
+    # unattributed rate above counts results with no member; this counts members
+    # with no result, and the two are not the same question.
+    test_members = set(
+        members.loc[members["is_test"] == 1, "entity_id"].dropna().astype(int)
+    )
+    if test_members:
+        executed = set(attributed)
+        _record(rows, repo_key, "test_results", "test_members_missing_results",
+                len(test_members - executed), len(test_members))
+
+
 def check_mappings(rows, repo_key, entities, mappings) -> None:
     if mappings.empty:
         return
@@ -287,6 +361,19 @@ def check_mappings(rows, repo_key, entities, mappings) -> None:
 
     source = mappings["source_member_id"].astype("Int64")
     test = mappings["test_member_id"].astype("Int64")
+
+    # The attribution question, asked the same way as for smells, mutants, and
+    # test results: a stored row that names no entity. Both endpoints are NOT NULL
+    # foreign keys, so a mapping the resolver could not attribute is never written
+    # at all — this rate is 0 by construction, and reads as evidence about the
+    # schema rather than about the resolver. The endpoint that can move is
+    # ``mappings_orphan_*`` below, and the misses are only visible from the
+    # entity side (``*_missing_mappings``).
+    unattributed = (
+        source.isna() | test.isna() | source.fillna(0).eq(0) | test.fillna(0).eq(0)
+    )
+    _record(rows, repo_key, "mappings", "mappings_unattributed",
+            int(unattributed.sum()), total)
 
     _record(rows, repo_key, "mappings", "mappings_orphan_source",
             int((~source.isin(member_ids)).sum()), total)
@@ -308,6 +395,28 @@ def check_mappings(rows, repo_key, entities, mappings) -> None:
             int(source.map(test_flag).fillna(0).eq(1).sum()), total)
     _record(rows, repo_key, "mappings", "mappings_test_not_test_member",
             int(test.map(test_flag).fillna(1).eq(0).sum()), total)
+
+    # The complements, both directions. A test with no mapping is a test whose
+    # target the resolver could not reach; a production member with no mapping is
+    # code no test provably exercises.
+    mapped_tests = set(test.dropna().astype(int))
+    mapped_sources = set(source.dropna().astype(int))
+
+    test_members = set(members.loc[members["is_test"] == 1, "entity_id"].astype(int))
+    if test_members:
+        _record(rows, repo_key, "mappings", "test_members_missing_mappings",
+                len(test_members - mapped_tests), len(test_members))
+
+    # Scoped to the kinds a mapping can express: evidence is method and
+    # constructor invocation, so properties and fields can never carry one and
+    # would otherwise dominate the denominator.
+    mappable = members[
+        (members["is_test"] == 0) & (members["kind"].isin(MAPPABLE_KINDS))
+    ]
+    production_members = set(mappable["entity_id"].astype(int))
+    if production_members:
+        _record(rows, repo_key, "mappings", "production_members_missing_mappings",
+                len(production_members - mapped_sources), len(production_members))
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +441,7 @@ def run_checks(bundle: dict) -> pd.DataFrame:
     check_mutants(rows, repo_key, entities, bundle["mutant_locations"],
                   has_report=bool(reports.get("mutation_reports", 0)))
     check_mappings(rows, repo_key, entities, bundle["mappings"])
+    check_test_results(rows, repo_key, entities, bundle.get("test_results", pd.DataFrame()))
 
     return pd.DataFrame(rows)
 
@@ -360,6 +470,7 @@ def summarize_repository(bundle: dict) -> dict:
         "mutants": len(mutant_locations),
         "mutant_member_groups": len(bundle["mutants"]),
         "mappings": len(bundle["mappings"]),
+        "test_results": len(bundle.get("test_results", [])),
         "coverage_reports": reports.get("coverage_reports", 0),
         "mutation_reports": reports.get("mutation_reports", 0),
         "test_runs": reports.get("test_runs", 0),
@@ -368,4 +479,5 @@ def summarize_repository(bundle: dict) -> dict:
         "has_coverage": len(bundle["coverage"]) > 0,
         "has_mutants": len(mutant_locations) > 0,
         "has_mappings": len(bundle["mappings"]) > 0,
+        "has_test_results": len(bundle.get("test_results", [])) > 0,
     }

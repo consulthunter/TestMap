@@ -22,12 +22,15 @@ public class GenerationStepEntityConfiguration : IEntityTypeConfiguration<Genera
         builder.Property(x => x.EndTime).HasColumnName("end_time");
         builder.Property(x => x.Prompt).HasColumnName("prompt");
         builder.Property(x => x.Response).HasColumnName("response");
-        builder.Property(x => x.TokensUsed).HasColumnName("tokens_used").IsRequired();
+        builder.Property(x => x.TokensUsed).HasColumnName("tokens_used");
         builder.Property(x => x.Success).HasColumnName("success").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message");
         builder.Property(x => x.ValidationResult).HasColumnName("validation_result");
         builder.Property(x => x.InputTokens).HasColumnName("input_tokens");
         builder.Property(x => x.OutputTokens).HasColumnName("output_tokens");
+        builder.Property(x => x.UsageStatus).HasColumnName("usage_status").IsRequired();
+        builder.Property(x => x.UsageSource).HasColumnName("usage_source");
+        builder.Property(x => x.UsagePolicyVersion).HasColumnName("usage_policy_version");
         builder.Property(x => x.RuleDecisionSnapshotJson).HasColumnName("rule_decision_snapshot_json");
     }
 }

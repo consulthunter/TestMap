@@ -101,6 +101,46 @@ public sealed class GenerationAttemptMappingExtensionsTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void RoundTrip_TokenUsageFields_ArePreserved()
+    {
+        var attempt = MakeAttempt();
+        attempt.InputTokens = 120;
+        attempt.OutputTokens = 30;
+        attempt.TotalTokensUsed = 150;
+        attempt.UsageStatus = TokenUsageVocabulary.CompleteEstimated;
+        attempt.UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate;
+        attempt.UsagePolicyVersion = TokenUsageVocabulary.PolicyV1;
+
+        var restored = attempt.ToEntity().ToDomain();
+
+        Assert.Equal(120, restored.InputTokens);
+        Assert.Equal(30, restored.OutputTokens);
+        Assert.Equal(150, restored.TotalTokensUsed);
+        Assert.Equal(TokenUsageVocabulary.CompleteEstimated, restored.UsageStatus);
+        Assert.Equal(TokenUsageVocabulary.Cl100kLocalEstimate, restored.UsageSource);
+        Assert.Equal(TokenUsageVocabulary.PolicyV1, restored.UsagePolicyVersion);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void RoundTrip_PartialUsage_PreservesNullableTotal()
+    {
+        var attempt = MakeAttempt();
+        attempt.InputTokens = 120;
+        attempt.OutputTokens = null;
+        attempt.TotalTokensUsed = null;
+        attempt.UsageStatus = TokenUsageVocabulary.Partial;
+
+        var restored = attempt.ToEntity().ToDomain();
+
+        Assert.Equal(120, restored.InputTokens);
+        Assert.Null(restored.OutputTokens);
+        Assert.Null(restored.TotalTokensUsed);
+        Assert.Equal(TokenUsageVocabulary.Partial, restored.UsageStatus);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void RoundTrip_ModifiedFileSnapshot_IsPreserved()
     {
         var attempt = MakeAttempt();

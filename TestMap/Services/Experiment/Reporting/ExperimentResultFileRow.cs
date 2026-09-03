@@ -138,10 +138,13 @@ public sealed class ExperimentResultFileRow
     public bool UsageAvailable { get; init; }
     public string UsageStatus { get; init; } = "missing";
     public string UsageSource { get; init; } = string.Empty;
+    public string UsagePolicyVersion { get; init; } = string.Empty;
     public int? InputTokens { get; init; }
     public int? OutputTokens { get; init; }
     public int? EstimatedPromptTokens { get; init; }
     public int? TotalTokens { get; init; }
+    public int? CumulativeInputTokens { get; init; }
+    public int? CumulativeOutputTokens { get; init; }
     public int? CumulativeTokens { get; init; }
     public double GenerationDurationSeconds { get; init; }
     public double ValidationDurationSeconds { get; init; }

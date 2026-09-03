@@ -21,6 +21,28 @@ from analysis.normalize import (
 from analysis.schema import LANE_AGENTIC, LANE_LLM
 
 
+def test_normalize_attempts_coerces_split_tokens_and_computes_effective_components():
+    row = _llm_row(
+        usage_status="complete-estimated",
+        usage_source="cl100k-local-estimate",
+        usage_policy_version="token-accounting-v1",
+        input_tokens="100",
+        output_tokens="20",
+        total_tokens="120",
+        cumulative_input_tokens="160",
+        cumulative_output_tokens="30",
+        cumulative_tokens="190",
+    )
+
+    normalized = normalize_attempts(pd.DataFrame([row]))
+
+    assert normalized.loc[0, "input_tokens"] == 100
+    assert normalized.loc[0, "output_tokens"] == 20
+    assert normalized.loc[0, "effective_input_tokens"] == 160
+    assert normalized.loc[0, "effective_output_tokens"] == 30
+    assert normalized.loc[0, "effective_tokens"] == 190
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

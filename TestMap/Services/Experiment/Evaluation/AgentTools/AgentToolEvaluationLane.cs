@@ -103,7 +103,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             StartedAt = DateTime.UtcNow,
             TimeoutSeconds = tool.TimeoutMinutes * 60,
             Model = environment.PersistableMetadata.TryGetValue("model", out var model) ? model : tool.Model ?? string.Empty,
-            ProviderId = environment.PersistableMetadata.TryGetValue("provider_id", out var provider) ? provider : string.Empty
+            ProviderId = environment.PersistableMetadata.TryGetValue("provider_id", out var provider) ? provider : string.Empty,
+            UsageStatus = TokenUsageVocabulary.Missing,
+            UsagePolicyVersion = TokenUsageVocabulary.PolicyV1
         };
         attempt.BaseCommit = _verifiedBaseCommit!;
         attempt.WorkspaceIntegrityStatus = "VerifiedClean";
@@ -162,11 +164,17 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             var usage = ExtractUsage(attempt.ArtifactPath, tool.Id);
             if (usage != null)
             {
-                attempt.UsageAvailable = true;
                 attempt.UsageSource = usage.Source;
                 attempt.InputTokens = usage.InputTokens;
                 attempt.OutputTokens = usage.OutputTokens;
             }
+            attempt.UsageStatus = TokenUsageVocabulary.Classify(
+                attempt.InputTokens,
+                attempt.OutputTokens,
+                applicable: true,
+                estimated: false);
+            attempt.UsageAvailable = attempt.UsageStatus == TokenUsageVocabulary.CompleteReported;
+            attempt.UsagePolicyVersion = TokenUsageVocabulary.PolicyV1;
 
             IReadOnlyList<string> collectedChangedFiles = [];
             if (result.TimedOut)
@@ -393,6 +401,13 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
                 latest = parsed;
         }
 
+        if (latest == null && toolId.Equals("gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            var jsonPath = Path.Combine(artifactPath, "gemini.json");
+            if (File.Exists(jsonPath))
+                latest = TryParseUsageLine(File.ReadAllText(jsonPath), Path.GetFileName(jsonPath));
+        }
+
         return latest
                ?? ExtractOpenHandsPersistedUsage(artifactPath)
                ?? ExtractMiniSweTrajectoryUsage(artifactPath, toolId)
@@ -591,13 +606,11 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
     private static ToolUsageSummary? TryParseOpenHandsTokenUsage(JsonElement usage, string sourceFile)
     {
         var inputTokens = Sum(
-            ReadInt(usage, "prompt_tokens"),
-            ReadInt(usage, "input_tokens"),
+            ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens"),
             ReadInt(usage, "cache_read_tokens"),
             ReadInt(usage, "cache_write_tokens"));
         var outputTokens = Sum(
-            ReadInt(usage, "completion_tokens"),
-            ReadInt(usage, "output_tokens"),
+            ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens"),
             ReadInt(usage, "reasoning_tokens"));
         if (!inputTokens.HasValue && !outputTokens.HasValue)
             return null;
@@ -640,8 +653,15 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         long outputTokens = 0;
         var any = false;
 
-        foreach (var usage in EnumerateNamedObjects(root, "usage"))
+        if (!root.TryGetProperty("trajectory", out var trajectory) ||
+            trajectory.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var item in trajectory.EnumerateArray())
         {
+            if (!TryGetObject(item, "response", out var response) ||
+                !TryGetObject(response, "usage", out var usage))
+                continue;
             var promptTokens = ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens");
             var completionTokens = ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens");
 

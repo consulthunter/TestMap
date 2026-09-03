@@ -88,6 +88,87 @@ def audit_missing_tokens(df: pd.DataFrame) -> list[dict]:
     return findings
 
 
+def audit_token_usage(df: pd.DataFrame) -> list[dict]:
+    """Audit split components, classification metadata, and derived totals."""
+    findings: list[dict] = []
+    required = {"usage_status", "input_tokens", "output_tokens", "total_tokens"}
+    if not required <= set(df.columns):
+        return findings
+
+    status = df["usage_status"].fillna("").astype(str)
+    input_tokens = pd.to_numeric(df["input_tokens"], errors="coerce")
+    output_tokens = pd.to_numeric(df["output_tokens"], errors="coerce")
+    total_tokens = pd.to_numeric(df["total_tokens"], errors="coerce")
+    complete = status.isin({"complete-reported", "complete-estimated"})
+    valid_statuses = {
+        "complete-reported", "complete-estimated", "partial", "missing", "not-applicable"
+    }
+    invalid_status = ~status.isin(valid_statuses)
+    if invalid_status.any():
+        findings.append({"check": "invalid_token_usage_status", "severity": "error",
+                         "count": int(invalid_status.sum()),
+                         "detail": "Token usage status is outside the accounting vocabulary."})
+    contradictory = complete & total_tokens.ne(input_tokens + output_tokens)
+    if contradictory.any():
+        findings.append({"check": "contradictory_token_total", "severity": "error",
+                         "count": int(contradictory.sum()),
+                         "detail": "Complete token totals must equal input plus output."})
+    incomplete_complete = complete & (input_tokens.isna() | output_tokens.isna())
+    if incomplete_complete.any():
+        findings.append({"check": "complete_usage_missing_component", "severity": "error",
+                         "count": int(incomplete_complete.sum()),
+                         "detail": "Complete usage rows require both token components."})
+    partial = status.eq("partial")
+    invalid_partial = partial & (
+        (input_tokens.isna() & output_tokens.isna()) | total_tokens.notna()
+    )
+    if invalid_partial.any():
+        findings.append({"check": "invalid_partial_token_usage", "severity": "error",
+                         "count": int(invalid_partial.sum()),
+                         "detail": "Partial usage requires a known component and a null total."})
+    empty_status = status.isin({"missing", "not-applicable"})
+    invalid_empty = empty_status & (
+        input_tokens.notna() | output_tokens.notna() | total_tokens.notna()
+    )
+    if invalid_empty.any():
+        findings.append({"check": "invalid_empty_token_usage", "severity": "error",
+                         "count": int(invalid_empty.sum()),
+                         "detail": "Missing/not-applicable usage cannot contain canonical tokens."})
+    source = df.get("usage_source", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+    policy = df.get("usage_policy_version", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+    observed = status.isin({"complete-reported", "complete-estimated", "partial"})
+    if (observed & source.eq("")).any():
+        mask = observed & source.eq("")
+        findings.append({"check": "missing_token_source", "severity": "error",
+                         "count": int(mask.sum()), "detail": "Observed usage requires a source."})
+    if (observed & policy.eq("")).any():
+        mask = observed & policy.eq("")
+        findings.append({"check": "missing_token_policy", "severity": "error",
+                         "count": int(mask.sum()), "detail": "Observed usage requires a policy version."})
+    negative = (input_tokens < 0) | (output_tokens < 0) | (total_tokens < 0)
+    if negative.any():
+        findings.append({"check": "negative_token_count", "severity": "error",
+                         "count": int(negative.sum()), "detail": "Token counts cannot be negative."})
+    saturated = (input_tokens > 2_147_483_647) | (output_tokens > 2_147_483_647) | (
+        total_tokens > 2_147_483_647
+    )
+    if saturated.any():
+        findings.append({"check": "token_count_out_of_range", "severity": "error",
+                         "count": int(saturated.sum()),
+                         "detail": "Token counts exceed the persisted integer range."})
+    cumulative_fields = {"cumulative_input_tokens", "cumulative_output_tokens", "cumulative_tokens"}
+    if cumulative_fields <= set(df.columns):
+        cumulative_input = pd.to_numeric(df["cumulative_input_tokens"], errors="coerce")
+        cumulative_output = pd.to_numeric(df["cumulative_output_tokens"], errors="coerce")
+        cumulative_total = pd.to_numeric(df["cumulative_tokens"], errors="coerce")
+        bad_cumulative = cumulative_total.notna() & cumulative_total.ne(cumulative_input + cumulative_output)
+        if bad_cumulative.any():
+            findings.append({"check": "contradictory_cumulative_token_total", "severity": "error",
+                             "count": int(bad_cumulative.sum()),
+                             "detail": "Cumulative total must equal cumulative input plus output."})
+    return findings
+
+
 def audit_duplicate_rows(df: pd.DataFrame) -> list[dict]:
     findings = []
     if "attempt_id" in df.columns:
@@ -1018,6 +1099,7 @@ def run(
     findings += audit_missing_coverage(df)
     findings += audit_missing_mutation(df)
     findings += audit_missing_tokens(df)
+    findings += audit_token_usage(df)
     findings += audit_duplicate_rows(df)
     findings += audit_agentic_identity_and_artifacts(df)
     findings += audit_agentic_no_post_attempt(df)

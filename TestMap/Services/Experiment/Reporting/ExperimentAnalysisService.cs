@@ -186,7 +186,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
                 TotalAttempts = g.Count(),
                 SuccessfulTests = g.Count(a => a.TestExecution?.TestPassed ?? false),
                 AverageCoverageImprovement = g.Average(a => a.TestExecution?.CoverageImprovement ?? 0.0),
-                TotalTokensUsed = g.Sum(a => a.TotalTokensUsed),
+                TotalTokensUsed = g.All(a => TokenUsageVocabulary.IsComplete(a.UsageStatus))
+                    ? g.Sum(a => a.TotalTokensUsed)
+                    : null,
                 AverageDurationSeconds = g.Average(a => a.TotalDurationSeconds),
                 CompilationFailures = g.Count(a => !(a.TestExecution?.CompilationSuccess ?? false)),
                 TestFailures = g.Count(a => !(a.TestExecution?.TestPassed ?? false))
@@ -205,7 +207,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
                 TotalAttempts = g.Count(),
                 SuccessfulTests = g.Count(a => a.TestExecution?.TestPassed ?? false),
                 AverageCoverageImprovement = g.Average(a => a.TestExecution?.CoverageImprovement ?? 0.0),
-                TotalTokensUsed = g.Sum(a => a.TotalTokensUsed),
+                TotalTokensUsed = g.All(a => TokenUsageVocabulary.IsComplete(a.UsageStatus))
+                    ? g.Sum(a => a.TotalTokensUsed)
+                    : null,
                 AverageDurationSeconds = g.Average(a => a.TotalDurationSeconds)
             })
             .OrderByDescending(s => s.SuccessRate)
@@ -230,7 +234,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
             TotalMethods = methods.Count,
             TotalAttempts = attempts.Count,
             TotalSuccesses = attempts.Count(a => a.TestExecution?.TestPassed ?? false),
-            TotalTokensUsed = attempts.Sum(a => a.TotalTokensUsed),
+            TotalTokensUsed = attempts.All(a => TokenUsageVocabulary.IsComplete(a.UsageStatus))
+                ? attempts.Sum(a => a.TotalTokensUsed)
+                : null,
             TotalDurationSeconds = totalDuration,
             BestProvider = bestProvider?.Provider,
             BestBudgetMode = bestBudgetMode?.BudgetMode,

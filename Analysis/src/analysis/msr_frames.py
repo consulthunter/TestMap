@@ -172,6 +172,7 @@ def load_entities(conn: sqlite3.Connection) -> pd.DataFrame:
                LENGTH(m.full_string) AS source_chars,
                o.id            AS parent_object_id,
                o.is_test_object AS parent_is_test,
+               o.test_framework AS test_framework,
                o.file_id       AS file_id
         FROM members m
         JOIN objects o ON o.id = m.object_id
@@ -189,6 +190,7 @@ def load_entities(conn: sqlite3.Connection) -> pd.DataFrame:
                LENGTH(o.full_string) AS source_chars,
                NULL            AS parent_object_id,
                o.is_test_object AS parent_is_test,
+               o.test_framework AS test_framework,
                o.file_id       AS file_id
         FROM objects o
     """)
@@ -387,6 +389,35 @@ def load_mutants(conn: sqlite3.Connection) -> pd.DataFrame:
     """)
 
 
+def load_mutant_operators(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Return mutant counts per (mutator, status).
+
+    Aggregated in SQL rather than exported per mutant: the corpus holds hundreds
+    of thousands of mutants but only tens of operators, so this is the shape that
+    answers "which operators survive" without carrying the raw table.
+    """
+    if not _has_table(conn, "mutants"):
+        return pd.DataFrame()
+
+    frame = _query(conn, """
+        SELECT mutator_name,
+               status,
+               COUNT(*) AS mutants,
+               SUM(CASE WHEN member_id IS NULL THEN 1 ELSE 0 END) AS unattributed,
+               SUM(CASE WHEN is_static = 1 THEN 1 ELSE 0 END) AS static_mutants
+        FROM mutants
+        GROUP BY mutator_name, status
+    """)
+    if frame.empty:
+        return frame
+
+    # Stryker names Linq operators as "Linq method mutation (Count() to Sum())".
+    # The parenthetical is the specific rewrite; the prefix is the operator family,
+    # and grouping on it keeps a long tail of one-off rewrites readable.
+    frame["mutator_family"] = frame["mutator_name"].str.split(" (", regex=False).str[0]
+    return frame
+
+
 def load_raw_mutant_locations(conn: sqlite3.Connection) -> pd.DataFrame:
     """Return per-mutant id, member, and parsed location lines.
 
@@ -409,6 +440,33 @@ def load_raw_mutant_locations(conn: sqlite3.Connection) -> pd.DataFrame:
     df["claimed_start_line"] = df["location"].map(lambda r: _line(r, "StartLineNumber"))
     df["claimed_end_line"] = df["location"].map(lambda r: _line(r, "EndLineNumber"))
     return df.drop(columns=["location"])
+
+
+def load_test_results(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Return one row per executed test.
+
+    ``method_id`` is NOT NULL but carries 0 when the runner's test name could not
+    be resolved to a member, so an unattributed result is a zero rather than a
+    null. ``duration`` is a .NET TimeSpan string and is converted to seconds.
+    """
+    if not _has_table(conn, "test_results"):
+        return pd.DataFrame()
+
+    frame = _query(conn, """
+        SELECT tr.id AS observation_id,
+               tr.test_run_id,
+               tr.method_id,
+               tr.outcome,
+               tr.duration,
+               LENGTH(tr.error_message) AS error_message_chars
+        FROM test_results tr
+    """)
+    if frame.empty:
+        return frame
+
+    seconds = pd.to_timedelta(frame["duration"], errors="coerce").dt.total_seconds()
+    frame["duration_seconds"] = seconds
+    return frame.drop(columns=["duration"])
 
 
 def load_mappings(conn: sqlite3.Connection) -> pd.DataFrame:
@@ -476,8 +534,10 @@ def read_repository(db_path: str | Path) -> dict:
             "test_smells": load_test_smells(conn),
             "coverage": load_coverage(conn),
             "mutants": load_mutants(conn),
+            "mutant_operators": load_mutant_operators(conn),
             "mutant_locations": load_raw_mutant_locations(conn),
             "mappings": load_mappings(conn),
+            "test_results": load_test_results(conn),
             "reports": load_report_headers(conn),
         }
     finally:

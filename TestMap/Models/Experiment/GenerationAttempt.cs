@@ -31,7 +31,12 @@ public class GenerationAttempt
     public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
-    public int TotalTokensUsed { get; set; }
+    public int? InputTokens { get; set; }
+    public int? OutputTokens { get; set; }
+    public int? TotalTokensUsed { get; set; }
+    public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    public string? UsageSource { get; set; }
+    public string? UsagePolicyVersion { get; set; }
     public double GenerationDurationSeconds { get; set; }
     public double ValidationDurationSeconds { get; set; }
     public double TotalDurationSeconds { get; set; }
@@ -107,7 +112,11 @@ public class GenerationAttempt
     /// of reaching this repair stage. For independent attempts (PassAt1, PassAt5) it equals
     /// <see cref="TotalTokensUsed"/>.
     /// </summary>
-    public int ChainCumulativeTokensUsed { get; set; }
+    public int? ChainCumulativeInputTokens { get; set; }
+    public int? ChainCumulativeOutputTokens { get; set; }
+    public int? ChainCumulativeTokensUsed => TokenUsageVocabulary.DeriveTotal(
+        ChainCumulativeInputTokens,
+        ChainCumulativeOutputTokens);
 
     public virtual CandidateMethod? CandidateMethod { get; set; }
     public virtual ICollection<GenerationStep> GenerationSteps { get; set; } = new List<GenerationStep>();

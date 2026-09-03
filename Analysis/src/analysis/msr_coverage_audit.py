@@ -437,6 +437,16 @@ def run(
     ].copy()
     exclusions.to_csv(out / "coverage_exclusions.csv", index=False)
 
+    # A separate, wider list for building the consolidated frames: every selected
+    # repository that holds no coverage data, whatever it claimed. Selection stops
+    # at "the tests ran", so a repository can reach the corpus without ever having
+    # asserted coverage — those are not false claims, but they still carry nothing
+    # for the coverage construct and would otherwise sit in the frames as empties.
+    no_coverage = audit_frame[~audit_frame["coverage_data_present"]][
+        ["repo_key", "repository", "commit", "failure_class", "false_has_coverage_claim"]
+    ].copy()
+    no_coverage.to_csv(out / "no_coverage_data.csv", index=False)
+
     write_findings(audit_frame, out / "FINDING_coverage_claimed_without_data.md")
 
     total = len(audit_frame)
@@ -453,4 +463,5 @@ def run(
     print(f"\nReports written to {out}")
     print(f"  coverage_claim_audit.csv                   {total:,} rows")
     print(f"  coverage_exclusions.csv                    {len(exclusions):,} rows")
+    print(f"  no_coverage_data.csv                       {len(no_coverage):,} rows")
     print("  FINDING_coverage_claimed_without_data.md")

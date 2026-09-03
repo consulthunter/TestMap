@@ -93,7 +93,7 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Equal(17, applied.Count);
+            Assert.Equal(18, applied.Count);
             Assert.Contains(applied, x => x.Contains("InitialCreate"));
             Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
@@ -111,6 +111,7 @@ public sealed class MigrationSchemaTests
             Assert.Contains(applied, x => x.Contains("AddPinnedExperimentProvenanceAndIntegrity"));
             Assert.Contains(applied, x => x.Contains("AddAssertionLineageEvidence"));
             Assert.Contains(applied, x => x.Contains("AddCoverageDataIntegrity"));
+            Assert.Contains(applied, x => x.Contains("AddTokenUsageAccounting"));
         });
     }
 
@@ -193,6 +194,33 @@ public sealed class MigrationSchemaTests
             Assert.Contains("modified_file_path", columns);
             Assert.Contains("modified_file_contents", columns);
             Assert.Contains("modified_file_sha256", columns);
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsTokenUsageColumnsAndNullableGenerationTotals()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var stepColumns = await GetColumnNamesAsync(db, "generation_steps");
+            var generationColumns = await GetColumnNamesAsync(db, "generation_attempts");
+            var toolColumns = await GetColumnNamesAsync(db, "tool_attempts");
+
+            Assert.Contains("usage_status", stepColumns);
+            Assert.Contains("usage_source", stepColumns);
+            Assert.Contains("usage_policy_version", stepColumns);
+            Assert.Contains("input_tokens", generationColumns);
+            Assert.Contains("output_tokens", generationColumns);
+            Assert.Contains("usage_status", generationColumns);
+            Assert.Contains("usage_source", generationColumns);
+            Assert.Contains("usage_policy_version", generationColumns);
+            Assert.Contains("usage_status", toolColumns);
+            Assert.Contains("usage_policy_version", toolColumns);
+
+            Assert.False(await IsColumnRequiredAsync(db, "generation_steps", "tokens_used"));
+            Assert.False(await IsColumnRequiredAsync(db, "generation_attempts", "total_tokens_used"));
         });
     }
 
@@ -314,5 +342,26 @@ public sealed class MigrationSchemaTests
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync()) indexes.Add(reader.GetString(0));
         return indexes;
+    }
+
+    private static async Task<bool> IsColumnRequiredAsync(
+        TestMapDbContext db,
+        string tableName,
+        string columnName)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info(\"{tableName.Replace("\"", "\"\"")}\");";
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                return reader.GetInt32(3) == 1;
+        }
+
+        throw new InvalidOperationException($"Column '{columnName}' was not found in '{tableName}'.");
     }
 }

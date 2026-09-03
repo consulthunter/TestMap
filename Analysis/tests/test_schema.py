@@ -14,8 +14,23 @@ from analysis.schema import (
     PRELIMINARY_FAILURE_LABELS,
     RAW_COLUMN_RENAMES,
     REPOSITORY_KEY_FIELDS,
+    SHARED_ATTEMPT_FIELDS,
+    TOKEN_USAGE_STATUSES,
     WINNER_LABELS,
 )
+
+
+def test_shared_attempt_schema_includes_split_and_cumulative_token_contract():
+    required = {
+        "usage_available", "usage_status", "usage_source", "usage_policy_version",
+        "input_tokens", "output_tokens", "total_tokens",
+        "cumulative_input_tokens", "cumulative_output_tokens", "cumulative_tokens",
+        "effective_input_tokens", "effective_output_tokens", "effective_tokens",
+    }
+    assert required <= set(SHARED_ATTEMPT_FIELDS)
+    assert TOKEN_USAGE_STATUSES == frozenset({
+        "complete-reported", "complete-estimated", "partial", "missing", "not-applicable"
+    })
 
 
 class TestLaneConstants:

@@ -13,12 +13,69 @@ from analysis.audit_evaluation_data import (
     audit_agentic_no_post_attempt,
     audit_generated_test_links,
     audit_outcome_classification,
+    audit_token_usage,
 )
 from analysis.export_failure_cases import build_failure_cases
 from analysis.export_training_dataset import build_mapping_rows
 from analysis.normalize import normalize_attempts
 from analysis.statistics import mcnemar_test
 from analysis.summaries import build_overview
+
+
+def test_token_audit_rejects_contradictory_complete_total_and_missing_policy():
+    df = pd.DataFrame([{
+        "usage_status": "complete-estimated",
+        "usage_source": "cl100k-local-estimate",
+        "usage_policy_version": "",
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "total_tokens": 999,
+        "cumulative_input_tokens": 100,
+        "cumulative_output_tokens": 20,
+        "cumulative_tokens": 120,
+    }])
+
+    checks = {finding["check"] for finding in audit_token_usage(df)}
+
+    assert "contradictory_token_total" in checks
+    assert "missing_token_policy" in checks
+
+
+def test_token_audit_rejects_invalid_status_components_negative_and_cumulative_total():
+    df = pd.DataFrame([{
+        "usage_status": "missing",
+        "usage_source": "",
+        "usage_policy_version": "token-accounting-v1",
+        "input_tokens": -1,
+        "output_tokens": None,
+        "total_tokens": None,
+        "cumulative_input_tokens": 10,
+        "cumulative_output_tokens": 5,
+        "cumulative_tokens": 99,
+    }])
+
+    checks = {finding["check"] for finding in audit_token_usage(df)}
+
+    assert "invalid_empty_token_usage" in checks
+    assert "negative_token_count" in checks
+    assert "contradictory_cumulative_token_total" in checks
+
+
+def test_cost_summary_splits_components_and_status_counts():
+    overview = build_overview(pd.DataFrame([
+        {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120,
+         "usage_status": "complete-estimated", "duration_seconds": 1.0},
+        {"input_tokens": 50, "output_tokens": 10, "total_tokens": 60,
+         "usage_status": "complete-reported", "duration_seconds": 2.0},
+    ]))
+
+    assert overview["cost"]["input_tokens"] == 150
+    assert overview["cost"]["output_tokens"] == 30
+    assert overview["cost"]["total_tokens"] == 180
+    assert overview["cost"]["usage_status_counts"] == {
+        "complete-estimated": 1,
+        "complete-reported": 1,
+    }
 
 
 def _raw_rows() -> pd.DataFrame:

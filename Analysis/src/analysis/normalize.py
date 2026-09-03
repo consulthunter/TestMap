@@ -509,6 +509,9 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
     _expand_smell_columns(out, "generated_test_smells", "generated_test_smell_count", "generated_test_smell_types")
 
     # 10. Lane-fair token cost
+    out["token_usage_valid"] = _validate_token_rows(out)
+    out["effective_input_tokens"] = _compute_effective_component(out, "input_tokens")
+    out["effective_output_tokens"] = _compute_effective_component(out, "output_tokens")
     out["effective_tokens"] = _compute_effective_tokens(out)
 
     return out
@@ -543,10 +546,62 @@ def _compute_effective_tokens(df: pd.DataFrame) -> pd.Series:
     return eff
 
 
+def _compute_effective_component(df: pd.DataFrame, component: str) -> pd.Series:
+    """Return the lane-fair per-attempt value for one input/output component."""
+    index = df.index
+    value = (
+        pd.to_numeric(df[component], errors="coerce")
+        if component in df.columns
+        else pd.Series(pd.NA, index=index, dtype="Float64")
+    )
+    effective = value.astype("Float64").copy()
+    cumulative = f"cumulative_{component}"
+    if cumulative in df.columns and "lane" in df.columns:
+        running = pd.to_numeric(df[cumulative], errors="coerce")
+        use_running = df["lane"].eq(LANE_LLM) & running.notna()
+        effective[use_running] = running[use_running].astype("Float64")
+    return effective
+
+
+def _validate_token_rows(df: pd.DataFrame) -> pd.Series:
+    """Flag rows whose status/components/derived total follow the token contract."""
+    def _numbers(column: str) -> pd.Series:
+        return (
+            pd.to_numeric(df[column], errors="coerce")
+            if column in df.columns
+            else pd.Series(pd.NA, index=df.index, dtype="Float64")
+        )
+
+    status = df.get("usage_status", pd.Series("", index=df.index)).fillna("")
+    input_tokens = _numbers("input_tokens")
+    output_tokens = _numbers("output_tokens")
+    total_tokens = _numbers("total_tokens")
+    complete = status.isin({"complete-reported", "complete-estimated"})
+    partial = status.eq("partial")
+    empty = status.isin({"missing", "not-applicable"})
+    valid = pd.Series(False, index=df.index)
+    valid.loc[complete] = (
+        input_tokens.loc[complete].notna()
+        & output_tokens.loc[complete].notna()
+        & total_tokens.loc[complete].eq(
+            input_tokens.loc[complete] + output_tokens.loc[complete]
+        )
+    )
+    valid.loc[partial] = (
+        input_tokens.loc[partial].notna() | output_tokens.loc[partial].notna()
+    ) & total_tokens.loc[partial].isna()
+    valid.loc[empty] = (
+        input_tokens.loc[empty].isna()
+        & output_tokens.loc[empty].isna()
+        & total_tokens.loc[empty].isna()
+    )
+    return valid
+
+
 def _candidate_effective_tokens(group: pd.DataFrame) -> float:
     """Total tokens to produce a candidate's result for one lane (chain-aware).
 
-    LLM -> max ``cumulative_tokens`` over the repair chain (the terminal total);
+    LLM -> terminal non-missing ``cumulative_tokens`` over the ordered repair chain;
     agentic -> sum of ``total_tokens`` across the candidate's attempts.
     """
     lane = str(group["lane"].iloc[0]) if "lane" in group.columns and len(group) else ""
@@ -557,9 +612,24 @@ def _candidate_effective_tokens(group: pd.DataFrame) -> float:
     )
     if lane == LANE_LLM and "cumulative_tokens" in group.columns:
         cum = pd.to_numeric(group["cumulative_tokens"], errors="coerce")
-        if cum.notna().any() and cum.max() > 0:
-            return float(cum.max())
+        if cum.notna().any():
+            return float(cum.dropna().iloc[-1])
     return float(total.sum()) if total.notna().any() else float("nan")
+
+
+def _candidate_effective_component(group: pd.DataFrame, component: str) -> float:
+    lane = str(group["lane"].iloc[0]) if "lane" in group.columns and len(group) else ""
+    values = (
+        pd.to_numeric(group[component], errors="coerce")
+        if component in group.columns
+        else pd.Series(pd.NA, index=group.index, dtype="Float64")
+    )
+    cumulative = f"cumulative_{component}"
+    if lane == LANE_LLM and cumulative in group.columns:
+        running = pd.to_numeric(group[cumulative], errors="coerce")
+        if running.notna().any():
+            return float(running.dropna().iloc[-1])
+    return float(values.sum()) if values.notna().any() else float("nan")
 
 
 def _invalidate_inconsistent_measurements(df: pd.DataFrame) -> None:
@@ -602,7 +672,9 @@ def _coerce_numeric(df: pd.DataFrame) -> None:
     numeric_cols = [
         "coverage_before", "coverage_after", "coverage_delta",
         "mutation_score_before", "mutation_score_after", "mutation_score_delta",
-        "duration_seconds", "total_tokens", "generated_test_count",
+        "duration_seconds", "input_tokens", "output_tokens", "estimated_prompt_tokens",
+        "total_tokens", "cumulative_input_tokens", "cumulative_output_tokens",
+        "cumulative_tokens", "generated_test_count",
         "changed_files_count", "tool_attempt_id", "source_member_id",
         "test_files_changed", "production_files_changed", "project_files_changed",
         "deleted_files_count", "tool_post_attempt_test_run_id",
@@ -842,6 +914,8 @@ def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
             else None
         )
         row["effective_tokens"] = _candidate_effective_tokens(group)
+        row["effective_input_tokens"] = _candidate_effective_component(group, "input_tokens")
+        row["effective_output_tokens"] = _candidate_effective_component(group, "output_tokens")
         records.append(row)
 
     return pd.DataFrame(records)

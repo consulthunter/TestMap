@@ -41,7 +41,9 @@ FRAME_OUTPUTS = {
     "test_smells": "msr_test_smells.csv",
     "coverage": "msr_coverage.csv",
     "mutants": "msr_mutants.csv",
+    "mutant_operators": "msr_mutant_operators.csv",
     "mappings": "msr_mappings.csv",
+    "test_results": "msr_test_results.csv",
 }
 
 

@@ -1,5 +1,7 @@
 namespace TestMap.Models.AgentTools;
 
+using TestMap.Models.Experiment;
+
 public sealed class ToolAttempt
 {
     public int Id { get; set; }
@@ -53,8 +55,11 @@ public sealed class ToolAttempt
     public bool JsonlLogAvailable { get; set; }
     public bool UsageAvailable { get; set; }
     public string UsageSource { get; set; } = string.Empty;
+    public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    public string? UsagePolicyVersion { get; set; }
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
+    public int? TotalTokens => TokenUsageVocabulary.DeriveTotal(InputTokens, OutputTokens);
     public int? EstimatedPromptTokens { get; set; }
     public int ChangedFilesCount { get; set; }
     public int ProductionFilesChanged { get; set; }
