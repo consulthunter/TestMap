@@ -11,9 +11,14 @@ public static class AiProviderConfigurationRules
         return GetValidationError(providerConfig) == null;
     }
 
-    public static string? GetValidationError(IAiProviderConfig providerConfig)
+    /// <summary>
+    /// Validates a provider config. Pass <paramref name="requireModel"/> false when the caller
+    /// supplies the model itself — an ExperimentConfig.LlmArms entry names its own model, so the
+    /// provider section does not need one for that arm to be runnable.
+    /// </summary>
+    public static string? GetValidationError(IAiProviderConfig providerConfig, bool requireModel = true)
     {
-        if (string.IsNullOrWhiteSpace(providerConfig.Model))
+        if (requireModel && string.IsNullOrWhiteSpace(providerConfig.Model))
             return $"Provider '{providerConfig.Provider}' requires a non-empty model name.";
 
         if (providerConfig is GoogleCloudConfig googleCloudConfig)

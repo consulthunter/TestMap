@@ -33,6 +33,15 @@ public class ExperimentConfig
     public double Temperature { get; set; } = 0.0;
     public List<string> IncludeProviders { get; set; } = new();
     public string? PreferredProvider { get; set; }
+
+    /// <summary>
+    /// Explicit generation-lane arms. When empty (the default), the matrix expands one arm per
+    /// entry in <see cref="IncludeProviders"/> using that provider's configured model, which is
+    /// the historical behaviour. When populated, arms replace that expansion entirely and
+    /// <see cref="IncludeProviders"/>/<see cref="PreferredProvider"/> must be left unset — several
+    /// arms may share a provider and differ only by model.
+    /// </summary>
+    public List<ExperimentLlmArmConfig> LlmArms { get; set; } = new();
     public int CandidateLimit { get; set; } = 3;
     public double MinCoverageThreshold { get; set; } = 0.0;
     public double MaxCoverageThreshold { get; set; } = 0.99;

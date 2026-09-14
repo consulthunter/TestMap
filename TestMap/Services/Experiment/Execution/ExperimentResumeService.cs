@@ -18,7 +18,7 @@ public sealed class ExperimentResumeService : IExperimentResumeService
         CandidateMethod candidateMethod,
         GenerationExperimentMatrixItem matrixItem)
     {
-        return string.Join(
+        var key = string.Join(
             "|",
             Normalize(resumeGroupId),
             Normalize(repositoryIdentity),
@@ -32,6 +32,16 @@ public sealed class ExperimentResumeService : IExperimentResumeService
             matrixItem.ContextMode,
             matrixItem.BudgetMode,
             Normalize(matrixItem.Steps.VariantId));
+
+        // Provider plus model identifies an arm on its own unless two arms share both and differ
+        // only by endpoint, so the arm id is appended to disambiguate. It is omitted when the arm
+        // id is just the provider name — the arm a config without an explicit LlmArms list
+        // produces — so those configs keep the keys they already have in the database and stay
+        // resumable across this change.
+        return string.Equals(matrixItem.ArmId, matrixItem.Provider.ToString(), StringComparison.Ordinal) ||
+               string.IsNullOrWhiteSpace(matrixItem.ArmId)
+            ? key
+            : string.Join("|", key, Normalize(matrixItem.ArmId));
     }
 
     public ExperimentMatrixWorkItem CreateWorkItem(

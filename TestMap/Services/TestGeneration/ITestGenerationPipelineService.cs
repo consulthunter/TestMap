@@ -79,6 +79,18 @@ public class TestGenerationRequest
     /// references for the structured patch prompt.</summary>
     public string TestProjectPath { get; init; } = string.Empty;
     public required AiProvider Provider { get; init; }
+
+    /// <summary>
+    /// Model this attempt runs against. Empty means the provider's configured model. Set from the
+    /// matrix arm so several arms can share a provider and differ only by model.
+    /// </summary>
+    public string ModelName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Endpoint override for this attempt, or null to use the provider's configured endpoint.
+    /// </summary>
+    public string? Endpoint { get; init; }
+
     public double Temperature { get; init; } = 0.0;
     public int StepErrorRetries { get; init; }
     public int StepRetryDelayMs { get; init; } = 1000;
@@ -133,6 +145,18 @@ public class TestRepairRequest
     /// </summary>
     public string? ModifiedTestFileContents { get; init; }
     public required AiProvider Provider { get; init; }
+
+    /// <summary>
+    /// Model this attempt runs against. Empty means the provider's configured model. Set from the
+    /// matrix arm so several arms can share a provider and differ only by model.
+    /// </summary>
+    public string ModelName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Endpoint override for this attempt, or null to use the provider's configured endpoint.
+    /// </summary>
+    public string? Endpoint { get; init; }
+
     public double Temperature { get; init; } = 0.0;
     public int AttemptNumber { get; init; }
     public int StepErrorRetries { get; init; }

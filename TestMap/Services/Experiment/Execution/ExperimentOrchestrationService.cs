@@ -285,8 +285,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             var matrix = new GenerationExperimentMatrix();
             if (config.Evaluation.TestMap.Enabled)
             {
-                var providers = GetProvidersToTest(config);
-                matrix = _matrixGenerator.Generate(config, providers);
+                var arms = GetLlmArmsToTest(config);
+                matrix = _matrixGenerator.Generate(config, arms);
                 await _ruleDecisionRecorder.RecordAsync(
                     _context.Project.DbId,
                     RuleDecisionScope.ExperimentRun(experimentRun.Id),
@@ -2107,6 +2107,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             var item = new GenerationExperimentMatrixItem
             {
                 VariantId = $"{provider}__{activeApproach}__{budgetMode}__baseline",
+                ArmId = provider.ToString(),
                 Provider = provider,
                 ModelName = ResolveModelName(provider),
                 Approach = activeApproach,
@@ -2119,8 +2120,10 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             item = new GenerationExperimentMatrixItem
             {
                 VariantId = item.VariantId,
+                ArmId = item.ArmId,
                 Provider = item.Provider,
                 ModelName = item.ModelName,
+                Endpoint = item.Endpoint,
                 Approach = item.Approach,
                 MetricsPath = item.MetricsPath,
                 ContextMode = item.ContextMode,
@@ -2687,6 +2690,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             UseStructuredPatchOutput = request.UseStructuredPatchOutput,
             TestProjectPath = request.TestProjectPath,
             Provider = request.Provider,
+            ModelName = matrixItem.ModelName,
+            Endpoint = matrixItem.Endpoint,
             Temperature = request.Temperature,
             StepErrorRetries = request.StepErrorRetries,
             StepRetryDelayMs = request.StepRetryDelayMs
@@ -2727,11 +2732,46 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             PriorAttemptsSummary = request.PriorAttemptsSummary,
             ModifiedTestFileContents = request.ModifiedTestFileContents,
             Provider = request.Provider,
+            ModelName = matrixItem.ModelName,
+            Endpoint = matrixItem.Endpoint,
             Temperature = request.Temperature,
             AttemptNumber = request.AttemptNumber,
             StepErrorRetries = request.StepErrorRetries,
             StepRetryDelayMs = request.StepRetryDelayMs
         };
+    }
+
+    /// <summary>
+    /// Resolves the generation-lane arms for a run. An explicit ExperimentConfig.LlmArms list wins;
+    /// otherwise one arm is produced per included provider using that provider's configured model,
+    /// which is what configs written before arms existed expect.
+    /// </summary>
+    private List<GenerationLlmArm> GetLlmArmsToTest(ExperimentConfig config)
+    {
+        if (config.LlmArms.Count == 0)
+            return GetProvidersToTest(config)
+                .Select(x => GenerationLlmArm.ForProvider(x, ResolveModelName(x)))
+                .ToList();
+
+        var defaultProvider = _config.TestingConfig.GenerationConfig.Provider;
+
+        return config.LlmArms
+            .Select(arm =>
+            {
+                var provider = arm.Provider ?? defaultProvider;
+                var providerConfig = _config.AiProviderConfig.GetProviderConfig(provider)
+                                     ?? throw new InvalidOperationException(
+                                         $"LLM arm '{arm.Id}' names provider '{provider}', which has no config section.");
+
+                return new GenerationLlmArm
+                {
+                    Id = arm.Id,
+                    Provider = provider,
+                    ModelName = string.IsNullOrWhiteSpace(arm.Model) ? providerConfig.Model : arm.Model,
+                    Endpoint = string.IsNullOrWhiteSpace(arm.Endpoint) ? null : arm.Endpoint
+                };
+            })
+            .ToList();
     }
 
     private List<AiProvider> GetProvidersToTest(ExperimentConfig config)

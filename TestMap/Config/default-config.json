@@ -210,10 +210,11 @@
       "MaxVariants": 32
     },
     "Temperature": 1,
-    "IncludeProviders": [
-      "CustomOpenAi"
+    "LlmArms": [
+      { "Id": "custom-glm",     "Provider": "CustomOpenAi", "Model": "GLM-5.3-thinking-high" },
+      { "Id": "custom-kimi",    "Provider": "CustomOpenAi", "Model": "Kimi-K3-thinking-high" },
+      { "Id": "custom-gpt-oss", "Provider": "CustomOpenAi", "Model": "gpt-oss-120b" }
     ],
-    "PreferredProvider": "CustomOpenAi",
     "CandidateLimit": 1,
     "MinCoverageThreshold": 0.0,
     "MaxCoverageThreshold": 0.99,

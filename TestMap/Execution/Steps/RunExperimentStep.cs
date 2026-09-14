@@ -45,7 +45,9 @@ public class RunExperimentStep : IPipelineStep
             .Select(x => x.Provider)
             .ToHashSet();
 
-        if (experimentConfig.IncludeProviders.Count > 0)
+        if (experimentConfig.LlmArms.Count > 0)
+            ValidateLlmArmProviders(experimentConfig);
+        else if (experimentConfig.IncludeProviders.Count > 0)
             foreach (var providerName in experimentConfig.IncludeProviders)
             {
                 if (!Enum.TryParse<AiProvider>(providerName, true, out var provider))
@@ -88,6 +90,35 @@ public class RunExperimentStep : IPipelineStep
             var resultsFilePath = ExperimentResultsWriter.ResolveResultsFilePath(experimentConfig);
             var outputDir = Path.GetDirectoryName(resultsFilePath);
             if (!string.IsNullOrWhiteSpace(outputDir)) Directory.CreateDirectory(outputDir);
+        }
+    }
+
+    /// <summary>
+    /// Validates the provider behind each declared arm. An arm that names its own model does not
+    /// need one on the provider section, so the model requirement is waived for those — otherwise
+    /// running three models through one provider would still force a placeholder model on it.
+    /// </summary>
+    private void ValidateLlmArmProviders(ExperimentConfig experimentConfig)
+    {
+        var defaultProvider = _configurationService.Config.TestingConfig.GenerationConfig.Provider;
+
+        foreach (var arm in experimentConfig.LlmArms)
+        {
+            var provider = arm.Provider ?? defaultProvider;
+            var providerConfig = _configurationService.Config.AiProviderConfig.GetProviderConfig(provider);
+            if (providerConfig == null)
+                throw new InvalidOperationException(
+                    $"LLM arm '{arm.Id}' names provider '{provider}', which has no config section.");
+
+            var suppliesModel = !string.IsNullOrWhiteSpace(arm.Model);
+            var error = AiProviderConfigurationRules.GetValidationError(providerConfig, !suppliesModel);
+            if (error != null)
+                throw new InvalidOperationException(
+                    $"LLM arm '{arm.Id}' is not configured for use. {error}");
+
+            if (!suppliesModel && string.IsNullOrWhiteSpace(providerConfig.Model))
+                throw new InvalidOperationException(
+                    $"LLM arm '{arm.Id}' sets no Model and provider '{provider}' has none configured.");
         }
     }
 }

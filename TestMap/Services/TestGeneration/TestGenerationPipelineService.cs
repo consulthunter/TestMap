@@ -10,6 +10,7 @@ using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 using TestMap.Models.Generation;
+using TestMap.Services.Configuration;
 using TestMap.Services.TestGeneration.Context;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 
@@ -48,7 +49,11 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         TestGenerationRequest request,
         CancellationToken cancellationToken = default)
     {
-        var provider = await GetProviderAsync(request.Provider, cancellationToken);
+        var provider = await GetProviderAsync(
+            request.Provider,
+            request.ModelName,
+            request.Endpoint,
+            cancellationToken);
         var steps = new List<GenerationStepMetadata>();
         var conversation = GenerationConversationState.Create(ShouldUseConversationHistory(request));
         var overallStopwatch = Stopwatch.StartNew();
@@ -371,7 +376,11 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         TestRepairRequest request,
         CancellationToken cancellationToken = default)
     {
-        var provider = await GetProviderAsync(request.Provider, cancellationToken);
+        var provider = await GetProviderAsync(
+            request.Provider,
+            request.ModelName,
+            request.Endpoint,
+            cancellationToken);
         var steps = new List<GenerationStepMetadata>();
         var conversation = GenerationConversationState.Create(
             ShouldUseConversationHistory(request),
@@ -426,8 +435,15 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         }
     }
 
+    /// <summary>
+    /// Resolves and initializes the provider for an attempt. The arm's model and endpoint are
+    /// applied to a copy of the provider config — never to the shared instance, which every later
+    /// attempt in the run reads through.
+    /// </summary>
     private async Task<IAiGenerationProvider> GetProviderAsync(
         AiProvider providerType,
+        string modelName,
+        string? endpoint,
         CancellationToken cancellationToken)
     {
         if (!_providers.TryGetValue(providerType, out var provider))
@@ -435,6 +451,8 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
 
         var providerConfig = _config.AiProviderConfig.GetProviderConfig(providerType)
                              ?? throw new InvalidOperationException($"Provider config not found for {providerType}.");
+
+        providerConfig = AiProviderConfigOverrides.Apply(providerConfig, modelName, endpoint);
 
         var generationConfig = _config.TestingConfig.GenerationConfig;
         await provider.CreateAsync(providerConfig, generationConfig.Mode, cancellationToken);
