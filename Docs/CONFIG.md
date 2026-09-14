@@ -31,6 +31,10 @@ Important fields:
 - `Docker.DefaultContext`: Docker context used for Linux containers.
 - `Docker.Images.ValidationSdkAll`: image used for build/test/coverage validation.
 - `Docker.Images.AgentTools`: image map for agent tool lanes.
+- `Docker.StrykerConcurrency`: parallel Stryker test sessions per validation container (default
+  `3`). It multiplies with `MaxConcurrency`, since each project runs its own container. `0` passes
+  no flag, so Stryker uses its own default of half the CPUs the container sees. The runner reads
+  it as `--stryker-concurrency`, so an older `ValidationSdkAll` image must be rebuilt first.
 - `Frameworks`: test attribute names used to identify test methods.
 - `MaxConcurrency`: project-level concurrency.
 

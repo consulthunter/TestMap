@@ -14,6 +14,7 @@
       "DefaultContext": "desktop-linux",
       "WindowsContext": "desktop-windows",
       "WindowsNetwork": "nat",
+      "StrykerConcurrency": 4,
       "Images": {
         "ValidationSdkAll": "testmap-validation-sdk-all:latest",
         "AgentTools": {
@@ -131,6 +132,12 @@
       "ApiKey": "",
       "Provider": "openai"
     },
+    "Anthropic": {
+      "Model": "claude-haiku-4-5-20251001",
+      "AwsAccessKey": "",
+      "ApiKey": "",
+      "Provider": "anthropic"
+    },
     "Amazon": {
       "Model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
       "AwsAccessKey": "",
@@ -210,11 +217,10 @@
       "MaxVariants": 32
     },
     "Temperature": 1,
-    "LlmArms": [
-      { "Id": "custom-glm",     "Provider": "CustomOpenAi", "Model": "GLM-5.3-thinking-high" },
-      { "Id": "custom-kimi",    "Provider": "CustomOpenAi", "Model": "Kimi-K3-thinking-high" },
-      { "Id": "custom-gpt-oss", "Provider": "CustomOpenAi", "Model": "gpt-oss-120b" }
+    "IncludeProviders": [
+      "Anthropic"
     ],
+    "PreferredProvider": "Anthropic",
     "CandidateLimit": 1,
     "MinCoverageThreshold": 0.0,
     "MaxCoverageThreshold": 0.99,

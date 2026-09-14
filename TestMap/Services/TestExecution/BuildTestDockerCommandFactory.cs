@@ -83,6 +83,7 @@ internal static class BuildTestDockerCommandFactory
         string imageName,
         string runId,
         IReadOnlyCollection<string> solutionFilenames,
+        int strykerConcurrency,
         string windowsNetwork = "")
     {
         return CreateRunnerArgs(
@@ -90,7 +91,7 @@ internal static class BuildTestDockerCommandFactory
             containerName,
             mount,
             imageName,
-            $"dotnet-stryker --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}",
+            $"dotnet-stryker --run-id {Quote(runId)} --solutions {Quote(string.Join(",", solutionFilenames))}{StrykerConcurrencyArgs(strykerConcurrency)}",
             windowsNetwork);
     }
 
@@ -130,6 +131,7 @@ internal static class BuildTestDockerCommandFactory
         string containerSourceProjectPath,
         string containerTestProjectPath,
         string? targetFramework,
+        int strykerConcurrency,
         string windowsNetwork = "")
     {
         var frameworkArgs = string.IsNullOrWhiteSpace(targetFramework)
@@ -141,8 +143,19 @@ internal static class BuildTestDockerCommandFactory
             containerName,
             mount,
             imageName,
-            $"dotnet-stryker-project --run-id {Quote(runId)} --report-name {Quote(Path.GetFileNameWithoutExtension(containerSourceProjectPath))} --project {Quote(containerSourceProjectPath)} --test-project {Quote(containerTestProjectPath)}{frameworkArgs}",
+            $"dotnet-stryker-project --run-id {Quote(runId)} --report-name {Quote(Path.GetFileNameWithoutExtension(containerSourceProjectPath))} --project {Quote(containerSourceProjectPath)} --test-project {Quote(containerTestProjectPath)}{frameworkArgs}{StrykerConcurrencyArgs(strykerConcurrency)}",
             windowsNetwork);
+    }
+
+    /// <summary>
+    /// Runner flag for Stryker's test-session concurrency; omitted when not positive so
+    /// Stryker falls back to its own default.
+    /// </summary>
+    public static string StrykerConcurrencyArgs(int strykerConcurrency)
+    {
+        return strykerConcurrency > 0
+            ? $" --stryker-concurrency {strykerConcurrency}"
+            : string.Empty;
     }
 
     public static string CreateDotnetPassthroughArgs(

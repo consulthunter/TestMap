@@ -244,6 +244,23 @@ def build_assertion_counts(
                  assertion_source=("assertion_source", "first")))
 
 
+def _baseline_mutants(mutants: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFrame:
+    """Restrict mutants to the repository's baseline mutation report.
+
+    Every attempt writes its own mutation report into the same database, and the
+    tool lane also records per-attempt targeted baselines (``SourceProject`` scope,
+    ``is_baseline`` = 1). The repository baseline is the solution-scope baseline
+    report. Databases that predate those columns hold one report and pass through; a
+    database that has them but no solution baseline has no baseline profile at all,
+    and pooling its attempt reports in place of one would misstate it.
+    """
+    if (reports.empty or not {"is_baseline", "scope_kind"} <= set(reports.columns)
+            or "mutation_testing_report_id" not in mutants.columns):
+        return mutants
+    baseline = reports[(reports["is_baseline"] == 1) & (reports["scope_kind"] == "Solution")]
+    return mutants[mutants["mutation_testing_report_id"].isin(baseline["id"])]
+
+
 def build_mutation_operators(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
@@ -258,16 +275,22 @@ def build_mutation_operators(
     if not db_paths:
         return pd.DataFrame()
 
-    from analysis.db import connect, get_mutants
+    from analysis.db import connect, get_mutants, get_mutation_reports, get_projects
     from analysis.files import find_databases
 
     frames: list[pd.DataFrame] = []
     for db_path in find_databases(list(db_paths)):
-        repo_name = Path(db_path).parent.name
         with connect(db_path) as conn:
             mut = get_mutants(conn)
+            reports = get_mutation_reports(conn)
+            projects = get_projects(conn)
         if mut.empty or "mutator_name" not in mut.columns or "status" not in mut.columns:
             continue
+        mut = _baseline_mutants(mut, reports)
+        # The output layout is <owner>/<repo>/<commit>/analysis.db, so the parent
+        # folder is the commit; the database's own project row names the repository.
+        repo_name = (projects["repo_name"].iloc[0] if not projects.empty
+                     else Path(db_path).parent.name)
         counts = (mut.groupby(["mutator_name", "status"]).size()
                   .unstack(fill_value=0).reset_index())
         counts.insert(0, "repo_name", repo_name)

@@ -40,6 +40,15 @@ from analysis.schema import (
     LEGACY_RESULTS_SCHEMA_VERSION,
 )
 
+# Generated-test rows in the results CSV carry the measurement vocabulary: the
+# producer maps Classified/NoRecognizedAssertions to Complete, because only
+# measurement statuses are valid in the results schema. Earlier schema-4 exports
+# wrote the per-test vocabulary, so both are accepted on CSV child rows.
+CHILD_ROW_STATUSES = (
+    (ASSERTION_MEASUREMENT_STATUSES - {"NotMeasured"}) | ASSERTION_SUMMARY_STATUSES
+)
+CHILD_ROW_CLASSIFIED = frozenset({"Complete", "Classified", "NoRecognizedAssertions"})
+
 
 # ---------------------------------------------------------------------------
 # Individual checks
@@ -429,6 +438,22 @@ def _json_paths(value: object) -> list[list[dict]] | None:
                 item.get("steps", item.get("Steps", []))
                 for item in decoded
             ]
+        # The producer's ordered_lineage_paths_json is one flat list holding every
+        # step of every path, keyed by input and path index. Read as a single path,
+        # a second path's steps restart at 0 and look non-contiguous.
+        keyed = [
+            (_step_value(step, "input_index", "InputIndex"),
+             _step_value(step, "path_index", "PathIndex"))
+            for step in decoded
+        ]
+        if all(key != (None, None) for key in keyed):
+            grouped: dict[tuple, list[dict]] = {}
+            for key, step in zip(keyed, decoded):
+                grouped.setdefault(key, []).append(step)
+            return [
+                sorted(steps, key=lambda s: _step_value(s, "step_index", "StepIndex") or 0)
+                for _, steps in sorted(grouped.items(), key=lambda item: str(item[0]))
+            ]
         return [decoded]
     if all(isinstance(item, list) for item in decoded):
         return decoded
@@ -623,12 +648,14 @@ def audit_assertion_lineage(
             "unavailable_assertion_counts_not_null", int(unavailable_with_counts.sum()),
             "Unavailable assertion counts must be null, never zero.",
         ))
+    # Only measured rows carry counts. NotApplicable rows hold nulls by contract, and
+    # NaN != NaN would otherwise report every one of them as a mismatch.
     reconcile = (
         numeric["recognized_assertion_count"]
         != numeric["traced_assertion_count"]
         + numeric["trivial_assertion_count"]
         + numeric["unresolved_assertion_count"]
-    ) & ~unavailable
+    ) & current["assertion_measurement_status"].isin({"Complete", "Partial"})
     if reconcile.any():
         findings.append(_assertion_finding(
             "assertion_attempt_count_mismatch", int(reconcile.sum()),
@@ -665,7 +692,7 @@ def audit_assertion_lineage(
         ].copy()
         if "assertion_measurement_status" in child.columns:
             invalid_child_status = ~child["assertion_measurement_status"].isin(
-                ASSERTION_SUMMARY_STATUSES
+                CHILD_ROW_STATUSES
             )
             if invalid_child_status.any():
                 findings.append(_assertion_finding(
@@ -681,7 +708,7 @@ def audit_assertion_lineage(
             classified = child.get(
                 "assertion_measurement_status",
                 pd.Series("", index=child.index),
-            ).isin({"Classified", "NoRecognizedAssertions"})
+            ).isin(CHILD_ROW_CLASSIFIED)
             child_bad = classified & (
                 child_numbers["recognized_assertion_count"]
                 != child_numbers["traced_assertion_count"]
@@ -761,15 +788,19 @@ def audit_assertion_lineage(
             "Assertion observations require supported policy and catalog versions.",
         ))
 
-    duplicate_ids = assertions["observation_id"].duplicated(keep=False)
+    # Observation and summary ids are per-database autoincrement values. A results
+    # file that combines several targets - each its own experiment run - repeats
+    # them legitimately, so identity is scoped by the run that produced the row.
+    run_key = ["experiment_run_uid"] if "experiment_run_uid" in assertions.columns else []
+    duplicate_ids = assertions.duplicated(run_key + ["observation_id"], keep=False)
     if duplicate_ids.any():
         findings.append(_assertion_finding(
             "duplicate_assertion_observation_id", int(duplicate_ids.sum()),
-            "Assertion observation IDs must be globally unique.",
+            "Assertion observation IDs must be unique within an experiment run.",
         ))
     if {"generated_test_assertion_summary_id", "assertion_ordinal"} <= set(assertions.columns):
         duplicate_identity = assertions.duplicated(
-            ["generated_test_assertion_summary_id", "assertion_ordinal"],
+            run_key + ["generated_test_assertion_summary_id", "assertion_ordinal"],
             keep=False,
         )
         if duplicate_identity.any():
@@ -881,7 +912,7 @@ def audit_assertion_lineage(
         classified = child.get(
             "assertion_measurement_status",
             pd.Series("", index=child.index),
-        ).isin({"Classified", "NoRecognizedAssertions"})
+        ).isin(CHILD_ROW_CLASSIFIED)
         child_sidecar_mismatch = classified & child_counts.ne(actual_counts)
         if child_sidecar_mismatch.any():
             findings.append(_assertion_finding(

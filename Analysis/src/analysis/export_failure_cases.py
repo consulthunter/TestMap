@@ -29,10 +29,17 @@ from analysis.files import (
     find_artifact_dir,
     read_log_excerpt,
     read_result_grains,
+    read_schema4_result_bundle,
     read_text_artifact,
 )
 from analysis.build_evaluation_dataset import build_attempts_dataset
-from analysis.schema import FAILURE_CASE_FIELDS, LANE_AGENTIC, PRELIMINARY_FAILURE_LABELS
+from analysis.schema import (
+    ASSERTION_RESULTS_SCHEMA_VERSION,
+    FAILURE_CASE_FIELDS,
+    LANE_AGENTIC,
+    LEGACY_RESULTS_SCHEMA_VERSION,
+    PRELIMINARY_FAILURE_LABELS,
+)
 
 
 CASE_MARKDOWN_TEMPLATE = """\
@@ -417,11 +424,23 @@ def run(
     sample: str = "all",
     top_n: int = 0,
     write_markdown: bool = False,
+    results_schema_version: str = ASSERTION_RESULTS_SCHEMA_VERSION,
 ) -> None:
     """Entry point for the ``export-failures`` CLI command."""
     out = ensure_output_dir(output_dir)
 
-    raw, generated, _ = read_result_grains(list(results))
+    # Same schema dispatch as build-datasets and audit: schema 4 is the default,
+    # schema 3 is the explicit legacy path.
+    if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
+        raw, generated, _, _ = read_schema4_result_bundle(
+            list(results), require_assertion_sidecar=False
+        )
+    elif results_schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        raw, generated, _ = read_result_grains(
+            list(results), expected_schema_version=LEGACY_RESULTS_SCHEMA_VERSION
+        )
+    else:
+        raise ValueError(f"Unsupported results_schema_version: {results_schema_version}.")
     attempts = build_attempts_dataset(raw, generated)
     cases = build_failure_cases(attempts, db_paths, artifacts_root)
     sampled = sample_cases(cases, strategy=sample, top_n=top_n)

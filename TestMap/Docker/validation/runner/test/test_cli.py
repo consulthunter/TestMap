@@ -330,6 +330,8 @@ class DotnetCommandTests(unittest.TestCase):
             self.assertIn("--target-framework", command)
             self.assertEqual("net9.0", command[command.index("--target-framework") + 1])
             self.assertNotIn("--test-projects", command)
+            # No --stryker-concurrency given, so Stryker keeps its own default.
+            self.assertNotIn("--concurrency", command)
             self.assertEqual(source_project_dir, run_process.call_args.kwargs["cwd"])
 
     def test_run_dotnet_stryker_project_resolves_test_project_argument_to_project_reference(self) -> None:
@@ -381,6 +383,21 @@ class DotnetCommandTests(unittest.TestCase):
             )
             self.assertNotIn("--target-framework", command)
             self.assertEqual(source_project_dir.resolve(), run_process.call_args.kwargs["cwd"])
+
+    def test_stryker_concurrency_reaches_stryker_only_when_positive(self) -> None:
+        parser = cli.build_parser()
+        for argv in (
+            ["main", "--run-id", "r", "--solutions", "a.sln", "--stryker-concurrency", "5"],
+            ["dotnet-stryker", "--run-id", "r", "--solutions", "a.sln", "--stryker-concurrency", "5"],
+            ["dotnet-stryker-project", "--run-id", "r", "--report-name", "x", "--project", "p",
+             "--test-project", "t", "--stryker-concurrency", "5"],
+        ):
+            args = parser.parse_args(argv)
+            self.assertEqual(["--concurrency", "5"], cli.stryker_concurrency_args(args))
+
+        for value in (None, 0, -1):
+            self.assertEqual([], cli.stryker_concurrency_args(argparse.Namespace(stryker_concurrency=value)))
+        self.assertEqual([], cli.stryker_concurrency_args(argparse.Namespace()))
 
     def test_normalize_project_reference_include_uses_host_separator(self) -> None:
         self.assertEqual(

@@ -70,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     main_parser = subparsers.add_parser("main", help="Run the standard TestMap container workflow.")
     add_common_run_arguments(main_parser, include_solutions=True)
     main_parser.add_argument("--include-stryker", action="store_true", help="Run mutation testing.")
+    add_stryker_concurrency_argument(main_parser)
     main_parser.set_defaults(func=run_main)
 
     build_parser = subparsers.add_parser("dotnet-build", help="Run dotnet build for the provided solutions.")
@@ -97,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     stryker_parser = subparsers.add_parser("dotnet-stryker", help="Run Stryker for the provided solutions.")
     add_common_run_arguments(stryker_parser, include_solutions=True)
+    add_stryker_concurrency_argument(stryker_parser)
     stryker_parser.set_defaults(func=run_dotnet_stryker)
 
     targeted_stryker_parser = subparsers.add_parser(
@@ -112,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
                                          help="Test project path inside the container.")
     targeted_stryker_parser.add_argument("--target-framework", default=None,
                                          help="Target framework passed to Stryker.")
+    add_stryker_concurrency_argument(targeted_stryker_parser)
     targeted_stryker_parser.set_defaults(func=run_dotnet_stryker_project)
 
     dotnet_parser = subparsers.add_parser("dotnet", help="Run an arbitrary dotnet command in the mounted project.")
@@ -130,6 +133,22 @@ def add_common_run_arguments(parser: argparse.ArgumentParser, *, include_solutio
     parser.add_argument("--run-id", required=True)
     if include_solutions:
         parser.add_argument("--solutions", required=True, help="Comma-separated solution names.")
+
+
+def add_stryker_concurrency_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--stryker-concurrency",
+        type=int,
+        default=None,
+        help="Parallel Stryker test sessions. Omit, or pass 0, for Stryker's default.",
+    )
+
+
+def stryker_concurrency_args(args: argparse.Namespace) -> list[str]:
+    concurrency = getattr(args, "stryker_concurrency", None)
+    if concurrency is None or concurrency <= 0:
+        return []
+    return ["--concurrency", str(concurrency)]
 
 
 def get_paths() -> RunnerPaths:
@@ -394,8 +413,7 @@ def run_dotnet_stryker(args: argparse.Namespace) -> int:
                 "stryker",
                 "--solution",
                 str(solution_path),
-                "--concurrency",
-                "3",
+                *stryker_concurrency_args(args),
                 "-r",
                 "html",
                 "-r",
@@ -458,8 +476,7 @@ def run_dotnet_stryker_project(args: argparse.Namespace) -> int:
             "--test-project",
             str(test_project_path),
             *target_framework_args,
-            "--concurrency",
-            "3",
+            *stryker_concurrency_args(args),
             "-r",
             "html",
             "-r",

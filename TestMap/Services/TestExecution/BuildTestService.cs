@@ -276,7 +276,8 @@ public class BuildTestService : IBuildTestService
             var args =
                 $"--context {context} run -d --name {_containerName} " +
                 $"{mount} {imageName} " +
-                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner main --run-id {quotedRunId} --solutions {quotedSolutions} --include-stryker";
+                $"{DockerRuntimePathMapper.WindowsPythonCommand} -m testmap_runner main --run-id {quotedRunId} --solutions {quotedSolutions} --include-stryker" +
+                BuildTestDockerCommandFactory.StrykerConcurrencyArgs(StrykerConcurrency);
             await _dockerCommandRunner.RunProcessAsync("docker", args);
         }
         else
@@ -393,6 +394,7 @@ public class BuildTestService : IBuildTestService
             imageName,
             _runId,
             solutionFilenames,
+            StrykerConcurrency,
             WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
@@ -440,6 +442,7 @@ public class BuildTestService : IBuildTestService
             GetContainerPath(sourceProjectPath),
             GetContainerPath(testProjectPath),
             targetFramework,
+            StrykerConcurrency,
             WindowsNetwork);
         await _dockerCommandRunner.RunProcessAsync("docker", args);
     }
@@ -757,6 +760,9 @@ public class BuildTestService : IBuildTestService
 
     private string WindowsNetwork =>
         _context.Project.Config.RuntimeConfig.Docker.WindowsNetwork;
+
+    private int StrykerConcurrency =>
+        _context.Project.Config.RuntimeConfig.Docker.StrykerConcurrency;
 
     private string ValidationDockerImage =>
         _context.Project.Config.RuntimeConfig.Docker.Images.ValidationSdkAll;

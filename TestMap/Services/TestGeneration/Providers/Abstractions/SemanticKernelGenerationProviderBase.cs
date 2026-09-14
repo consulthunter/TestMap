@@ -8,7 +8,9 @@ namespace TestMap.Services.TestGeneration.Providers.Abstractions;
 
 public abstract class SemanticKernelGenerationProviderBase : IAiGenerationProvider
 {
-    private const string DefaultSystemPrompt = "You are an expert software tester with experience in csharp.";
+    // Shared with providers that call their SDK directly, so every arm sends the same system
+    // prompt and token estimates stay comparable.
+    internal const string DefaultSystemPrompt = "You are an expert software tester with experience in csharp.";
 
     private Kernel? _kernel;
     private IChatCompletionService? _chatCompletionService;

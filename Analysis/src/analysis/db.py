@@ -127,7 +127,13 @@ def get_projects(conn: sqlite3.Connection) -> pd.DataFrame:
 
 def get_canonical_attempt_identities(conn: sqlite3.Connection) -> pd.DataFrame:
     """Return local-to-canonical attempt IDs for both evaluation lanes."""
-    rows = _query(conn, """
+    # Pinned-target databases record the resolved commit, and the producer's
+    # AttemptKeyFactory hashes it; databases without the column predate it.
+    commit = (
+        "er.resolved_commit"
+        if _has_column(conn, "experiment_runs", "resolved_commit") else "NULL"
+    )
+    rows = _query(conn, f"""
         SELECT
             'llm' AS lane,
             ga.id AS local_attempt_id,
@@ -135,6 +141,7 @@ def get_canonical_attempt_identities(conn: sqlite3.Connection) -> pd.DataFrame:
             p.repo_name,
             er.experiment_series_id,
             er.run_uid,
+            {commit} AS resolved_commit,
             w.stable_key,
             ga.attempt_number
         FROM generation_attempts ga
@@ -152,6 +159,7 @@ def get_canonical_attempt_identities(conn: sqlite3.Connection) -> pd.DataFrame:
             p.repo_name,
             er.experiment_series_id,
             er.run_uid,
+            {commit} AS resolved_commit,
             w.stable_key,
             ta.attempt_number
         FROM tool_attempts ta
@@ -165,8 +173,11 @@ def get_canonical_attempt_identities(conn: sqlite3.Connection) -> pd.DataFrame:
 
     def make_id(row: pd.Series) -> str:
         lane = "testmap" if row["lane"] == "llm" else "agent-tool"
+        commit = row.get("resolved_commit")
+        commit = str(commit).strip().lower() if pd.notna(commit) and str(commit).strip() else ""
         material = "|".join([
             f"{row['owner']}/{row['repo_name']}".strip().lower(),
+            *([commit] if commit else []),
             str(row.get("experiment_series_id", "") or "").strip(),
             str(row["run_uid"]).strip(),
             lane,

@@ -42,6 +42,7 @@ CHECK_SEVERITY = {
         "objects_missing_metrics",
         "members_missing_coverage",
         "objects_missing_coverage",
+        "coverage_unattributed",
         "members_missing_mutants",
         "smells_unattributed",
         "mutants_unattributed",
@@ -223,10 +224,18 @@ def check_coverage(rows, repo_key, entities, coverage, has_report: bool) -> None
         return
 
     total = len(coverage)
+    # Corrected-schema databases persist report entries the mapper could not place
+    # (NULL entity_id plus an attribution_status) instead of logging and dropping
+    # them. Those are unattributed - a gap - not orphans pointing at a missing row.
+    # Legacy databases never write them, so there this reads 0 by construction.
+    attributed = coverage[coverage["entity_id"].notna()]
+    _record(rows, repo_key, "coverage", "coverage_unattributed",
+            total - len(attributed), total)
+
     orphans = 0
     for kind in ("member", "object"):
         known = _known(entities, kind)
-        subset = coverage[coverage["entity_kind"] == kind]
+        subset = attributed[attributed["entity_kind"] == kind]
         if not subset.empty:
             orphans += int((~subset["entity_id"].astype(int).isin(known)).sum())
     _record(rows, repo_key, "coverage", "coverage_orphan_entity", orphans, total)
@@ -262,12 +271,12 @@ def check_coverage(rows, repo_key, entities, coverage, has_report: bool) -> None
     # Coverage is persisted at both grains, so both need a linkage row. Reporting
     # only the member side leaves the object-level rows unaccounted for.
     member_ids = _known(entities, "member")
-    covered = set(coverage.loc[coverage["entity_kind"] == "member", "entity_id"].astype(int))
+    covered = set(attributed.loc[attributed["entity_kind"] == "member", "entity_id"].astype(int))
     _record(rows, repo_key, "coverage", "members_missing_coverage",
             len(member_ids - covered), len(member_ids))
 
     object_ids = _known(entities, "object")
-    covered_objects = set(coverage.loc[coverage["entity_kind"] == "object", "entity_id"].astype(int))
+    covered_objects = set(attributed.loc[attributed["entity_kind"] == "object", "entity_id"].astype(int))
     if object_ids:
         _record(rows, repo_key, "coverage", "objects_missing_coverage",
                 len(object_ids - covered_objects), len(object_ids))

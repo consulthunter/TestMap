@@ -36,6 +36,7 @@ using TestMap.Services.TestGeneration.Evidence;
 using TestMap.Services.TestGeneration.Providers;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 using TestMap.Services.TestGeneration.Providers.Amazon;
+using TestMap.Services.TestGeneration.Providers.Anthropic;
 using TestMap.Services.TestGeneration.Providers.Custom;
 using TestMap.Services.TestGeneration.Providers.Google;
 using TestMap.Services.TestGeneration.Providers.Ollama;
@@ -170,6 +171,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAiGenerationProvider, GoogleGeminiGenerationProvider>();
         services.AddScoped<IAiGenerationProvider, GoogleCloudGenerationProvider>();
         services.AddScoped<IAiGenerationProvider, AmazonGenerationProvider>();
+        services.AddScoped<IAiGenerationProvider, AnthropicGenerationProvider>();
 
         return services;
     }

@@ -338,14 +338,51 @@ public sealed class BuildTestDockerCommandFactoryTests
             "iteration_123",
             "/app/project/src/Sample/Sample.csproj",
             "/app/project/tests/Sample.Tests/Sample.Tests.csproj",
-            "net9.0");
+            "net9.0",
+            3);
 
         Assert.Equal(
-            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --project \"/app/project/src/Sample/Sample.csproj\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\" --target-framework \"net9.0\"",
+            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --project \"/app/project/src/Sample/Sample.csproj\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\" --target-framework \"net9.0\" --stryker-concurrency 3",
             args);
         Assert.Contains("--project \"/app/project/src/Sample/Sample.csproj\"", args);
         Assert.Contains("--target-framework \"net9.0\"", args);
         Assert.DoesNotContain("--solution", args);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CreateBaselineMutationArgs_PassesConfiguredStrykerConcurrency()
+    {
+        var args = BuildTestDockerCommandFactory.CreateBaselineMutationArgs(
+            DockerRuntimePathMapper.LinuxContextName,
+            "sample-testing",
+            "-v \"D:\\repo:/app/project\"",
+            "testmap-runner",
+            "baseline_123",
+            ["Sample.sln"],
+            5);
+
+        Assert.Equal(
+            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker --run-id \"baseline_123\" --solutions \"Sample.sln\" --stryker-concurrency 5",
+            args);
+    }
+
+    [Theory]
+    [Trait("Category", "Unit")]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void MutationArgs_WithNonPositiveStrykerConcurrency_OmitFlagForStrykerDefault(int concurrency)
+    {
+        var baseline = BuildTestDockerCommandFactory.CreateBaselineMutationArgs(
+            DockerRuntimePathMapper.LinuxContextName, "sample-testing", "-v \"D:\\repo:/app/project\"",
+            "testmap-runner", "baseline_123", ["Sample.sln"], concurrency);
+        var targeted = BuildTestDockerCommandFactory.CreateTargetedMutationArgs(
+            DockerRuntimePathMapper.LinuxContextName, "sample-testing", "-v \"D:\\repo:/app/project\"",
+            "testmap-runner", "iteration_123", "/app/project/src/Sample/Sample.csproj",
+            "/app/project/tests/Sample.Tests/Sample.Tests.csproj", null, concurrency);
+
+        Assert.DoesNotContain("--stryker-concurrency", baseline);
+        Assert.DoesNotContain("--stryker-concurrency", targeted);
     }
 
     /// <summary>

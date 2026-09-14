@@ -100,6 +100,26 @@ def test_objects_missing_coverage_recorded_when_a_report_produced_no_rows():
     assert (row["numerator"], row["denominator"]) == (2, 2)
 
 
+def test_null_entity_coverage_is_unattributed_not_orphaned():
+    coverage = _coverage([
+        {"entity_kind": "member", "entity_id": 1, "lines_valid": 4,
+         "lines_covered": 2, "line_rate": 0.5, "branch_rate": 0.5},
+        {"entity_kind": "member", "entity_id": None, "lines_valid": 4,
+         "lines_covered": 0, "line_rate": 0.0, "branch_rate": 0.0},
+        {"entity_kind": "object", "entity_id": None, "lines_valid": 8,
+         "lines_covered": 4, "line_rate": 0.5, "branch_rate": 0.5},
+    ])
+    rows: list[dict] = []
+    check_coverage(rows, "o/r@abc", _entities(), coverage, has_report=True)
+
+    unattributed = _rate(rows, "coverage_unattributed")
+    assert (unattributed["numerator"], unattributed["denominator"]) == (2, 3)
+    assert _rate(rows, "coverage_orphan_entity")["numerator"] == 0
+    # An unplaced entry covers nothing: members 2 and 3 and both objects stay uncovered.
+    assert _rate(rows, "members_missing_coverage")["numerator"] == 2
+    assert _rate(rows, "objects_missing_coverage")["numerator"] == 2
+
+
 def test_no_coverage_rows_and_no_report_records_nothing():
     rows: list[dict] = []
     check_coverage(rows, "o/r@abc", _entities(), pd.DataFrame(), has_report=False)
