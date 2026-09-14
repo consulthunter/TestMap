@@ -75,6 +75,12 @@ public class CoverageReportRepository
                 existing.LinesValid = model.LinesValid;
                 existing.BranchesCovered = model.BranchesCovered;
                 existing.BranchesValid = model.BranchesValid;
+                existing.ScopeKind = model.ScopeKind;
+                existing.ReportRole = model.ReportRole;
+                existing.ExperimentRunId = model.ExperimentRunId;
+                existing.SourceProjectPath = model.SourceProjectPath;
+                existing.TestProjectPath = model.TestProjectPath;
+                existing.TargetFramework = model.TargetFramework;
                 await _context.SaveChangesAsync();
             }
 
@@ -114,7 +120,13 @@ public class CoverageReportRepository
                entity.LinesCovered != model.LinesCovered ||
                entity.LinesValid != model.LinesValid ||
                entity.BranchesCovered != model.BranchesCovered ||
-               entity.BranchesValid != model.BranchesValid;
+               entity.BranchesValid != model.BranchesValid ||
+               entity.ScopeKind != model.ScopeKind ||
+               entity.ReportRole != model.ReportRole ||
+               entity.ExperimentRunId != model.ExperimentRunId ||
+               entity.SourceProjectPath != model.SourceProjectPath ||
+               entity.TestProjectPath != model.TestProjectPath ||
+               entity.TargetFramework != model.TargetFramework;
     }
 
     private Task<CoverageReportEntity?> FindExistingAsync(CoverageReportModel model, int projectId)

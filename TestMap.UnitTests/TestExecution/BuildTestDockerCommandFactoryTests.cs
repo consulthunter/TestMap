@@ -25,6 +25,9 @@ public sealed class BuildTestDockerCommandFactoryTests
 
         Assert.Equal("SourceProject", scope.ScopeKind);
         Assert.Equal(isMutationBaseline, scope.IsBaseline);
+        Assert.Equal(
+            isMutationBaseline ? TestReportRole.TargetedBaseline : TestReportRole.AttemptMeasurement,
+            scope.ReportRole);
         Assert.Equal(42, scope.ExperimentRunId);
         Assert.Equal(Path.GetFullPath("src/Sample/Sample.csproj"), scope.SourceProjectPath);
         Assert.Equal(Path.GetFullPath("tests/Sample.Tests/Sample.Tests.csproj"), scope.TestProjectPath);
@@ -44,6 +47,27 @@ public sealed class BuildTestDockerCommandFactoryTests
 
         Assert.Equal("Solution", scope.ScopeKind);
         Assert.True(scope.IsBaseline);
+        Assert.Equal(TestReportRole.RepositoryBaseline, scope.ReportRole);
+    }
+
+    [Fact]
+    public void CreateCoverageReportScope_ForTargetedBaseline_PreservesComparableScope()
+    {
+        var request = BuildTestRunRequest.CreateIteration(
+            "tests/Sample.Tests/Sample.Tests.csproj",
+            "net10.0",
+            new TargetMemberDescriptor(1, "DoWork", "void DoWork()", "Sample", "Sample.cs", 1, 2),
+            "src/Sample/Sample.csproj",
+            experimentRunId: 42,
+            isMutationBaseline: true);
+
+        var scope = request.CreateCoverageReportScope();
+
+        Assert.Equal("SourceProject", scope.ScopeKind);
+        Assert.Equal(TestReportRole.TargetedBaseline, scope.ReportRole);
+        Assert.Equal("src/Sample/Sample.csproj", scope.SourceProjectPath);
+        Assert.Equal("tests/Sample.Tests/Sample.Tests.csproj", scope.TestProjectPath);
+        Assert.Equal("net10.0", scope.TargetFramework);
     }
 
     /// <summary>

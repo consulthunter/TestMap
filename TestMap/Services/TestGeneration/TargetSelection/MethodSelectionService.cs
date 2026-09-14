@@ -1005,7 +1005,8 @@ public class MethodSelectionService : IMethodSelectionService
         if (bestCandidate == null) return null;
 
         var testMembers = await _dbContext.Members
-            .Where(x => x.ObjectEntityId == bestCandidate.TestClass.Id)
+            .Where(x => x.ObjectEntityId == bestCandidate.TestClass.Id &&
+                        x.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline)
             .ToListAsync(cancellationToken);
 
         var exampleCandidates = testMembers
@@ -1296,6 +1297,8 @@ public class MethodSelectionService : IMethodSelectionService
                       && helperMember.ObjectEntityId == testObject.Id
                       && !helperMember.IsTestMember
                       && !helperMember.IsGenerated
+                      && helperMember.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline
+                      && testMember.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline
                       && testMember.IsTestMember
                       && testMember.Kind == "method"
                       && testObject.IsTestObject
@@ -1970,6 +1973,7 @@ using System;"
     {
         var helperMembers = members
             .Where(x => !x.IsGenerated)
+            .Where(x => x.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline)
             .Where(x => x.Id != selectedExample?.Id)
             .Where(x =>
                 !x.IsTestMember ||
@@ -2152,6 +2156,7 @@ using System;"
         var bindings = new List<ContextBinding>();
         foreach (var member in testMembers
                      .Where(x => !x.IsGenerated)
+                     .Where(x => x.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline)
                      .Where(x => x.Id != selectedExample?.Id)
                      .OrderByDescending(x => IsPreferredSupportMember(x, sourceObjectName))
                      .ThenBy(x => GetSupportBindingRank(x))

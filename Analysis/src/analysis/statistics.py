@@ -83,6 +83,30 @@ def mcnemar_test(
     )
 
 
+def wilson_ci(successes: int, n: int, confidence: float = 0.95) -> tuple[float, float]:
+    """Wilson score interval for a binomial proportion; (nan, nan) when n is 0.
+
+    Unlike a percentile bootstrap, it does not collapse to a zero-width interval
+    at 0/n or n/n.
+    """
+    if n <= 0:
+        return float("nan"), float("nan")
+    ci = stats.binomtest(int(successes), int(n)).proportion_ci(
+        confidence_level=confidence, method="wilson"
+    )
+    return float(ci.low), float(ci.high)
+
+
+def fisher_min_p_value(n_a: int, n_b: int) -> float:
+    """Smallest two-sided p-value Fisher's exact test can reach for groups of n_a and n_b.
+
+    When it exceeds the corrected alpha, no comparison of groups that size can reject.
+    """
+    if n_a < 1 or n_b < 1:
+        return 1.0
+    return float(stats.fisher_exact([[n_a, 0], [0, n_b]])[1])
+
+
 def fisher_exact_test(
     a_success: pd.Series,
     b_success: pd.Series,

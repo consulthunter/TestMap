@@ -42,7 +42,7 @@ public class MutationTestingReportRepository
             x.TestRunId == testRunId &&
             x.ExperimentRunId == scope.ExperimentRunId &&
             x.ScopeKind == scope.ScopeKind &&
-            x.IsBaseline == scope.IsBaseline &&
+            x.ReportRole == scope.ReportRole &&
             x.SourceProjectPath == scope.SourceProjectPath &&
             x.TestProjectPath == scope.TestProjectPath &&
             x.TargetFramework == scope.TargetFramework &&
@@ -58,6 +58,7 @@ public class MutationTestingReportRepository
                 existing.ExperimentRunId = scope.ExperimentRunId;
                 existing.ScopeKind = scope.ScopeKind;
                 existing.IsBaseline = scope.IsBaseline;
+                existing.ReportRole = scope.ReportRole;
                 existing.SourceProjectPath = scope.SourceProjectPath;
                 existing.TestProjectPath = scope.TestProjectPath;
                 existing.TargetFramework = scope.TargetFramework;
@@ -102,7 +103,7 @@ public class MutationTestingReportRepository
             .Where(x =>
                 x.ProjectId == projectId &&
                 x.ScopeKind == scope.ScopeKind &&
-                x.IsBaseline &&
+                x.ReportRole == TestMap.Models.Testing.TestReportRole.TargetedBaseline &&
                 x.SourceProjectPath == scope.SourceProjectPath &&
                 x.TestProjectPath == scope.TestProjectPath &&
                 x.TargetFramework == scope.TargetFramework);
@@ -128,6 +129,7 @@ public class MutationTestingReportRepository
                entity.ExperimentRunId != scope.ExperimentRunId ||
                entity.ScopeKind != scope.ScopeKind ||
                entity.IsBaseline != scope.IsBaseline ||
+               entity.ReportRole != scope.ReportRole ||
                entity.SourceProjectPath != scope.SourceProjectPath ||
                entity.TestProjectPath != scope.TestProjectPath ||
                entity.TargetFramework != scope.TargetFramework ||

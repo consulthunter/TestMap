@@ -19,7 +19,7 @@ Outputs:
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Optional
 
 import pandas as pd
@@ -33,6 +33,7 @@ from analysis.files import (
     read_text_artifact,
 )
 from analysis.build_evaluation_dataset import build_attempts_dataset
+from analysis.normalize import chain_key_columns
 from analysis.schema import (
     ASSERTION_RESULTS_SCHEMA_VERSION,
     FAILURE_CASE_FIELDS,
@@ -48,18 +49,20 @@ CASE_MARKDOWN_TEMPLATE = """\
 **Repo:** {repo_owner}/{repo_name}
 **Commit:** {commit_hash}
 **Lane:** {lane}
-**Producer:** {producer_id}
-**Model/Tool:** {model_or_tool}
+**Producer:** {producer}
+**Model:** {model}
+**Attempt:** {attempt_number} (first attempt: {is_first_attempt}; chain later succeeded: {chain_succeeded})
 **Source method:** `{source_method_name}`
 **Signature:** `{source_method_signature}`
-**Location:** `{source_file_path}:{source_line}`
+**Source file:** `{source_file_path}`
 **Failure label:** `{preliminary_failure_label}`
+**Outcome:** `{outcome_classification}`
 **Failure kind:** `{failure_kind}`
 **Failure stage:** `{failure_stage}`
 
-## Outcome Summary
+## Failure Summary
 
-{outcome_summary}
+{failure_summary}
 
 ## Artifacts
 
@@ -96,13 +99,17 @@ def assign_preliminary_labels(df: pd.DataFrame) -> pd.DataFrame:
     out["preliminary_failure_label"] = "unclassified"
 
     def _label(row: pd.Series) -> str:
+        infrastructure = row.get("infrastructure_failure")
+        if not pd.isna(infrastructure) and bool(infrastructure):
+            return "infrastructure"
         tool_status = str(row.get("run_status", "") or row.get("tool_run_status", "")).lower()
         obs_outcome = str(row.get("observed_outcome", "") or row.get("tool_observed_outcome", "")).lower()
         failure_kind = str(row.get("failure_kind", "")).lower()
         failure_stage = str(row.get("failure_stage", "")).lower()
         prod_changed = row.get("production_files_changed", 0)
         proj_changed = row.get("project_files_changed", 0)
-        constraint = str(row.get("tool_validation_outcome", "")).lower() == "constraintviolation"
+        validation = str(row.get("tool_validation_outcome", "")).lower()
+        constraint = validation == "constraintviolation"
         deleted = row.get("deleted_files_count", 0)
 
         if "nochange" in tool_status or "no_change" in obs_outcome or failure_kind == "no_change":
@@ -113,12 +120,16 @@ def assign_preliminary_labels(df: pd.DataFrame) -> pd.DataFrame:
             return "tool_crash"
         if constraint:
             return "overbroad_change"
-        if "buildfailed" in tool_status or "buildfailed" in obs_outcome or failure_stage == "build":
+        if ("buildfailed" in tool_status or "buildfailed" in obs_outcome or failure_stage == "build"
+                or failure_kind == "compilation" or validation == "buildfailed"):
             return "build_failed"
         if failure_stage == "compile" or failure_kind == "compile_error":
             return "compile_failed"
-        if failure_stage == "test":
+        if (failure_stage == "test" or failure_kind in {"runtime", "assertion"}
+                or validation == "testsfailed"):
             return "test_failed"
+        if failure_kind == "generation" or failure_stage == "generation":
+            return "generation_failed"
         if str(prod_changed or 0) != "0" and str(prod_changed or 0) != "nan":
             return "production_code_modified"
         if str(proj_changed or 0) != "0" and str(proj_changed or 0) != "nan":
@@ -129,6 +140,71 @@ def assign_preliminary_labels(df: pd.DataFrame) -> pd.DataFrame:
 
     out["preliminary_failure_label"] = out.apply(_label, axis=1)
     return out
+
+
+def _db_key(owner: object, repo: object, commit: object) -> str:
+    return "/".join(_str(part).strip().lower() for part in (owner, repo, commit))
+
+
+def _db_key_for_path(db_path: str | Path) -> str:
+    """Key a database by the owner/repo/commit folders it sits in."""
+    commit_dir = Path(db_path).parent
+    return _db_key(commit_dir.parent.parent.name, commit_dir.parent.name, commit_dir.name)
+
+
+def _relocate(raw_path: object, commit_dir: Optional[Path]) -> str:
+    """Resolve a recorded artifact path, re-rooting it under the database's folder.
+
+    Paths are recorded where the run happened. When the output has been moved (for
+    example into a replication package), the part after the commit folder still
+    matches, so it is joined onto the folder the database now sits in.
+    """
+    path = _str(raw_path)
+    if not path or commit_dir is None or Path(path).exists():
+        return path
+    parts = _path_parts(path)
+    if commit_dir.name in parts:
+        moved = commit_dir.joinpath(*parts[parts.index(commit_dir.name) + 1:])
+        if moved.exists():
+            return str(moved)
+    return path
+
+
+def _relocate_log(raw_path: object, logs_root: Optional[Path]) -> str:
+    """Re-root a recorded run-log path under *logs_root*, the folder of dated log folders.
+
+    Run logs are recorded under the producer's ``Logs`` folder; the part after the
+    last ``Logs`` segment is joined onto *logs_root*.
+    """
+    path = _str(raw_path)
+    if not path or logs_root is None or Path(path).exists():
+        return path
+    parts = _path_parts(path)
+    lowered = [part.lower() for part in parts]
+    if "logs" in lowered:
+        last = len(lowered) - 1 - lowered[::-1].index("logs")
+        moved = logs_root.joinpath(*parts[last + 1:])
+        if moved.exists():
+            return str(moved)
+    return path
+
+
+def _path_parts(path: str) -> tuple[str, ...]:
+    """Split a recorded path, whichever platform recorded it."""
+    return PureWindowsPath(path).parts if "\\" in path else Path(path).parts
+
+
+def _tool_file(artifact_dir: Optional[Path], tool_id: str, suffix: str) -> str:
+    """Name of a tool's ``*<suffix>`` artifact.
+
+    Tools write these under their family name (``openhands.events.jsonl`` for
+    ``openhands-custom-kimi``), so fall back to the one file with that suffix.
+    """
+    preferred = f"{tool_id}{suffix}" if tool_id else suffix.lstrip(".")
+    if artifact_dir is None or (artifact_dir / preferred).exists():
+        return preferred
+    matches = sorted(artifact_dir.glob(f"*{suffix}"))
+    return matches[0].name if matches else preferred
 
 
 def _truncate(d: dict, key: str, max_chars: int) -> str:
@@ -144,25 +220,57 @@ def build_failure_cases(
     attempts_df: pd.DataFrame,
     db_paths: list[str] | tuple[str, ...],
     artifacts_root: Optional[str],
+    include_infrastructure: bool = False,
+    logs_root: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Build failure case rows from the normalized attempts dataset."""
+    """Build failure case rows from the normalized attempts dataset.
+
+    A case is an attempt that did not validate. Infrastructure failures carry no
+    model or tool behaviour to code and are left out unless *include_infrastructure*.
+    Each case records whether it is its chain's first attempt and whether the chain
+    (candidate, lane, producer) later succeeded, so a coder can tell a repaired
+    intermediate step from a terminal failure.
+
+    Recorded artifact paths are re-rooted under each database's folder, and run-log
+    paths under *logs_root*, so a moved output (a replication package) still resolves.
+    """
     if attempts_df.empty:
         return pd.DataFrame()
+    logs = Path(logs_root) if logs_root else None
 
-    validated = attempts_df.get("validated_success", pd.Series(False, index=attempts_df.index)).fillna(False)
-    case_mask = ~validated
+    validated = (attempts_df.get("validated_success", pd.Series(False, index=attempts_df.index))
+                 .astype("boolean").fillna(False).astype(bool))
+    infrastructure = (attempts_df["infrastructure_failure"].astype("boolean").fillna(False).astype(bool)
+                      if "infrastructure_failure" in attempts_df.columns
+                      else pd.Series(False, index=attempts_df.index))
+
+    chain_cols = chain_key_columns(attempts_df)
+    if chain_cols:
+        chain = [attempts_df[c] for c in chain_cols]
+        chain_succeeded = validated.groupby(chain, dropna=False).transform("any")
+        number = pd.to_numeric(
+            attempts_df.get("attempt_number", pd.Series(1, index=attempts_df.index)), errors="coerce")
+        is_first = number.eq(number.groupby(chain, dropna=False).transform("min"))
+    else:
+        chain_succeeded = validated
+        is_first = pd.Series(True, index=attempts_df.index)
+
+    case_mask = ~validated & (include_infrastructure | ~infrastructure)
     failed = attempts_df[case_mask].copy()
+    failed["chain_succeeded"] = chain_succeeded[case_mask]
+    failed["is_first_attempt"] = is_first[case_mask]
 
     failed = assign_preliminary_labels(failed)
     failed["failure_case_id"] = range(1, len(failed) + 1)
 
     # Pre-load DB artifacts.
     # Keys are (db_key, id) to avoid collisions when member IDs repeat across repos.
-    # db_key = Path(db_path).parent.name, e.g. "consulthunter-TestMap-Example"
+    # db_key is "<owner>/<repo>/<commit>" from the Output/<owner>/<repo>/<commit>/analysis.db layout.
     llm_artifacts: dict[tuple, dict] = {}   # (db_key, attempt_id)
     source_members: dict[tuple, dict] = {}  # (db_key, member_id)
     existing_tests: dict[tuple, dict] = {}  # (db_key, source_member_id)
     tool_post_logs: dict[tuple, str] = {}   # (db_key, tool_attempt_id) -> post-attempt log_path
+    db_dirs: dict[str, Path] = {}           # db_key -> folder holding analysis.db
 
     if db_paths:
         from analysis.db import (
@@ -176,7 +284,8 @@ def build_failure_cases(
         from analysis.files import find_databases
 
         for db_path in find_databases(list(db_paths)):
-            db_key = Path(db_path).parent.name
+            db_key = _db_key_for_path(db_path)
+            db_dirs[db_key] = Path(db_path).parent
             try:
                 with connect(db_path) as conn:
                     for _, r in get_tool_attempt_post_logs(conn).iterrows():
@@ -212,10 +321,8 @@ def build_failure_cases(
         lane = str(row.get("lane", ""))
 
         # Source member and existing test (both lanes, from DB)
-        # db_key derived from "{repo_owner}-{repo_name}" must match Path(db_path).parent.name
-        repo_owner = _str(row.get("repo_owner", ""))
-        repo_name  = _str(row.get("repo_name", ""))
-        db_key     = f"{repo_owner}-{repo_name}"
+        db_key = _db_key(row.get("repo_owner"), row.get("repo_name"), row.get("commit_hash"))
+        commit_dir = db_dirs.get(db_key)
         smid       = row.get("source_member_id")
         sm = source_members.get((db_key, int(smid))) if smid is not None and pd.notna(smid) else None
         et = existing_tests.get((db_key, int(smid))) if smid is not None and pd.notna(smid) else None
@@ -227,7 +334,7 @@ def build_failure_cases(
         if lane == LANE_AGENTIC:
             raw_path = row.get("tool_artifact_path") or row.get("artifact_path")
             if raw_path and _str(raw_path) not in ("", "nan"):
-                artifact_dir: Optional[Path] = Path(_str(raw_path))
+                artifact_dir: Optional[Path] = Path(_relocate(raw_path, commit_dir))
                 if not artifact_dir.is_dir():
                     artifact_dir = None
             else:
@@ -239,8 +346,8 @@ def build_failure_cases(
                 )
 
             tool_id = _str(row.get("tool_id", "")).lower()
-            log_file    = f"{tool_id}.stderr.log" if tool_id else "stderr.log"
-            events_file = f"{tool_id}.events.jsonl" if tool_id else "events.jsonl"
+            log_file    = _tool_file(artifact_dir, tool_id, ".stderr.log")
+            events_file = _tool_file(artifact_dir, tool_id, ".events.jsonl")
 
             row["prompt_excerpt"]         = read_text_artifact(artifact_dir, "prompt.md", max_chars=1000)
             row["generated_code_excerpt"] = read_text_artifact(artifact_dir, "patch.diff", max_chars=2000)
@@ -254,7 +361,7 @@ def build_failure_cases(
             row["_tool_id_lower"]         = tool_id
             taid = row.get("tool_attempt_id")
             row["_post_attempt_log_path"] = (
-                tool_post_logs.get((db_key, int(float(taid))), "")
+                _relocate_log(_relocate(tool_post_logs.get((db_key, int(float(taid))), ""), commit_dir), logs)
                 if taid is not None and pd.notna(taid) else "")
 
         else:  # LLM lane
@@ -268,9 +375,11 @@ def build_failure_cases(
             row["diagnostics_excerpt"]    = ""
             row["artifact_path"]          = ""
             row["_artifact_dir"]          = ""
+            log_path = _relocate_log(_relocate(db_row.get("log_path") if db_row else "", commit_dir), logs)
+            if db_row:
+                db_row = {**db_row, "log_path": log_path}
             row["_db_row"]                = db_row or {}
 
-            log_path = _str(db_row.get("log_path") if db_row else "")
             if log_path and Path(log_path).exists():
                 row["logs_excerpt"] = read_log_excerpt(log_path, max_lines=50)
                 row["raw_log_path"] = log_path
@@ -317,8 +426,8 @@ def write_case_dir(case: pd.Series, cases_root: Path) -> Path:
         for filename in [
             "prompt.md",
             "patch.diff",
-            f"{tool_id}.events.jsonl",
-            f"{tool_id}.stderr.log",
+            _tool_file(artifact_dir, tool_id, ".events.jsonl"),
+            _tool_file(artifact_dir, tool_id, ".stderr.log"),
             "changed-files.txt",
         ]:
             if artifact_dir and (artifact_dir / filename).exists():
@@ -361,16 +470,19 @@ def write_case_dir(case: pd.Series, cases_root: Path) -> Path:
         repo_name=_str(case.get("repo_name", "")),
         commit_hash=commit[:12] if commit else "",
         lane=lane,
-        producer_id=_str(case.get("producer_id", "")),
-        model_or_tool=_str(case.get("model", "")) or _str(case.get("tool_id", "")),
+        producer=_str(case.get("producer", "")) or _str(case.get("tool_id", "")),
+        model=_str(case.get("model", "")),
+        attempt_number=_str(case.get("attempt_number", "")),
+        is_first_attempt=_str(case.get("is_first_attempt", "")),
+        chain_succeeded=_str(case.get("chain_succeeded", "")),
         source_method_name=_str(case.get("source_method_name", "")),
         source_method_signature=_str(case.get("source_method_signature", "")),
-        source_file_path=_str(case.get("source_file_path", "")),
-        source_line=_str(case.get("source_line", "")),
+        source_file_path=_str(case.get("_source_member_file_path", "")),
         preliminary_failure_label=_str(case.get("preliminary_failure_label", "")),
+        outcome_classification=_str(case.get("outcome_classification", "")),
         failure_kind=_str(case.get("failure_kind", "")),
         failure_stage=_str(case.get("failure_stage", "")),
-        outcome_summary=_str(case.get("outcome_summary", "")),
+        failure_summary=_str(case.get("failure_summary", "")) or "(none recorded)",
         artifact_table_rows=artifact_table_rows,
     )
     (case_dir / "case.md").write_text(content, encoding="utf-8")
@@ -378,41 +490,56 @@ def write_case_dir(case: pd.Series, cases_root: Path) -> Path:
     return case_dir
 
 
+# Labels that mean the producer changed something outside the test it was asked to
+# write. These are correctness risks; ordinary build or test failures are not.
+SAFETY_FAILURE_LABELS = frozenset({
+    "overbroad_change", "production_code_modified", "project_file_modified",
+})
+
+DEFAULT_SAMPLE_SEED = 20260914
+
+
+def _stratified(df: pd.DataFrame, column: str, per_group: int, seed: int) -> pd.DataFrame:
+    """Up to *per_group* rows per value of *column* (all rows when 0), reproducibly."""
+    shuffled = df.sample(frac=1, random_state=seed)
+    picked = shuffled.groupby(column, dropna=False, sort=False).head(per_group) if per_group else shuffled
+    return picked.sort_index()
+
+
 def sample_cases(
     failure_df: pd.DataFrame,
     strategy: str = "all",
     top_n: int = 0,
+    seed: int = DEFAULT_SAMPLE_SEED,
 ) -> pd.DataFrame:
-    """Apply a sampling strategy to the failure case DataFrame."""
+    """Apply a sampling strategy to the failure case DataFrame.
+
+    Stratified strategies draw up to *top_n* cases per stratum (all when 0) with a
+    fixed *seed*, so the same coding sample can be drawn again.
+    """
     if failure_df.empty:
         return failure_df
 
     if strategy == "all":
         return failure_df
     if strategy == "stratified-lane":
-        return failure_df.groupby("lane", group_keys=False).apply(
-            lambda g: g.sample(min(len(g), max(1, top_n or len(g))))
-        )
+        return _stratified(failure_df, "lane", top_n, seed)
     if strategy == "stratified-label":
-        return failure_df.groupby("preliminary_failure_label", group_keys=False).apply(
-            lambda g: g.sample(min(len(g), max(1, top_n or len(g))))
-        )
+        return _stratified(failure_df, "preliminary_failure_label", top_n, seed)
     if strategy == "stratified-tool":
-        return failure_df.groupby("tool_id", group_keys=False).apply(
-            lambda g: g.sample(min(len(g), max(1, top_n or len(g))))
-        )
+        return _stratified(failure_df, "tool_id", top_n, seed)
     if strategy == "top-n":
         counts = failure_df["preliminary_failure_label"].value_counts()
         top_labels = counts.head(top_n or 5).index
         return failure_df[failure_df["preliminary_failure_label"].isin(top_labels)]
     if strategy == "high-severity":
-        severe = {"tool_crash", "timeout", "build_failed", "overbroad_change",
-                  "production_code_modified"}
-        return failure_df[failure_df["preliminary_failure_label"].isin(severe)]
-    if strategy == "llm-won":
-        return failure_df[failure_df.get("lane", pd.Series()) == "agentic"]
-    if strategy == "agentic-won":
+        return failure_df[failure_df["preliminary_failure_label"].isin(SAFETY_FAILURE_LABELS)]
+    if strategy == "first-attempt":
+        return failure_df[failure_df["is_first_attempt"].astype("boolean").fillna(False).astype(bool)]
+    if strategy == "lane-llm":
         return failure_df[failure_df.get("lane", pd.Series()) == "llm"]
+    if strategy == "lane-agentic":
+        return failure_df[failure_df.get("lane", pd.Series()) == "agentic"]
     return failure_df
 
 
@@ -425,6 +552,9 @@ def run(
     top_n: int = 0,
     write_markdown: bool = False,
     results_schema_version: str = ASSERTION_RESULTS_SCHEMA_VERSION,
+    include_infrastructure: bool = False,
+    seed: int = DEFAULT_SAMPLE_SEED,
+    logs_root: Optional[str] = None,
 ) -> None:
     """Entry point for the ``export-failures`` CLI command."""
     out = ensure_output_dir(output_dir)
@@ -442,8 +572,10 @@ def run(
     else:
         raise ValueError(f"Unsupported results_schema_version: {results_schema_version}.")
     attempts = build_attempts_dataset(raw, generated)
-    cases = build_failure_cases(attempts, db_paths, artifacts_root)
-    sampled = sample_cases(cases, strategy=sample, top_n=top_n)
+    cases = build_failure_cases(attempts, db_paths, artifacts_root,
+                                include_infrastructure=include_infrastructure,
+                                logs_root=logs_root)
+    sampled = sample_cases(cases, strategy=sample, top_n=top_n, seed=seed)
 
     # Strip internal working columns before writing CSV/JSONL
     internal_cols = [c for c in sampled.columns if c.startswith("_")]

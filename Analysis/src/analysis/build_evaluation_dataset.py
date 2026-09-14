@@ -69,9 +69,54 @@ def build_attempts_dataset(
         raise ValueError("Generated-test rows require attempt_id for parent aggregation.")
     counts = generated_test_df.groupby("attempt_id").size().rename("generated_test_count")
     attempts = attempts.drop(columns=["generated_test_count"], errors="ignore")
-    return attempts.merge(counts, on="attempt_id", how="left").assign(
+    attempts = attempts.merge(counts, on="attempt_id", how="left").assign(
         generated_test_count=lambda x: x["generated_test_count"].fillna(0).astype("Int64")
     )
+    return roll_up_generated_tests(attempts, build_generated_tests_dataset(generated_test_df))
+
+
+GENERATED_TEST_METRIC_COLUMNS = [
+    "generated_test_cc", "generated_test_mi", "generated_test_sloc",
+    "generated_test_eloc", "generated_test_coupling", "generated_test_dit",
+]
+
+
+def roll_up_generated_tests(attempts: pd.DataFrame, children: pd.DataFrame) -> pd.DataFrame:
+    """Set attempt-level generated-test metrics from the attempt's child test rows.
+
+    Agentic attempts write their tests only as child rows, so the attempt row carries
+    no smell string or structural metrics of its own. Where an attempt has children,
+    its smell count is their sum, its smell types their union, and each structural
+    metric their mean. Attempts without children keep their own values.
+    """
+    if children.empty or "attempt_id" not in children.columns:
+        return attempts
+    grouped = children.groupby("attempt_id")
+    rolled = pd.DataFrame(index=grouped.size().index)
+    if "generated_test_smell_count" in children.columns:
+        rolled["generated_test_smell_count"] = grouped["generated_test_smell_count"].sum()
+    if "generated_test_smell_types" in children.columns:
+        rolled["generated_test_smell_types"] = grouped["generated_test_smell_types"].agg(
+            lambda values: json.dumps(sorted({
+                name for value in values.dropna() for name in json.loads(value)
+            }))
+        )
+    for column in GENERATED_TEST_METRIC_COLUMNS:
+        if column in children.columns:
+            rolled[column] = grouped[column].mean()
+
+    out = attempts.copy()
+    has_children = out["attempt_id"].isin(rolled.index)
+    for column in rolled.columns:
+        mapped = out["attempt_id"].map(rolled[column])
+        current = out[column] if column in out.columns else pd.Series(pd.NA, index=out.index)
+        combined = mapped.where(has_children, current)
+        if column == "generated_test_smell_count":
+            combined = pd.to_numeric(combined, errors="coerce").astype("Int64")
+        elif column != "generated_test_smell_types":
+            combined = pd.to_numeric(combined, errors="coerce")
+        out[column] = combined
+    return out
 
 
 def build_generated_tests_dataset_from_raw(
@@ -310,14 +355,49 @@ def build_mutation_operators(
     return df
 
 
+# Stryker counts a timed-out mutant as detected.
+DETECTED_MUTANT_STATUSES = frozenset({"Killed", "Timeout"})
+
+
+def before_after_diff(
+    before: int,
+    after: int,
+    member: int,
+    gap_set: dict,
+    covered: set,
+    surv_set: dict,
+    detected_set: dict,
+    mutated: set,
+) -> tuple[int | None, int | None]:
+    """Lines closed and mutants newly killed for one member between two test runs.
+
+    Sets are keyed by (test_run_id, member_id). A metric is None when either run did
+    not measure the member -- no coverage record for lines, no mutants for mutation --
+    because every gap or survivor missing from an unmeasured run would otherwise count
+    as closed or killed. A newly killed mutant survived the baseline and was detected
+    (killed or timed out) in the post-attempt run.
+    """
+    b, a = (before, member), (after, member)
+    lines_closed = (
+        len(gap_set.get(b, set()) - gap_set.get(a, set()))
+        if b in covered and a in covered else None
+    )
+    newly_killed = (
+        len(surv_set.get(b, set()) & detected_set.get(a, set()))
+        if b in mutated and a in mutated else None
+    )
+    return lines_closed, newly_killed
+
+
 def build_metric_diffs(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
     """Per-attempt before/after metric diffs: coverage lines closed + mutants newly killed.
 
-    Computes set differences against the targeted source member:
+    Computes set differences against the targeted source member (see
+    :func:`before_after_diff`):
     - ``lines_closed``        = baseline coverage gaps minus post-attempt gaps
-    - ``mutants_newly_killed``= mutants that survived the baseline but not the post-attempt run
+    - ``mutants_newly_killed``= baseline survivors detected in the post-attempt run
 
     Tool lane uses ``tool_attempts.targeted_baseline_id`` (before) +
     ``post_attempt_test_run_id`` (after) — available now. LLM lane uses
@@ -336,6 +416,7 @@ def build_metric_diffs(
         get_coverage_reports,
         get_generated_test_executions,
         get_generation_attempts,
+        get_member_coverages,
         get_mutants,
         get_mutation_reports,
         get_tool_attempts,
@@ -347,6 +428,7 @@ def build_metric_diffs(
         with connect(db_path) as conn:
             cov_reports = get_coverage_reports(conn)
             gaps = get_coverage_gaps(conn)
+            member_covs = get_member_coverages(conn)
             mut_reports = get_mutation_reports(conn)
             mutants = get_mutants(conn)
             tool_attempts = get_tool_attempts(conn)
@@ -364,32 +446,50 @@ def build_metric_diffs(
             for row in identities[identities["lane"] == "agentic"].itertuples()
         }
 
-        # Gap-line sets keyed by (test_run_id, source member_id).
-        gap_set: dict = {}
-        if not gaps.empty and not cov_reports.empty:
-            g = gaps.merge(
-                cov_reports[["id", "test_run_id"]].rename(columns={"id": "coverage_report_id"}),
-                on="coverage_report_id", how="inner")
-            for (tr, mid), grp in g.dropna(subset=["test_run_id", "member_id"]).groupby(["test_run_id", "member_id"]):
-                gap_set[(int(tr), int(mid))] = set(grp["line_number"])
+        # Only candidate source members are diffed.
+        targets = (set(cand_methods["source_member_id"].dropna().astype(int))
+                   if not cand_methods.empty else set())
 
-        # Survived-mutant sets keyed by (test_run_id, source member_id).
+        # Keyed by (test_run_id, source member_id): gap lines, and whether the run's
+        # coverage recorded the member at all.
+        gap_set: dict = {}
+        covered: set = set()
+        if not cov_reports.empty:
+            run_of_report = cov_reports[["id", "test_run_id"]].rename(columns={"id": "coverage_report_id"})
+            if not gaps.empty:
+                g = (gaps[gaps["member_id"].isin(targets)]
+                     .merge(run_of_report, on="coverage_report_id", how="inner")
+                     .dropna(subset=["test_run_id", "member_id"]))
+                for (tr, mid), grp in g.groupby(["test_run_id", "member_id"]):
+                    gap_set[(int(tr), int(mid))] = set(grp["line_number"])
+            if not member_covs.empty:
+                mc = (member_covs[member_covs["member_id"].isin(targets)]
+                      .merge(run_of_report, on="coverage_report_id", how="inner")
+                      .dropna(subset=["test_run_id", "member_id"]))
+                covered = {(int(tr), int(mid)) for tr, mid in zip(mc["test_run_id"], mc["member_id"])}
+
+        # Keyed the same way: surviving and detected mutant ids, and whether the run
+        # mutated the member at all.
         surv_set: dict = {}
+        detected_set: dict = {}
+        mutated: set = set()
         if not mutants.empty and not mut_reports.empty and "status" in mutants.columns:
-            s = mutants[mutants["status"] == "Survived"].merge(
-                mut_reports[["id", "test_run_id"]].rename(columns={"id": "mutation_testing_report_id"}),
-                on="mutation_testing_report_id", how="inner")
+            s = (mutants[mutants["member_id"].isin(targets)]
+                 .merge(mut_reports[["id", "test_run_id"]].rename(columns={"id": "mutation_testing_report_id"}),
+                        on="mutation_testing_report_id", how="inner")
+                 .dropna(subset=["test_run_id", "member_id"]))
             key_col = "stryker_mutant_id" if "stryker_mutant_id" in s.columns else "id"
-            for (tr, mid), grp in s.dropna(subset=["test_run_id", "member_id"]).groupby(["test_run_id", "member_id"]):
-                surv_set[(int(tr), int(mid))] = set(grp[key_col])
+            for (tr, mid), grp in s.groupby(["test_run_id", "member_id"]):
+                k = (int(tr), int(mid))
+                mutated.add(k)
+                surv_set[k] = set(grp.loc[grp["status"] == "Survived", key_col])
+                detected_set[k] = set(grp.loc[grp["status"].isin(DETECTED_MUTANT_STATUSES), key_col])
 
         def diff(before_run, after_run, member_id):
             if pd.isna(before_run) or pd.isna(after_run) or pd.isna(member_id):
                 return None
-            b, a, m = int(before_run), int(after_run), int(member_id)
-            lines_closed = len(gap_set.get((b, m), set()) - gap_set.get((a, m), set()))
-            mutants_killed = len(surv_set.get((b, m), set()) - surv_set.get((a, m), set()))
-            return lines_closed, mutants_killed
+            return before_after_diff(int(before_run), int(after_run), int(member_id),
+                                     gap_set, covered, surv_set, detected_set, mutated)
 
         cm_member = (cand_methods.set_index("id")["source_member_id"]
                      if not cand_methods.empty else pd.Series(dtype="float64"))

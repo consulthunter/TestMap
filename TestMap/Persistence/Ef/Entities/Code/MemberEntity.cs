@@ -21,4 +21,7 @@ public class MemberEntity
     public string TestMetadataPromptVersion { get; set; } = string.Empty;
     public Location Location { get; set; } = new(0, 0, 0, 0);
     public string ContentHash { get; set; } = string.Empty;
+    public string Signature { get; set; } = string.Empty;
+    public string OriginKind { get; set; } = MemberOrigin.Baseline;
+    public int? OriginAttemptId { get; set; }
 }

@@ -30,6 +30,12 @@ public class CoverageReportEntity
     public int BranchesCovered { get; set; }
     public int BranchesValid { get; set; }
     public DateTime? CreatedAt { get; set; }
+    public string ScopeKind { get; set; } = "Solution";
+    public string ReportRole { get; set; } = TestMap.Models.Testing.TestReportRole.RepositoryBaseline;
+    public int? ExperimentRunId { get; set; }
+    public string SourceProjectPath { get; set; } = string.Empty;
+    public string TestProjectPath { get; set; } = string.Empty;
+    public string TargetFramework { get; set; } = string.Empty;
 
     public virtual TestMap.Persistence.Ef.Entities.Testing.TestRunEntity? TestRun { get; set; }
 }

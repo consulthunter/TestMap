@@ -1,5 +1,6 @@
 using TestMap.Models;
 using TestMap.Models.Results;
+using TestMap.Models.Testing;
 using TestMap.Persistence.Ef.Entities.Testing;
 
 namespace TestMap.Persistence.Ef.Mappings;
@@ -18,7 +19,8 @@ public static class TestRunMappingExtensions
             Coverage = entity.Coverage,
             MutationScore = entity.MutationScore,
             LogPath = entity.LogPath,
-            FailureAnalysis = entity.FailureAnalysis
+            FailureAnalysis = entity.FailureAnalysis,
+            ReportRole = entity.ReportRole
         };
     }
 
@@ -34,7 +36,8 @@ public static class TestRunMappingExtensions
             MutationScore = model.MutationScore,
             LogPath = model.LogPath,
             FailureAnalysis = model.FailureAnalysis,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            ReportRole = model.ReportRole
         };
     }
 
@@ -50,7 +53,8 @@ public static class TestRunMappingExtensions
             MutationScore = null,
             LogPath = logPath,
             FailureAnalysis = null,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            ReportRole = TestReportRole.RepositoryBaseline
         };
     }
 }

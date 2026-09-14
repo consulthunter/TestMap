@@ -593,8 +593,8 @@ public sealed class AgentToolEvaluationLaneTests
             var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "openhands");
 
             Assert.NotNull(usage);
-            Assert.Equal(156, usage.InputTokens);
-            Assert.Equal(35, usage.OutputTokens);
+            Assert.Equal(111, usage.InputTokens);
+            Assert.Equal(28, usage.OutputTokens);
             Assert.EndsWith("base_state.json:stats.usage_to_metrics", usage.Source);
         }
         finally
@@ -621,8 +621,8 @@ public sealed class AgentToolEvaluationLaneTests
             var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "openhands");
 
             Assert.NotNull(usage);
-            Assert.Equal(110, usage.InputTokens);
-            Assert.Equal(25, usage.OutputTokens);
+            Assert.Equal(100, usage.InputTokens);
+            Assert.Equal(20, usage.OutputTokens);
         }
         finally
         {
@@ -863,37 +863,63 @@ public sealed class AgentToolEvaluationLaneTests
                 {
                   "info": {
                     "model_stats": {
+                      "instance_cost": 0.02,
                       "api_calls": 2
-                    }
+                    },
+                    "exit_status": "Submitted"
                   },
-                  "trajectory": [
+                  "messages": [
+                    { "role": "system", "content": "system prompt" },
+                    { "role": "user", "content": "task" },
                     {
-                      "response": {
-                        "usage": {
-                          "completion_tokens": 166,
-                          "prompt_tokens": 3481,
-                          "total_tokens": 3647,
-                          "prompt_tokens_details": {
-                            "cached_tokens": 0,
-                            "cache_creation_tokens": 3478
+                      "role": "assistant",
+                      "content": "",
+                      "extra": {
+                        "cost": 0.01,
+                        "response": {
+                          "id": "r1",
+                          "usage": {
+                            "completion_tokens": 166,
+                            "prompt_tokens": 3481,
+                            "total_tokens": 3647,
+                            "prompt_tokens_details": {
+                              "cached_tokens": 0,
+                              "cache_creation_tokens": 3478
+                            },
+                            "cache_creation_input_tokens": 3478,
+                            "cache_read_input_tokens": 0
                           }
                         }
                       }
                     },
                     {
-                      "response": {
-                        "usage": {
-                          "completion_tokens": 473,
-                          "prompt_tokens": 14581,
-                          "total_tokens": 15054,
-                          "prompt_tokens_details": {
-                            "cached_tokens": 14163,
-                            "cache_creation_tokens": 417
+                      "role": "tool",
+                      "content": "output",
+                      "extra": { "returncode": 0 }
+                    },
+                    {
+                      "role": "assistant",
+                      "content": "",
+                      "extra": {
+                        "cost": 0.01,
+                        "response": {
+                          "id": "r2",
+                          "usage": {
+                            "completion_tokens": 473,
+                            "prompt_tokens": 14581,
+                            "total_tokens": 15054,
+                            "prompt_tokens_details": {
+                              "cached_tokens": 14163,
+                              "cache_creation_tokens": 417
+                            },
+                            "cache_creation_input_tokens": 417,
+                            "cache_read_input_tokens": 14163
                           }
                         }
                       }
                     }
-                  ]
+                  ],
+                  "trajectory_format": "mini-swe-agent-1.1"
                 }
                 """);
 

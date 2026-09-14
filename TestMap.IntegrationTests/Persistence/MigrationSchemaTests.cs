@@ -93,7 +93,7 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Equal(18, applied.Count);
+            Assert.Equal(19, applied.Count);
             Assert.Contains(applied, x => x.Contains("InitialCreate"));
             Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
@@ -112,6 +112,7 @@ public sealed class MigrationSchemaTests
             Assert.Contains(applied, x => x.Contains("AddAssertionLineageEvidence"));
             Assert.Contains(applied, x => x.Contains("AddCoverageDataIntegrity"));
             Assert.Contains(applied, x => x.Contains("AddTokenUsageAccounting"));
+            Assert.Contains(applied, x => x.Contains("AddAnalysisOriginAndReportRoles"));
         });
     }
 
@@ -141,6 +142,32 @@ public sealed class MigrationSchemaTests
             Assert.Contains("IX_coverage_reports_project_id_run_id", indexes);
             Assert.Contains("IX_object_coverages_coverage_report_id_source_ordinal", indexes);
             Assert.Contains("IX_member_coverages_object_coverage_id_source_ordinal", indexes);
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsAnalysisOriginsReportRolesAndCoverageScope()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var memberColumns = await GetColumnNamesAsync(db, "members");
+            Assert.Contains("signature", memberColumns);
+            Assert.Contains("origin_kind", memberColumns);
+            Assert.Contains("origin_attempt_id", memberColumns);
+
+            Assert.Contains("report_role", await GetColumnNamesAsync(db, "test_runs"));
+            Assert.Contains("report_role", await GetColumnNamesAsync(db, "mutation_testing_reports"));
+
+            var coverageColumns = await GetColumnNamesAsync(db, "coverage_reports");
+            Assert.Contains("report_role", coverageColumns);
+            Assert.Contains("scope_kind", coverageColumns);
+            Assert.Contains("source_project_path", coverageColumns);
+            Assert.Contains("test_project_path", coverageColumns);
+            Assert.Contains("target_framework", coverageColumns);
+
+            Assert.Contains("coverage_before", await GetColumnNamesAsync(db, "generated_test_executions"));
         });
     }
 

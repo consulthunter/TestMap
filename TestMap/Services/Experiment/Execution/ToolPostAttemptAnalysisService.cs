@@ -36,6 +36,7 @@ public interface IToolPostAttemptAnalysisService
     /// </summary>
     Task<ToolPostAttemptAnalysisResult> AnalyzeAsync(
         CandidateMethodContext methodContext,
+        int toolAttemptId,
         CancellationToken cancellationToken = default);
 }
 
@@ -65,6 +66,7 @@ public sealed class ToolPostAttemptAnalysisService : IToolPostAttemptAnalysisSer
 
     public async Task<ToolPostAttemptAnalysisResult> AnalyzeAsync(
         CandidateMethodContext methodContext,
+        int toolAttemptId,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(methodContext.TestProjectPath))
@@ -85,7 +87,10 @@ public sealed class ToolPostAttemptAnalysisService : IToolPostAttemptAnalysisSer
         // cross-project invocation edges resolve correctly.
         var sharedMemberIds = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var project in TopologicallySorted(_context.Project.Projects))
-            await _analyzeProjectService.AnalyzeProjectAsync(project, sharedMemberIds);
+            await _analyzeProjectService.AnalyzeProjectAsync(
+                project,
+                sharedMemberIds,
+                MemberAnalysisOrigin.ToolAttempt(toolAttemptId));
 
         // Collect code metrics scoped to the test project only.
         await _codeMetricsService.CollectCodeMetricsAsync(testProject, cancellationToken);

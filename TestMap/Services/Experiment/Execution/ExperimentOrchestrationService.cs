@@ -904,6 +904,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                                 // LinkAsync so that newly-generated test member IDs exist in the DB.
                                 var analysis = await _toolPostAttemptAnalysisService.AnalyzeAsync(
                                     methodContext,
+                                    result.ToolAttempt.Id,
                                     cancellationToken);
                                 if (!analysis.Analyzed)
                                     _context.Project.Logger?.Warning(
@@ -1288,9 +1289,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             GeneratedTestCompiled = generatedTestCompiled,
             GeneratedTestExecuted = generatedTestExecuted,
             GeneratedTestPassed = generatedTestPassed,
-            CoverageBefore = execution == null || !execution.CoverageAfter.HasValue || !execution.CoverageImprovement.HasValue
-                ? null
-                : execution.CoverageAfter.Value - execution.CoverageImprovement.Value,
+            CoverageBefore = execution?.CoverageBefore,
             CoverageAfter = execution?.CoverageAfter,
             CoverageDelta = execution?.CoverageImprovement,
             MutationScoreBefore = execution?.BaselineMutationScore,
@@ -2572,6 +2571,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             CompilationSuccess = execution.CompilationSucceeded,
             TestsExecuted = execution.TestsExecuted,
             TestPassed = execution.CompilationSucceeded && execution.TestsExecuted && execution.AllTestsPassed,
+            CoverageBefore = execution.BaselineCoverage,
             CoverageAfter = execution.CoverageAfter,
             CoverageImprovement = execution.CoverageImprovement,
             BaselineMutationScore = execution.BaselineMutationScore,
@@ -2830,6 +2830,19 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         try
         {
             attempt.Id = await _attemptRepo.InsertAsync(attempt, cancellationToken);
+            if (attempt.TestExecution?.MemberId is > 0)
+            {
+                var generatedMember = await _dbContext.Members.FirstOrDefaultAsync(
+                    x => x.Id == attempt.TestExecution.MemberId.Value,
+                    cancellationToken);
+                if (generatedMember != null &&
+                    generatedMember.OriginKind != TestMap.Models.Code.MemberOrigin.Baseline)
+                {
+                    generatedMember.OriginKind = TestMap.Models.Code.MemberOrigin.LlmAttempt;
+                    generatedMember.OriginAttemptId = attempt.Id;
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                }
+            }
             await RecordSnapshotDecisionsAsync(
                 RuleDecisionScope.GenerationAttempt(attempt.Id),
                 attempt.RuleDecisionSnapshotJson,

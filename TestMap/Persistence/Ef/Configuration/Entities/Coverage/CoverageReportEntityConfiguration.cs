@@ -40,6 +40,13 @@ public class CoverageReportEntityConfiguration : IEntityTypeConfiguration<Covera
         builder.Property(x => x.BranchesCovered).HasColumnName("branches_covered").IsRequired();
         builder.Property(x => x.BranchesValid).HasColumnName("branches_valid").IsRequired();
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
+        builder.Property(x => x.ScopeKind).HasColumnName("scope_kind").HasDefaultValue("Solution").IsRequired();
+        builder.Property(x => x.ReportRole).HasColumnName("report_role")
+            .HasDefaultValue(TestMap.Models.Testing.TestReportRole.RepositoryBaseline).IsRequired();
+        builder.Property(x => x.ExperimentRunId).HasColumnName("experiment_run_id");
+        builder.Property(x => x.SourceProjectPath).HasColumnName("source_project_path").HasDefaultValue(string.Empty).IsRequired();
+        builder.Property(x => x.TestProjectPath).HasColumnName("test_project_path").HasDefaultValue(string.Empty).IsRequired();
+        builder.Property(x => x.TargetFramework).HasColumnName("target_framework").HasDefaultValue(string.Empty).IsRequired();
 
         builder.HasOne(x => x.TestRun)
             .WithMany(x => x.CoverageReports)
@@ -47,6 +54,7 @@ public class CoverageReportEntityConfiguration : IEntityTypeConfiguration<Covera
             .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(x => x.TestRunId);
+        builder.HasIndex(x => new { x.ProjectId, x.ReportRole, x.ScopeKind });
         builder.HasIndex(x => new { x.ProjectId, x.RunId })
             .IsUnique()
             .HasFilter("run_id <> ''");

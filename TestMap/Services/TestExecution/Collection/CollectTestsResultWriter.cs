@@ -14,7 +14,7 @@ namespace TestMap.Services.TestExecution.Collection;
 public class CollectTestsResultWriter
 {
     internal const string CsvHeader =
-        "URL,Owner,Repo,Restores,Builds,TestsRun,TestsPass,HasCoverage,HasMutationScore,HasCandidateMethods,CandidateCount,ExperimentEligibleCandidateCount,DockerContext,DockerOs,ExecutionSupport,UnsupportedProjectCount,UnsupportedProjects,BaselineRunId,FailureCategory,FailureSummary,CoverageStatus,CoverageReason,CoveragePolicyVersion,RawCoverageObjectCount,MappedCoverageObjectCount,RawCoverageMemberCount,MappedCoverageMemberCount";
+        "URL,Owner,Repo,Restores,Builds,TestsRun,TestsPass,HasCoverage,HasMutationScore,HasCandidateMethods,CandidateCount,ExperimentEligibleCandidateCount,DockerContext,DockerOs,ExecutionSupport,UnsupportedProjectCount,UnsupportedProjects,BaselineRunId,FailureCategory,FailureSummary,CoverageStatus,CoverageReason,CoveragePolicyVersion,RawCoverageObjectCount,MappedCoverageObjectCount,RawCoverageMemberCount,MappedCoverageMemberCount,MutationStatus,MutationReason";
 
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> CsvLocks =
         new(StringComparer.OrdinalIgnoreCase);
@@ -56,16 +56,31 @@ public class CollectTestsResultWriter
             cancellationToken);
         var executionSupportSummary = CreateExecutionSupportSummary();
         var latestRun = await _dbContext.TestRuns
-            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.ProjectId == projectId &&
+                        x.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline)
             .OrderByDescending(x => x.CreatedAt)
             .ThenByDescending(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
         var latestCoverage = await _dbContext.CoverageReports
-            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.ProjectId == projectId &&
+                        x.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline)
             .OrderByDescending(x => x.CreatedAt)
             .ThenByDescending(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
         var coverageSummary = CreateCoverageSummary(latestCoverage);
+        var repositoryMutationBaseline = await _dbContext.MutationTestingReports
+            .Where(x => x.ProjectId == projectId &&
+                        x.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline &&
+                        x.ScopeKind == "Solution")
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        var mutationStatus = repositoryMutationBaseline != null ? "Available" : "Missing";
+        var mutationReason = repositoryMutationBaseline != null
+            ? string.Empty
+            : latestRun?.FailureAnalysis != null
+                ? $"{latestRun.FailureAnalysis.Stage}: {latestRun.FailureAnalysis.Summary}"
+                : "No solution-scope repository baseline mutation report was persisted.";
 
         var result = new ProjectValidationResult(
             _context.Project.GitHubUrl,
@@ -76,8 +91,7 @@ public class CollectTestsResultWriter
             _buildTestService.LatestTestsExecuted && latestRun != null,
             latestRun?.Success == true,
             coverageSummary.HasCoverage,
-            latestRun?.MutationScore.HasValue == true ||
-            await _dbContext.MutationTestingReports.AnyAsync(x => x.ProjectId == projectId, cancellationToken),
+            repositoryMutationBaseline != null,
             candidateCount > 0,
             candidateCount,
             eligibleCandidateCount,
@@ -95,7 +109,9 @@ public class CollectTestsResultWriter
             coverageSummary.RawObjectCount,
             coverageSummary.MappedObjectCount,
             coverageSummary.RawMemberCount,
-            coverageSummary.MappedMemberCount);
+            coverageSummary.MappedMemberCount,
+            mutationStatus,
+            mutationReason);
 
         await WriteCsvRowAsync(result, cancellationToken);
     }
@@ -191,7 +207,7 @@ public class CollectTestsResultWriter
                     cancellationToken);
 
             await writer.WriteLineAsync(
-                $"{Escape(result.Url)},{Escape(result.Owner)},{Escape(result.Repo)},{result.Restores},{result.Builds},{result.TestsRun},{result.TestsPass},{result.HasCoverage},{result.HasMutationScore},{result.HasCandidateMethods},{result.CandidateCount},{result.ExperimentEligibleCandidateCount},{Escape(result.DockerContext)},{Escape(result.DockerOs)},{Escape(result.ExecutionSupport)},{result.UnsupportedProjectCount},{Escape(result.UnsupportedProjects)},{Escape(result.BaselineRunId)},{Escape(result.FailureCategory)},{Escape(result.FailureSummary)},{Escape(result.CoverageStatus)},{Escape(result.CoverageReason)},{Escape(result.CoveragePolicyVersion)},{result.RawCoverageObjectCount},{result.MappedCoverageObjectCount},{result.RawCoverageMemberCount},{result.MappedCoverageMemberCount}"
+                $"{Escape(result.Url)},{Escape(result.Owner)},{Escape(result.Repo)},{result.Restores},{result.Builds},{result.TestsRun},{result.TestsPass},{result.HasCoverage},{result.HasMutationScore},{result.HasCandidateMethods},{result.CandidateCount},{result.ExperimentEligibleCandidateCount},{Escape(result.DockerContext)},{Escape(result.DockerOs)},{Escape(result.ExecutionSupport)},{result.UnsupportedProjectCount},{Escape(result.UnsupportedProjects)},{Escape(result.BaselineRunId)},{Escape(result.FailureCategory)},{Escape(result.FailureSummary)},{Escape(result.CoverageStatus)},{Escape(result.CoverageReason)},{Escape(result.CoveragePolicyVersion)},{result.RawCoverageObjectCount},{result.MappedCoverageObjectCount},{result.RawCoverageMemberCount},{result.MappedCoverageMemberCount},{Escape(result.MutationStatus)},{Escape(result.MutationReason)}"
                     .AsMemory(),
                 cancellationToken);
         }

@@ -69,6 +69,13 @@ public class CoverageReportModel
 
     [XmlIgnore] public int MappedMemberCount { get; set; }
 
+    [XmlIgnore] public string ScopeKind { get; set; } = "Solution";
+    [XmlIgnore] public string ReportRole { get; set; } = Testing.TestReportRole.RepositoryBaseline;
+    [XmlIgnore] public int? ExperimentRunId { get; set; }
+    [XmlIgnore] public string SourceProjectPath { get; set; } = string.Empty;
+    [XmlIgnore] public string TestProjectPath { get; set; } = string.Empty;
+    [XmlIgnore] public string TargetFramework { get; set; } = string.Empty;
+
     [XmlArray("packages")]
     [XmlArrayItem("package")]
     public List<PackageCoverage> Packages { get; set; } = new();

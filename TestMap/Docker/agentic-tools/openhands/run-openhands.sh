@@ -32,8 +32,9 @@ cd /workspace
 # from /tmp onto a Docker Desktop bind mount falls back to copy2, whose metadata
 # preservation is not supported by the Windows bind-mount filesystem.
 export TMPDIR="${OPENHANDS_TMPDIR:-/workspace/.testmap/tmp}"
-export SAVE_TRAJECTORY_PATH="${SAVE_TRAJECTORY_PATH:-/attempt/openhands-trajectories}"
-export OH_PERSISTENCE_DIR="${OH_PERSISTENCE_DIR:-/attempt/openhands-state}"
+# The CLI writes conversation state (base_state.json carries token usage) under
+# OPENHANDS_CONVERSATIONS_DIR; the default ~/.openhands dies with the container.
+export OPENHANDS_CONVERSATIONS_DIR="${OPENHANDS_CONVERSATIONS_DIR:-/attempt/openhands-state/conversations}"
 export OPENHANDS_SUPPRESS_BANNER="${OPENHANDS_SUPPRESS_BANNER:-1}"
 export DISABLE_COLOR="${DISABLE_COLOR:-true}"
 export NO_COLOR="${NO_COLOR:-1}"
@@ -41,8 +42,7 @@ export TERM="${TERM:-dumb}"
 export TTY_COMPATIBLE="${TTY_COMPATIBLE:-0}"
 export TTY_INTERACTIVE="${TTY_INTERACTIVE:-0}"
 mkdir -p "$TMPDIR"
-mkdir -p "$SAVE_TRAJECTORY_PATH"
-mkdir -p "$OH_PERSISTENCE_DIR"
+mkdir -p "$OPENHANDS_CONVERSATIONS_DIR"
 
 APPROVAL_ARGS=()
 case "${OPENHANDS_APPROVAL_MODE:-always-approve}" in
@@ -81,8 +81,7 @@ TOOL_ID=openhands
 OPENHANDS_APPROVAL_MODE=${OPENHANDS_APPROVAL_MODE:-always-approve}
 LLM_MODEL=${LLM_MODEL:-}
 LLM_BASE_URL=${LLM_BASE_URL:-}
-SAVE_TRAJECTORY_PATH=${SAVE_TRAJECTORY_PATH}
-OH_PERSISTENCE_DIR=${OH_PERSISTENCE_DIR}
+OPENHANDS_CONVERSATIONS_DIR=${OPENHANDS_CONVERSATIONS_DIR}
 TMPDIR=${TMPDIR}
 OPENHANDS_SUPPRESS_BANNER=${OPENHANDS_SUPPRESS_BANNER}
 DISABLE_COLOR=${DISABLE_COLOR}

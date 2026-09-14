@@ -13,5 +13,6 @@ public interface IAnalyzeProjectService
     /// </summary>
     Task AnalyzeProjectAsync(
         CSharpProjectModel analysisProject,
-        Dictionary<string, int>? sharedMemberIds = null);
+        Dictionary<string, int>? sharedMemberIds = null,
+        MemberAnalysisOrigin? origin = null);
 }

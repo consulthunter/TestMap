@@ -19,6 +19,7 @@ public class TestExecution
     public bool CompilationSuccess { get; set; }
     public bool TestsExecuted { get; set; }
     public bool TestPassed { get; set; }
+    public double? CoverageBefore { get; set; }
     public double? CoverageAfter { get; set; }
     public double? CoverageImprovement { get; set; }
     public double? BaselineMutationScore { get; set; }

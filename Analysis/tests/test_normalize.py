@@ -703,8 +703,8 @@ class TestBuildCandidateSummary:
         result = build_candidate_summary(df)
         assert result.empty
 
-    def test_agentic_candidates_grouped_by_lane(self):
-        """Agentic attempts from different tools roll up into one candidate row."""
+    def test_agentic_candidates_grouped_by_producer(self):
+        """Attempts from different tools stay separate candidate rows."""
         rows = [
             {"candidate_key": "k1", "lane": LANE_AGENTIC, "tool_id": "codex",
              "validated_success": True, "coverage_delta": 0.35,
@@ -715,10 +715,11 @@ class TestBuildCandidateSummary:
              "mutation_score_delta": 0.0, "generated_test_count": 6,
              "repo_owner": "o", "repo_name": "r", "commit_hash": "c", "repository_key": "rk"},
         ]
-        result = build_candidate_summary(pd.DataFrame(rows))
-        assert len(result) == 1
-        assert result["any_validated_success"].iloc[0] == True  # noqa: E712
-        assert result["total_generated_tests"].iloc[0] == 11
+        result = build_candidate_summary(pd.DataFrame(rows)).set_index("producer")
+        assert len(result) == 2
+        assert result.loc["codex", "any_validated_success"] == True  # noqa: E712
+        assert result.loc["gemini", "any_validated_success"] == False  # noqa: E712
+        assert result.loc["gemini", "total_generated_tests"] == 6
 
 
 # ---------------------------------------------------------------------------

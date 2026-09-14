@@ -43,15 +43,14 @@ public class MemberRepository
         if (string.IsNullOrWhiteSpace(methodName))
             return null;
 
-        // Newest first. A member is identified partly by its body, so earlier attempts that
-        // generated a test of this name left their own rows behind; the one this attempt just
-        // wrote is the highest id.
         var candidates = await (
             from member in _context.Members
             join obj in _context.Objects on member.ObjectEntityId equals obj.Id
             join file in _context.Files on obj.FileId equals file.Id
             where member.IsTestMember && member.Kind == "method" && member.Name == methodName
-            orderby member.Id descending
+            orderby member.IsGenerated descending,
+                member.OriginKind == MemberOrigin.Baseline,
+                member.Id descending
             select new { Member = member, file.FilePath }
         ).ToListAsync();
 
@@ -80,7 +79,32 @@ public class MemberRepository
 
     public async Task<int> InsertOrUpdateAsync(MemberModel model)
     {
-        var existing = await _context.Members.FirstOrDefaultAsync(x => x.ContentHash == model.ContentHash);
+        var baseline = await _context.Members.FirstOrDefaultAsync(x =>
+            x.ObjectEntityId == model.ObjectEntityId &&
+            x.Signature == model.Signature &&
+            x.OriginKind == MemberOrigin.Baseline);
+
+        // Adopt pre-migration rows on their first analysis pass. Their signature was not stored,
+        // but an unchanged content hash identifies the exact legacy version safely.
+        if (baseline == null)
+        {
+            baseline = await _context.Members.FirstOrDefaultAsync(x =>
+                x.ContentHash == model.ContentHash &&
+                x.OriginKind == MemberOrigin.Baseline);
+        }
+
+        // Attempt-time analysis must not rewrite baseline evidence. Unchanged members reuse the
+        // baseline row; changed/new members are versioned within their originating attempt.
+        if (model.OriginKind != MemberOrigin.Baseline && baseline?.ContentHash == model.ContentHash)
+            return baseline.Id;
+
+        var existing = model.OriginKind == MemberOrigin.Baseline
+            ? baseline
+            : await _context.Members.FirstOrDefaultAsync(x =>
+                x.ObjectEntityId == model.ObjectEntityId &&
+                x.Signature == model.Signature &&
+                x.OriginKind == model.OriginKind &&
+                x.OriginAttemptId == model.OriginAttemptId);
 
         if (existing != null)
         {
@@ -102,6 +126,9 @@ public class MemberRepository
                 existing.TestMetadataConfidence = model.TestMetadataConfidence;
                 existing.TestMetadataPromptVersion = model.TestMetadataPromptVersion;
                 existing.ContentHash = model.ContentHash;
+                existing.Signature = model.Signature;
+                existing.OriginKind = model.OriginKind;
+                existing.OriginAttemptId = model.OriginAttemptId;
                 await _context.SaveChangesAsync();
             }
 
@@ -135,6 +162,9 @@ public class MemberRepository
                entity.Location.BodyStartPosition != model.Location.BodyStartPosition ||
                entity.Location.EndLineNumber != model.Location.EndLineNumber ||
                entity.Location.BodyEndPosition != model.Location.BodyEndPosition ||
-               entity.ContentHash != model.ContentHash;
+               entity.ContentHash != model.ContentHash ||
+               entity.Signature != model.Signature ||
+               entity.OriginKind != model.OriginKind ||
+               entity.OriginAttemptId != model.OriginAttemptId;
     }
 }

@@ -23,7 +23,10 @@ public static class MemberMappingExtensions
             TestIntent = model.TestIntent,
             TestMetadataSource = model.TestMetadataSource,
             TestMetadataConfidence = model.TestMetadataConfidence,
-            TestMetadataPromptVersion = model.TestMetadataPromptVersion
+            TestMetadataPromptVersion = model.TestMetadataPromptVersion,
+            Signature = model.Signature,
+            OriginKind = model.OriginKind,
+            OriginAttemptId = model.OriginAttemptId
         };
     }
 
@@ -45,7 +48,10 @@ public static class MemberMappingExtensions
             entity.IsGenerated,
             entity.TestMetadataSource,
             entity.TestMetadataConfidence,
-            entity.TestMetadataPromptVersion
+            entity.TestMetadataPromptVersion,
+            entity.Signature,
+            entity.OriginKind,
+            entity.OriginAttemptId
         );
     }
 }

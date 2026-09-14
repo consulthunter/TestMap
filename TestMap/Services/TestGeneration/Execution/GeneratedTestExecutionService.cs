@@ -608,7 +608,10 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         // newly-applied generated test, producing correct cross-project Invocation edges.
         var sharedMemberIds = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var project in TopologicallySorted(_context.Project.Projects))
-            await _analyzeProjectService.AnalyzeProjectAsync(project, sharedMemberIds);
+            await _analyzeProjectService.AnalyzeProjectAsync(
+                project,
+                sharedMemberIds,
+                MemberAnalysisOrigin.LlmAttempt(null));
 
         await _codeMetricsService.CollectCodeMetricsAsync(analysisProject, cancellationToken);
 

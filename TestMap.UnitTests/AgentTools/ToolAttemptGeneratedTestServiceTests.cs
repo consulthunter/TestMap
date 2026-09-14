@@ -149,6 +149,7 @@ public sealed class ToolAttemptGeneratedTestServiceTests
         // Assert
         Assert.Equal(1, result.LinkedCount);
         Assert.Equal(1, await db.ToolAttemptGeneratedTests.CountAsync());
+        Assert.True((await db.Members.SingleAsync()).IsGenerated);
     }
 
     [Fact]

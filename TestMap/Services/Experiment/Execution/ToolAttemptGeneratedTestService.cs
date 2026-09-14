@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.AgentTools;
+using TestMap.Models.Code;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.AgentTools;
 
@@ -103,6 +104,15 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
 
         if (memberIds.Count == 0)
             return new ToolAttemptGeneratedTestLinkResult();
+
+        var linkedMembers = await _dbContext.Members
+            .Where(x => memberIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        foreach (var member in linkedMembers)
+        {
+            member.IsGenerated = true;
+        }
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         // Look up existing source-test mappings for these test members so we can
         // optionally record which candidate they map to.

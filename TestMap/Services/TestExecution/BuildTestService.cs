@@ -73,7 +73,12 @@ public class BuildTestService : IBuildTestService
         ResetLatestState();
         _artifactCleanupService.CleanupProjectDirectory(false);
 
-        _runId = (request.IsBaseline ? "baseline_" : "iteration_") + Guid.NewGuid();
+        _runId = request.ReportRole switch
+        {
+            TestReportRole.RepositoryBaseline => "baseline_" + Guid.NewGuid(),
+            TestReportRole.TargetedBaseline => "targeted_baseline_" + Guid.NewGuid(),
+            _ => "attempt_" + Guid.NewGuid()
+        };
         _runDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
         var result = request.IsBaseline ? new TestRunModel() : new GeneratedTestRunModel();
@@ -114,7 +119,7 @@ public class BuildTestService : IBuildTestService
                 }
             }
 
-            await CollectAndMapResultsAsync(_completedMutationTargets);
+            await CollectAndMapResultsAsync(_completedMutationTargets, request.CreateCoverageReportScope());
             LatestCoverage = LatestCoverageReport != null ? (int)(LatestCoverageReport.LineRate * 100) : 0;
 
             if (LatestTestResults.Count == 0 && !string.IsNullOrWhiteSpace(LatestLogPath))
@@ -164,6 +169,7 @@ public class BuildTestService : IBuildTestService
             result.Results = LatestTestResults;
             result.Success = LatestSuccess;
             result.FailureAnalysis = LatestFailureAnalysis;
+            result.ReportRole = request.ReportRole;
 
             if (result is GeneratedTestRunModel generated)
             {
@@ -573,9 +579,10 @@ public class BuildTestService : IBuildTestService
         return int.TryParse(exitCodeText, out var parsedExitCode) ? parsedExitCode : 0;
     }
 
-    private async Task CollectAndMapResultsAsync(List<string> mutationTargets)
+    private async Task CollectAndMapResultsAsync(List<string> mutationTargets, CoverageReportScope coverageScope)
     {
-        var collectedResults = await _resultCollector.CollectAndMapAsync(_runId, _runDate, mutationTargets);
+        var collectedResults = await _resultCollector.CollectAndMapAsync(
+            _runId, _runDate, mutationTargets, coverageScope);
         LatestTestResults = collectedResults.TestResults;
         LatestTestResultRaw = collectedResults.TestResultRaw;
         LatestCoverageReport = collectedResults.CoverageReport;

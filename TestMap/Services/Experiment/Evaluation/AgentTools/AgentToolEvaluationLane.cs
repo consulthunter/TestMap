@@ -605,13 +605,10 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
 
     private static ToolUsageSummary? TryParseOpenHandsTokenUsage(JsonElement usage, string sourceFile)
     {
-        var inputTokens = Sum(
-            ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens"),
-            ReadInt(usage, "cache_read_tokens"),
-            ReadInt(usage, "cache_write_tokens"));
-        var outputTokens = Sum(
-            ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens"),
-            ReadInt(usage, "reasoning_tokens"));
+        // The SDK copies litellm's prompt/completion counts, which already include cache
+        // reads/writes and reasoning. Those fields are breakdowns and must not be added on top.
+        var inputTokens = ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens");
+        var outputTokens = ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens");
         if (!inputTokens.HasValue && !outputTokens.HasValue)
             return null;
 
@@ -653,13 +650,16 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         long outputTokens = 0;
         var any = false;
 
-        if (!root.TryGetProperty("trajectory", out var trajectory) ||
-            trajectory.ValueKind != JsonValueKind.Array)
+        // mini-swe-agent-1.1 trajectories keep each model response on its assistant
+        // message: messages[].extra.response.usage. prompt_tokens already includes cache.
+        if (!root.TryGetProperty("messages", out var messages) ||
+            messages.ValueKind != JsonValueKind.Array)
             return null;
 
-        foreach (var item in trajectory.EnumerateArray())
+        foreach (var message in messages.EnumerateArray())
         {
-            if (!TryGetObject(item, "response", out var response) ||
+            if (!TryGetObject(message, "extra", out var extra) ||
+                !TryGetObject(extra, "response", out var response) ||
                 !TryGetObject(response, "usage", out var usage))
                 continue;
             var promptTokens = ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens");

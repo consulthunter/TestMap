@@ -1,6 +1,7 @@
 using TestMap.Models.Results;
 using TestMap.Models.MutationTesting;
 using TestMap.Models.Testing;
+using TestMap.Models.Coverage;
 
 namespace TestMap.Services.TestExecution;
 
@@ -29,6 +30,11 @@ public sealed class BuildTestRunRequest
     public string? CoveredMethodName => TargetMember?.MethodName;
 
     public bool IsBaseline => Mode == BuildTestRunMode.Baseline;
+    public string ReportRole => IsBaseline
+        ? TestReportRole.RepositoryBaseline
+        : IsMutationBaseline
+            ? TestReportRole.TargetedBaseline
+            : TestReportRole.AttemptMeasurement;
 
     public static BuildTestRunRequest CreateBaseline(IEnumerable<string> solutions)
     {
@@ -74,5 +80,16 @@ public sealed class BuildTestRunRequest
             MutationSourceProjectPath,
             TargetProjectPath,
             TargetFramework);
+    }
+
+    public CoverageReportScope CreateCoverageReportScope()
+    {
+        return new CoverageReportScope(
+            IsBaseline ? "Solution" : "SourceProject",
+            ReportRole,
+            ExperimentRunId,
+            IsBaseline ? string.Empty : MutationSourceProjectPath ?? string.Empty,
+            IsBaseline ? string.Empty : TargetProjectPath ?? string.Empty,
+            TargetFramework ?? string.Empty);
     }
 }

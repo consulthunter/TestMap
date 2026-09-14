@@ -39,7 +39,7 @@ per repository database.
 | Command | Purpose |
 |---|---|
 | `build-datasets` | Build the canonical CSVs + overview from result CSVs (and DBs). |
-| `export-failures` | Build the failure dataset. `--markdown` writes per-case files; `--sample {all,stratified-lane,stratified-label,stratified-tool,top-n,high-severity,llm-won,agentic-won}` filters. |
+| `export-failures` | Build the failure dataset. `--markdown` writes per-case files; `--sample {all,stratified-lane,stratified-label,stratified-tool,top-n,high-severity,first-attempt,lane-llm,lane-agentic}` filters (`--seed` fixes stratified draws). Infrastructure failures are excluded unless `--include-infrastructure`. Artifact paths are re-rooted under each database's folder; pass `--logs <run>/logs` to re-root run logs. |
 | `overview` | Headline counts (JSON/CSV) from an attempts CSV. |
 | `audit` | Data-completeness report to run before analysis. |
 | `export-training` | ML training export. `--grain {mapping,candidate,pair}`. |
@@ -71,12 +71,19 @@ per repository database.
 
 | Notebook | Focus |
 |---|---|
-| `01_repository_evaluation` | Deep dive on one repository. |
-| `02_cross_repo_overview` | Study population, headline outcomes, data completeness. |
-| `03_cross_repo_lane_comparison` | LLM vs agentic on shared outcomes (paired, weighted, cost). |
-| `04_model_tool_analysis` | Per model/tool ranking, predictors, best-by-category. |
-| `05_failure_casebook` | Sampling frame + flow for qualitative coding. |
 | `00_msr_validation` | Mining-layer validation: availability, distributions, IQRs, structural checks. |
+| `00b_pilot_msr_validation` | The same checks on the pilot's post-experiment databases. |
+
+Exploratory notebooks live in `notebooks/exploratory/`; point them at a dataset with
+`ANALYSIS_DATA_DIR` (default `../../data`).
+
+| Notebook | Focus |
+|---|---|
+| `exploratory/01_repository_evaluation` | One repository (run per repo by `repo-report`); same sections as 02. |
+| `exploratory/02_cross_repo_overview` | All repositories: outcomes, metric movement, generated tests, smells, assertions, mutation profile, footprint, cost, completeness. |
+| `exploratory/03_cross_repo_lane_comparison` | LLM vs agentic: headline pass@1 pairs, chain/attempt/repository-weighted rates, cost-effectiveness. |
+| `exploratory/04_model_tool_analysis` | Per model/tool: rates with Wilson CIs, producer summary and cost frontier, robustness, smells, predictors, repair. |
+| `exploratory/05_failure_casebook` | Failure cases for qualitative coding: labels, seeded sample, headline-pair disagreements, safety failures. |
 
 ## Key semantics
 

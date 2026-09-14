@@ -319,6 +319,8 @@ AGENTIC_SPECIFIC_FIELDS: list[str] = [
 # ---------------------------------------------------------------------------
 
 PRELIMINARY_FAILURE_LABELS: list[str] = [
+    "infrastructure",
+    "generation_failed",
     "no_change",
     "timeout",
     "tool_crash",

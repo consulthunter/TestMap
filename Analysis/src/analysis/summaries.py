@@ -85,6 +85,13 @@ def compute_outcome_counts(df: pd.DataFrame) -> dict:
         "validated_low_impact_attempts": int(df["validated_low_impact"].fillna(False).sum()) if "validated_low_impact" in df.columns else None,
     }
 
+    if "infrastructure_failure" in df.columns:
+        infra = df["infrastructure_failure"].astype("boolean").fillna(False).astype(bool)
+        counts["infrastructure_failure_attempts"] = int(infra.sum())
+        if "lane" in df.columns:
+            for lane in (LANE_LLM, LANE_AGENTIC):
+                counts[f"infrastructure_failure_{lane}"] = int((infra & (df["lane"] == lane)).sum())
+
     if "outcome_classification" not in df.columns:
         return counts
 

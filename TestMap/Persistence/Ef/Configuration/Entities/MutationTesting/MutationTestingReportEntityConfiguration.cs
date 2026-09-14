@@ -20,6 +20,8 @@ public class MutationTestingReportEntityConfiguration : IEntityTypeConfiguration
         builder.Property(x => x.ExperimentRunId).HasColumnName("experiment_run_id");
         builder.Property(x => x.ScopeKind).HasColumnName("scope_kind").IsRequired();
         builder.Property(x => x.IsBaseline).HasColumnName("is_baseline").IsRequired();
+        builder.Property(x => x.ReportRole).HasColumnName("report_role")
+            .HasDefaultValue(TestMap.Models.Testing.TestReportRole.RepositoryBaseline).IsRequired();
         builder.Property(x => x.SourceProjectPath).HasColumnName("source_project_path").IsRequired();
         builder.Property(x => x.TestProjectPath).HasColumnName("test_project_path").IsRequired();
         builder.Property(x => x.TargetFramework).HasColumnName("target_framework").IsRequired();
@@ -70,7 +72,7 @@ public class MutationTestingReportEntityConfiguration : IEntityTypeConfiguration
             x.ProjectId,
             x.ExperimentRunId,
             x.ScopeKind,
-            x.IsBaseline,
+            x.ReportRole,
             x.SourceProjectPath,
             x.TestProjectPath,
             x.TargetFramework

@@ -597,9 +597,27 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("name");
 
+                    b.Property<int?>("OriginAttemptId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("origin_attempt_id");
+
+                    b.Property<string>("OriginKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("Baseline")
+                        .HasColumnName("origin_kind");
+
                     b.Property<int>("ObjectEntityId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("object_id");
+
+                    b.Property<string>("Signature")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("")
+                        .HasColumnName("signature");
 
                     b.Property<string>("TestCategories")
                         .IsRequired()
@@ -626,6 +644,8 @@ namespace TestMap.Migrations
                         .HasColumnName("test_metadata_source");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ObjectEntityId", "Signature", "OriginKind", "OriginAttemptId");
 
                     b.ToTable("members", (string)null);
                 });
@@ -856,6 +876,10 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
+                    b.Property<int?>("ExperimentRunId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("experiment_run_id");
+
                     b.Property<bool>("HasUsableCoverage")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
@@ -903,6 +927,13 @@ namespace TestMap.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("project_id");
 
+                    b.Property<string>("ReportRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("RepositoryBaseline")
+                        .HasColumnName("report_role");
+
                     b.Property<int>("RawMemberCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
@@ -929,6 +960,34 @@ namespace TestMap.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("successful_collector");
 
+                    b.Property<string>("ScopeKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("Solution")
+                        .HasColumnName("scope_kind");
+
+                    b.Property<string>("SourceProjectPath")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("")
+                        .HasColumnName("source_project_path");
+
+                    b.Property<string>("TargetFramework")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("")
+                        .HasColumnName("target_framework");
+
+                    b.Property<string>("TestProjectPath")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("")
+                        .HasColumnName("test_project_path");
+
                     b.Property<int?>("TestRunId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("test_run_id");
@@ -945,6 +1004,8 @@ namespace TestMap.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TestRunId");
+
+                    b.HasIndex("ProjectId", "ReportRole", "ScopeKind");
 
                     b.HasIndex("ProjectId", "RunId")
                         .IsUnique()
@@ -2390,6 +2451,10 @@ namespace TestMap.Migrations
                         .HasColumnType("REAL")
                         .HasColumnName("coverage_delta");
 
+                    b.Property<double?>("CoverageBefore")
+                        .HasColumnType("REAL")
+                        .HasColumnName("coverage_before");
+
                     b.Property<DateTime>("ExecutionTime")
                         .HasColumnType("TEXT")
                         .HasColumnName("execution_time");
@@ -3313,6 +3378,13 @@ namespace TestMap.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("project_root");
 
+                    b.Property<string>("ReportRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("RepositoryBaseline")
+                        .HasColumnName("report_role");
+
                     b.Property<string>("SchemaVersion")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -3356,7 +3428,7 @@ namespace TestMap.Migrations
 
                     b.HasIndex("TestRunId");
 
-                    b.HasIndex("ProjectId", "ExperimentRunId", "ScopeKind", "IsBaseline", "SourceProjectPath", "TestProjectPath", "TargetFramework");
+                    b.HasIndex("ProjectId", "ExperimentRunId", "ScopeKind", "ReportRole", "SourceProjectPath", "TestProjectPath", "TargetFramework");
 
                     b.ToTable("mutation_testing_reports", (string)null);
                 });
@@ -3753,6 +3825,13 @@ namespace TestMap.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("run_id");
+
+                    b.Property<string>("ReportRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("AttemptMeasurement")
+                        .HasColumnName("report_role");
 
                     b.Property<bool>("Success")
                         .HasColumnType("INTEGER")

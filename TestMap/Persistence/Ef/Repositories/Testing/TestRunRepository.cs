@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.Results;
+using TestMap.Models.Testing;
 using TestMap.Persistence.Ef.Mappings;
 
 namespace TestMap.Persistence.Ef.Repositories.Testing;
@@ -35,7 +36,7 @@ public class TestRunRepository
     {
         var entity = await _context.TestRuns
             .AsNoTracking()
-            .Where(x => x.ProjectId == projectId && x.RunId.StartsWith("baseline_"))
+            .Where(x => x.ProjectId == projectId && x.ReportRole == TestReportRole.RepositoryBaseline)
             .OrderByDescending(x => x.CreatedAt)
             .ThenByDescending(x => x.Id)
             .FirstOrDefaultAsync();
@@ -58,6 +59,7 @@ public class TestRunRepository
                 existing.MutationScore = model.MutationScore;
                 existing.LogPath = model.LogPath;
                 existing.FailureAnalysis = model.FailureAnalysis;
+                existing.ReportRole = model.ReportRole;
                 await _context.SaveChangesAsync();
             }
 
@@ -89,6 +91,7 @@ public class TestRunRepository
                entity.FailureAnalysis?.RemediationSuggestion != model.FailureAnalysis?.RemediationSuggestion ||
                entity.FailureAnalysis?.Evidence != model.FailureAnalysis?.Evidence ||
                entity.FailureAnalysis?.Source != model.FailureAnalysis?.Source ||
-               entity.FailureAnalysis?.Confidence != model.FailureAnalysis?.Confidence;
+               entity.FailureAnalysis?.Confidence != model.FailureAnalysis?.Confidence ||
+               entity.ReportRole != model.ReportRole;
     }
 }

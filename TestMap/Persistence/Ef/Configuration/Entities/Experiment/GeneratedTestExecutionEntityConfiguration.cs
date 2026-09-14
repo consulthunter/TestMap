@@ -25,6 +25,7 @@ public class GeneratedTestExecutionEntityConfiguration : IEntityTypeConfiguratio
         builder.Property(x => x.RuntimeErrors).HasColumnName("runtime_errors");
         builder.Property(x => x.AssertionErrors).HasColumnName("assertion_errors");
         builder.Property(x => x.ExecutionTimeMs).HasColumnName("execution_time_ms").IsRequired();
+        builder.Property(x => x.CoverageBefore).HasColumnName("coverage_before");
         builder.Property(x => x.FinalCoverage).HasColumnName("final_coverage");
         builder.Property(x => x.FinalCoveredLines).HasColumnName("final_covered_lines").IsRequired();
         builder.Property(x => x.FinalTotalLines).HasColumnName("final_total_lines").IsRequired();

@@ -95,6 +95,7 @@ public sealed class CandidateMethodSelector
                         where coverage.MemberId == member.Id
                               && coverage.AttributionStatus == "Mapped"
                               && report.MeasurementPolicyVersion == "coverage-integrity-v1"
+                              && report.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline
                               && report.HasUsableCoverage
                               && coverage.LineRate >= minCoverageThreshold
                               && coverage.LineRate <= maxCoverageThreshold
@@ -107,6 +108,7 @@ public sealed class CandidateMethodSelector
                     .FirstOrDefault()
                 where !member.IsTestMember
                       && !member.IsGenerated
+                      && member.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline
                       && !sourceObject.IsTestObject
                       && member.Kind == "method"
                       && selectedCoverage != null

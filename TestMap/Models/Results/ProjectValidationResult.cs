@@ -27,5 +27,7 @@ public record ProjectValidationResult(
     int? RawCoverageObjectCount,
     int? MappedCoverageObjectCount,
     int? RawCoverageMemberCount,
-    int? MappedCoverageMemberCount
+    int? MappedCoverageMemberCount,
+    string MutationStatus = "",
+    string MutationReason = ""
 );

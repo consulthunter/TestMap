@@ -71,6 +71,22 @@ public sealed class AttemptMetricComparisonServiceTests
         Assert.Equal("Missing", result.ImpactStatus);
     }
 
+    [Fact]
+    public async Task CompareAsync_RejectsCoverageFromDifferentScopes()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        await SeedRunsAsync(db);
+        await AddCoverageAsync(db, 10, 77, 0.25, 0.25, "src/App.csproj");
+        await AddCoverageAsync(db, 20, 77, 0.50, 0.50, "src/Other.csproj");
+
+        var result = await new AttemptMetricComparisonService(db).CompareAsync(77, 10, 20);
+
+        Assert.Equal("ScopeMismatch", result.CoverageStatus);
+        Assert.Null(result.CoverageDelta);
+    }
+
     private static async Task<TestMapDbContext> CreateDbAsync(SqliteConnection connection)
     {
         var db = new TestMapDbContext(
@@ -93,7 +109,8 @@ public sealed class AttemptMetricComparisonServiceTests
         int testRunId,
         int memberId,
         double memberRate,
-        double aggregateRate)
+        double aggregateRate,
+        string sourceProjectPath = "")
     {
         var report = new CoverageReportEntity
         {
@@ -102,7 +119,8 @@ public sealed class AttemptMetricComparisonServiceTests
             LineRate = aggregateRate,
             MeasurementPolicyVersion = "coverage-integrity-v1",
             HasUsableCoverage = true,
-            CollectionStatus = "Mapped"
+            CollectionStatus = "Mapped",
+            SourceProjectPath = sourceProjectPath
         };
         db.CoverageReports.Add(report);
         await db.SaveChangesAsync();

@@ -59,9 +59,11 @@ public class AnalyzeProjectService : IAnalyzeProjectService
 
     public async Task AnalyzeProjectAsync(
         CSharpProjectModel analysisProject,
-        Dictionary<string, int>? sharedMemberIds = null)
+        Dictionary<string, int>? sharedMemberIds = null,
+        MemberAnalysisOrigin? origin = null)
     {
         sharedMemberIds ??= new Dictionary<string, int>(StringComparer.Ordinal);
+        origin ??= MemberAnalysisOrigin.Baseline();
 
         await EnsureProjectPersistedAsync(analysisProject);
 
@@ -93,7 +95,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         {
             if (!CSharpAnalysisRules.ShouldAnalyzeDocument(document.FilePath)) continue;
 
-            await AnalyzeDocumentAsync(document, compilation, analysisProject, state);
+            await AnalyzeDocumentAsync(document, compilation, analysisProject, state, origin);
         }
 
         await PersistRelationshipsAsync(state);
@@ -137,7 +139,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         Document document,
         Compilation compilation,
         CSharpProjectModel analysisProject,
-        AnalysisState state)
+        AnalysisState state,
+        MemberAnalysisOrigin origin)
     {
         var root = await document.GetSyntaxRootAsync();
         if (root == null || document.FilePath == null) return;
@@ -168,7 +171,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             CollectObjectRelationships(objectSymbol, objectKey, state);
 
             foreach (var memberDeclaration in GetMemberDeclarations(objectDeclaration))
-            foreach (var pendingMember in CreateMembers(memberDeclaration, semanticModel, objectId))
+            foreach (var pendingMember in CreateMembers(memberDeclaration, semanticModel, objectId, origin))
             {
                 if (state.MemberIds.ContainsKey(pendingMember.SymbolKey)) continue;
 
@@ -250,7 +253,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
     }
 
     private IEnumerable<PendingMember> CreateMembers(MemberDeclarationSyntax declaration, SemanticModel semanticModel,
-        int objectId)
+        int objectId, MemberAnalysisOrigin origin)
     {
         switch (declaration)
         {
@@ -264,7 +267,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     yield return new PendingMember(
                         GetSymbolKey(symbol),
                         symbol,
-                        CreateMemberModel(fieldDeclaration, symbol, objectId, variable.Identifier.Text, "field"));
+                        CreateMemberModel(fieldDeclaration, symbol, objectId, variable.Identifier.Text, "field", origin));
                 }
 
                 yield break;
@@ -279,7 +282,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     yield return new PendingMember(
                         GetSymbolKey(symbol),
                         symbol,
-                        CreateMemberModel(eventFieldDeclaration, symbol, objectId, variable.Identifier.Text, "event"));
+                        CreateMemberModel(eventFieldDeclaration, symbol, objectId, variable.Identifier.Text, "event", origin));
                 }
 
                 yield break;
@@ -293,7 +296,7 @@ public class AnalyzeProjectService : IAnalyzeProjectService
                     GetSymbolKey(memberSymbol),
                     memberSymbol,
                     CreateMemberModel(declaration, memberSymbol, objectId, memberSymbol.Name,
-                        CSharpAnalysisRules.GetMemberKind(memberSymbol)));
+                        CSharpAnalysisRules.GetMemberKind(memberSymbol), origin));
                 yield break;
             }
         }
@@ -304,7 +307,8 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         ISymbol symbol,
         int objectId,
         string name,
-        string kind)
+        string kind,
+        MemberAnalysisOrigin origin)
     {
         var isTestMember = IsTestMember(declaration);
 
@@ -323,7 +327,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             isGenerated: false,
             testMetadataSource: string.Empty,
             testMetadataConfidence: null,
-            testMetadataPromptVersion: string.Empty);
+            testMetadataPromptVersion: string.Empty,
+            signature: symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            originKind: origin.Kind,
+            originAttemptId: origin.AttemptId);
     }
 
     private void CollectObjectRelationships(INamedTypeSymbol symbol, string objectKey, AnalysisState state)

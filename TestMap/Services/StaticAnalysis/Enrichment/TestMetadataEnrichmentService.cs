@@ -36,7 +36,8 @@ public class TestMetadataEnrichmentService : ITestMetadataEnrichmentService
                 join testObject in _dbContext.Objects on member.ObjectEntityId equals testObject.Id
                 join testFile in _dbContext.Files on testObject.FileId equals testFile.Id
                 join testProject in _dbContext.CSharpProjects on testFile.CSharpProjectId equals testProject.Id
-                where member.IsTestMember && !member.IsGenerated
+                where member.IsTestMember && !member.IsGenerated &&
+                      member.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline
                 select new TestMemberContext
                 {
                     Member = member,

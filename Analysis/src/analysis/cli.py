@@ -203,7 +203,7 @@ def export_training(db, out, grain) -> None:
 @click.option("--out", required=True,
               help="Output directory for Markdown reports and plot images.")
 @click.option("--notebook", default=None,
-              help="Path to NB01. Defaults to <input>/../notebooks/01_repository_evaluation.ipynb.")
+              help="Path to NB01. Defaults to <input>/../notebooks/exploratory/01_repository_evaluation.ipynb.")
 @click.option("--keep-notebook", is_flag=True, default=False,
               help="Keep the executed .ipynb alongside the Markdown output.")
 def repo_report(input_path, repo_name, out, notebook, keep_notebook) -> None:
@@ -235,15 +235,22 @@ def repo_report(input_path, repo_name, out, notebook, keep_notebook) -> None:
     "--sample",
     type=click.Choice([
         "all", "stratified-lane", "stratified-label", "stratified-tool",
-        "top-n", "high-severity", "llm-won", "agentic-won",
+        "top-n", "high-severity", "first-attempt", "lane-llm", "lane-agentic",
     ]),
     default="all",
     help="Sampling strategy.",
 )
-@click.option("--n", default=0, help="Top-N count when --sample=top-n.")
+@click.option("--n", default=0,
+              help="Top-N labels for top-n; cases per stratum for stratified-* (0 = all).")
+@click.option("--seed", type=int, default=20260914, help="Seed for stratified sampling.")
+@click.option("--include-infrastructure", is_flag=True, default=False,
+              help="Keep infrastructure failures (credentials, provider errors) as cases.")
+@click.option("--logs", "logs_root", default=None,
+              help="Folder holding the run's dated log folders; re-roots recorded log paths.")
 @click.option("--markdown", is_flag=True, default=False,
               help="Write individual Markdown case files.")
-def export_failures(results, db, artifacts, out, sample, n, markdown) -> None:
+def export_failures(results, db, artifacts, out, sample, n, seed, include_infrastructure,
+                    logs_root, markdown) -> None:
     """Export a qualitative failure dataset for later open coding.
 
     Outputs: failure_cases.csv, failure_cases.jsonl,
@@ -253,4 +260,5 @@ def export_failures(results, db, artifacts, out, sample, n, markdown) -> None:
     run(
         results=results, db_paths=db, artifacts_root=artifacts,
         output_dir=out, sample=sample, top_n=n, write_markdown=markdown,
+        include_infrastructure=include_infrastructure, seed=seed, logs_root=logs_root,
     )

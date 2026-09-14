@@ -26,14 +26,15 @@ public sealed class AttemptMetricComparisonService(TestMapDbContext dbContext)
         var baselineMutation = await GetMutationAsync(baselineTestRunId, cancellationToken);
         var postMutation = await GetMutationAsync(postTestRunId, cancellationToken);
 
-        var coverageStatus = PairStatus(coverageBefore, coverageAfter);
+        var coverageStatus = CoverageStatus(coverageBefore, coverageAfter);
+        var coverageComparable = coverageStatus == "Paired";
         var mutationStatus = MutationStatus(baselineMutation, postMutation);
         var mutationComparable = mutationStatus == "Paired";
 
         return new AttemptMetricComparison(
-            coverageBefore,
-            coverageAfter,
-            Difference(coverageBefore, coverageAfter),
+            coverageBefore?.LineRate,
+            coverageAfter?.LineRate,
+            coverageComparable ? Difference(coverageBefore?.LineRate, coverageAfter?.LineRate) : null,
             coverageStatus,
             baselineMutation?.Score,
             postMutation?.Score,
@@ -43,7 +44,7 @@ public sealed class AttemptMetricComparisonService(TestMapDbContext dbContext)
             BuildReason(coverageStatus, mutationStatus));
     }
 
-    private async Task<double?> GetMemberCoverageAsync(
+    private async Task<CoverageObservation?> GetMemberCoverageAsync(
         int? testRunId,
         int memberId,
         CancellationToken cancellationToken)
@@ -59,8 +60,20 @@ public sealed class AttemptMetricComparisonService(TestMapDbContext dbContext)
                   && coverage.MemberId == memberId
                   && coverage.AttributionStatus == "Mapped"
             orderby report.Id descending, coverage.Id descending
-            select (double?)coverage.LineRate
+            select new CoverageObservation(
+                coverage.LineRate,
+                report.ScopeKind,
+                report.SourceProjectPath,
+                report.TestProjectPath,
+                report.TargetFramework)
         ).FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private static string CoverageStatus(CoverageObservation? before, CoverageObservation? after)
+    {
+        var pairStatus = PairStatus(before, after);
+        if (pairStatus != "Paired") return pairStatus;
+        return SameScope(before!, after!) ? "Paired" : "ScopeMismatch";
     }
 
     private async Task<MutationObservation?> GetMutationAsync(
@@ -89,6 +102,12 @@ public sealed class AttemptMetricComparisonService(TestMapDbContext dbContext)
     }
 
     private static bool SameScope(MutationObservation before, MutationObservation after) =>
+        string.Equals(before.ScopeKind, after.ScopeKind, StringComparison.OrdinalIgnoreCase) &&
+        SamePath(before.SourceProjectPath, after.SourceProjectPath) &&
+        SamePath(before.TestProjectPath, after.TestProjectPath) &&
+        string.Equals(before.TargetFramework, after.TargetFramework, StringComparison.OrdinalIgnoreCase);
+
+    private static bool SameScope(CoverageObservation before, CoverageObservation after) =>
         string.Equals(before.ScopeKind, after.ScopeKind, StringComparison.OrdinalIgnoreCase) &&
         SamePath(before.SourceProjectPath, after.SourceProjectPath) &&
         SamePath(before.TestProjectPath, after.TestProjectPath) &&
@@ -125,6 +144,13 @@ public sealed class AttemptMetricComparisonService(TestMapDbContext dbContext)
 
     private sealed record MutationObservation(
         double Score,
+        string ScopeKind,
+        string SourceProjectPath,
+        string TestProjectPath,
+        string TargetFramework);
+
+    private sealed record CoverageObservation(
+        double LineRate,
         string ScopeKind,
         string SourceProjectPath,
         string TestProjectPath,

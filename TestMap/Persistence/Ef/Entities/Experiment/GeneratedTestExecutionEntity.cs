@@ -19,6 +19,7 @@ public class GeneratedTestExecutionEntity
     public string RuntimeErrors { get; set; } = string.Empty;
     public string AssertionErrors { get; set; } = string.Empty;
     public long ExecutionTimeMs { get; set; }
+    public double? CoverageBefore { get; set; }
     public double? FinalCoverage { get; set; }
     public int FinalCoveredLines { get; set; }
     public int FinalTotalLines { get; set; }

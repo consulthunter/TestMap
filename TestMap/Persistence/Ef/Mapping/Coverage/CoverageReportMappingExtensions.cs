@@ -30,7 +30,13 @@ public static class CoverageReportMappingExtensions
             LinesCovered = entity.LinesCovered,
             LinesValid = entity.LinesValid,
             BranchesCovered = entity.BranchesCovered,
-            BranchesValid = entity.BranchesValid
+            BranchesValid = entity.BranchesValid,
+            ScopeKind = entity.ScopeKind,
+            ReportRole = entity.ReportRole,
+            ExperimentRunId = entity.ExperimentRunId,
+            SourceProjectPath = entity.SourceProjectPath,
+            TestProjectPath = entity.TestProjectPath,
+            TargetFramework = entity.TargetFramework
         };
     }
 
@@ -61,7 +67,13 @@ public static class CoverageReportMappingExtensions
             LinesValid = model.LinesValid,
             BranchesCovered = model.BranchesCovered,
             BranchesValid = model.BranchesValid,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            ScopeKind = model.ScopeKind,
+            ReportRole = model.ReportRole,
+            ExperimentRunId = model.ExperimentRunId,
+            SourceProjectPath = model.SourceProjectPath,
+            TestProjectPath = model.TestProjectPath,
+            TargetFramework = model.TargetFramework
         };
     }
 
