@@ -37,6 +37,19 @@ def build_datasets(results, db, artifacts, out) -> None:
     run(results=results, db_paths=db, artifacts_root=artifacts, output_dir=out)
 
 
+@main.command("candidate-paths")
+@click.option("--db", multiple=True, required=True,
+              help="Glob patterns for per-repo analysis.db files.")
+@click.option("--out", required=True, help="Output CSV path.")
+@click.option("--per-repo", default=12, show_default=True,
+              help="Candidates per repo for the default-selection replay (selected_default).")
+def candidate_paths(db, out, per_repo) -> None:
+    """Export access-path length and setup per experiment-eligible candidate."""
+    from analysis.candidate_paths import export
+    df = export(db, out, per_repo)
+    click.echo(f"{len(df)} eligible candidates in {df['repo_key'].nunique()} repos -> {out}")
+
+
 @main.command("msr-population")
 @click.option("--total", "total_dir", required=True,
               help="Directory holding finished/failed manifests and the total CSV reports.")

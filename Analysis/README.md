@@ -49,6 +49,7 @@ per repository database.
 | `msr-coverage-audit` | Find repos claiming coverage with no coverage rows; classify why, write exclusions. |
 | `msr-validate` | Draw the seeded human-judged sample; write units, codebooks, and rater forms. |
 | `msr-collect` | Parse filled rating forms; report inter-rater agreement and agreement with TestMap. |
+| `candidate-paths` | Per eligible candidate: access-path hops from its paired test, setup bindings, and whether the default selector picks it (`--per-repo`). Input for `R/power_glmm.R --predictor=path_hops_capped`. |
 
 ## Outputs (`data/`)
 
@@ -80,10 +81,49 @@ Exploratory notebooks live in `notebooks/exploratory/`; point them at a dataset 
 | Notebook | Focus |
 |---|---|
 | `exploratory/01_repository_evaluation` | One repository (run per repo by `repo-report`); same sections as 02. |
-| `exploratory/02_cross_repo_overview` | All repositories: outcomes, metric movement, generated tests, smells, assertions, mutation profile, footprint, cost, completeness. |
-| `exploratory/03_cross_repo_lane_comparison` | LLM vs agentic: headline pass@1 pairs, chain/attempt/repository-weighted rates, cost-effectiveness. |
-| `exploratory/04_model_tool_analysis` | Per model/tool: rates with Wilson CIs, producer summary and cost frontier, robustness, smells, predictors, repair. |
+| `exploratory/02_cross_repo_overview` | All repositories: outcomes (including how each lane fails), metric movement, generated tests, smells, assertions, mutation profile, footprint, cost, completeness. |
+| `exploratory/03_cross_repo_lane_comparison` | LLM vs agentic: headline pass@1 pairs, chain/attempt/repository-weighted rates, cost-effectiveness, cost per validated test. |
+| `exploratory/04_model_tool_analysis` | Per model/tool: rates with Wilson CIs, tool family x backbone interaction, producer summary and cost frontier, robustness, smells, predictors, repair. |
 | `exploratory/05_failure_casebook` | Failure cases for qualitative coding: labels, seeded sample, headline-pair disagreements, safety failures. |
+
+## R: GLMM power analysis (`R/`)
+
+The data pipeline is Python; the GLMMs (complexity, path length) and their simulation-based power analysis use R
+(lme4, simr), the reference implementations. Requires R ≥ 4.4 (`Rscript R/install.R` once).
+Run from `Analysis/`:
+
+```powershell
+# 1. Candidate export (paths, setup, structural metrics, default-selection replay), then
+#    pilot-derived inputs: base rate, lane effect and config SD per outcome (null GLMM on the
+#    pilot chains); the complexity_index transform frozen on the MSR method corpus and
+#    applied to the MSR experiment candidates to form the simulation pool.
+uv run python -m analysis candidate-paths --db "<MSR>/Output/*/*/*/analysis.db" --out R/output/msr_candidate_paths.csv
+Rscript R/pilot_parameters.R            # -> pilot_parameters.json, complexity_transform.json, complexity_pool.csv
+
+# 2. Power grid (resumable: finished cells are cached in R/output/power/cells/)
+Rscript R/power_glmm.R --nsim=20                               # smoke test
+Rscript R/power_glmm.R --fast=TRUE --nsim=200                  # explore a grid (nAGQ = 0)
+Rscript R/power_glmm.R                                         # confirmatory: Laplace, 1000 sims
+Rscript R/power_glmm.R --help                                  # all grid options
+
+# Path length instead of complexity (OR per hop from the paired test to the candidate)
+Rscript R/power_glmm.R --predictor=path_hops_capped --pool=R/output/msr_candidate_paths.csv `
+  --pool-filter=selected_default --out=R/output/power_path   # drop the filter for randomized cohorts
+
+# 3. RQ1 exact McNemar power over discordance q and paired difference delta
+Rscript R/power_mcnemar.R --q=0.12,0.2,0.34 --delta=0.07,0.1 --n=408 --alpha=0.1
+```
+
+| Script | Purpose |
+|---|---|
+| `common.R` | Shared model formula; `complexity_index` transform (log1p, z-score, sign-align, PC1 anchored to SLOC) fitted once and applied frozen; CLI parsing. |
+| `pilot_parameters.R` | Pilot → simulation inputs. The pilot has one candidate per repo, so its candidate SD is repo + candidate combined and barely identified; it centres the `--sd-candidate` grid. |
+| `power_mcnemar.R` | Exact power and required n for the paired lane comparison, by discordance and paired difference. |
+| `power_glmm.R` | `simr::makeGlmer` + `powerSim` for one candidate-level predictor (`--predictor`, default `complexity_index`) over a grid of effect sizes, design sizes and variance components. OR = 1 cells are the type I error check. |
+
+The GLMM unit is the chain (candidate × config, where config = lane/producer/budget arm), not
+the repair step. Outcomes: `success` = any validated success in the chain; `vep` = any
+`ValidatedEvidencePositive` attempt.
 
 ## Key semantics
 
@@ -93,6 +133,8 @@ Exploratory notebooks live in `notebooks/exploratory/`; point them at a dataset 
   (VEP) = test passed **and** metrics improved ≥ noise floor (coverage ≥ 1pp or mutation ≥ 1pp).
 - `effective_tokens` = lane-fair cost (LLM cumulative repair-chain total; agentic total run) — use
   it, not raw `total_tokens`, for cost comparisons.
+- Independent runs/work items remain separate chains. Repair costs follow numeric attempt order.
+  VEP cost comparisons select successful VEP chains and pool both LLM arms; missing usage stays missing.
 - Candidate-weighted views are the primary headline; attempt-weighted is a sensitivity check.
 - `read_result_grains()` is the explicit schema-3 compatibility reader. Because schema 3 has no
   classified lineage, its assertion status is `NotMeasured` and its category counts remain null.
@@ -107,3 +149,8 @@ Exploratory notebooks live in `notebooks/exploratory/`; point them at a dataset 
 
 Design rationale and methodology: [analysis_plan.md](analysis_plan.md).
 Column dictionary and lane-specific details: [docs/data_reference.md](docs/data_reference.md).
+
+The SQLite pipeline fixes and verification results are recorded in
+[docs/sqlite_pipeline_review.md](docs/sqlite_pipeline_review.md). Training mapping exports now
+preserve mapping grain and use explicitly identified initial measurement reports. Rebuild
+exports to obtain the new provenance columns and missingness behavior.

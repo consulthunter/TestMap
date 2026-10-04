@@ -1,0 +1,38 @@
+schema_version: 2
+generated_at_utc: 2026-07-16T18:26:57.6723535+00:00
+source:
+  file: licenseFiltered.yaml
+  sha256: cbe4ff6d47fb16ee24a83ad6d6a4b72e7a2c8ae51b5e5f606bc56632f687c542
+derivation:
+  kind: project_test_presence
+  category: tests_detected
+  policy_name: project-test-presence
+  policy_version: 1
+  report:
+    file: licenseFiltered-project-check-report-d14258c49078.yaml
+    sha256: d14258c490786e957b30fae663db653d78d1d0ed981c332b5b5f2dbb11287e81
+targets:
+  - target_id: 6d4c2702aa0a058bdf954833ad828bc7ae56e83e1a70307b338a82e97cd28f1b
+    repository: dotnetcore/aspectcore-framework
+    url: https://github.com/dotnetcore/aspectcore-framework.git
+    commit: d8fa5ca2d16cb90481586369abc1f19f97946ac4
+    source_rows:
+      - 59
+  - target_id: 51574c5bbbfddd418c3cbe585c3efdf60666b8d3cebc701f7c5f7243bdfd477e
+    repository: cysharp/zstring
+    url: https://github.com/cysharp/zstring.git
+    commit: e2b86f7ad433dd7dba2ac0b1a66d36f5105aa912
+    source_rows:
+      - 64
+  - target_id: 59e86017cfdf7835da0a7930c6151ba54e41b1d50d52bdda2ad4c42ee689269c
+    repository: serilog/serilog-expressions
+    url: https://github.com/serilog/serilog-expressions.git
+    commit: 697c8fa89ec167b1f3f9457c8cee500ad02e8bc2
+    source_rows:
+      - 291
+  - target_id: 838d8e25dd890186382e8081c9a45b7ba5b30fe56375ce54a72b359d02bf5059
+    repository: alirezanet/gridify
+    url: https://github.com/alirezanet/gridify.git
+    commit: 2d6b9b3fe66f02a448eb5065fc3acdd0d74dd5da
+    source_rows:
+      - 56

@@ -1675,11 +1675,15 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         var testResultDetails = attempt.PostAttemptTestRunId.HasValue
             ? await GetPostAttemptTestResultDetailsAsync(attempt.PostAttemptTestRunId.Value, cancellationToken)
             : [];
+        var resolvedTestResults = testResultDetails
+            .Select(x => (Result: x, MemberId: ResolvePostAttemptResultMemberId(x.MethodId, x.TestName, linkedMembers)))
+            .ToList();
 
         foreach (var (memberId, memberName) in linkedMembers)
         {
-            var memberResults = testResultDetails
-                .Where(x => ResolveLinkedMemberId(x.TestName, [(memberId, memberName)]).HasValue)
+            var memberResults = resolvedTestResults
+                .Where(x => x.MemberId == memberId)
+                .Select(x => x.Result)
                 .ToList();
             rows.Add(MakeRow(
                 memberName,
@@ -1695,9 +1699,8 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         // Test-case rows are diagnostic only and are written to a separate export.
         if (attempt.PostAttemptTestRunId.HasValue)
         {
-            foreach (var testResult in testResultDetails)
+            foreach (var (testResult, memberId) in resolvedTestResults)
             {
-                var memberId = FindMemberId(testResult.TestName);
                 if (!memberId.HasValue) continue;
                 rows.Add(MakeRow(
                     testResult.TestName,
@@ -1714,16 +1717,23 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         return rows;
     }
 
-    internal static List<(string TestName, string Outcome)> SelectGeneratedPostAttemptTestResults(
-        IReadOnlyList<(string TestName, string Outcome)> testResults,
+    /// <summary>
+    /// Links a post-attempt test result to one of the attempt's generated test members.
+    /// Result ingestion already resolved <paramref name="methodId"/> using the class-qualified
+    /// name, so when it is set it decides the link: a baseline test sharing a generated test's
+    /// method name (StudentListTest.TestRemoveStudent vs ProgramTest.TestRemoveStudent) resolves
+    /// to its own member and is not credited to the tool. Name matching is only the fallback for
+    /// results ingestion could not resolve (<paramref name="methodId"/> is 0).
+    /// </summary>
+    internal static int? ResolvePostAttemptResultMemberId(
+        int methodId,
+        string testName,
         IReadOnlyList<(int MemberId, string Name)> linkedMembers)
     {
-        if (testResults.Count == 0 || linkedMembers.Count == 0)
-            return [];
+        if (methodId > 0)
+            return linkedMembers.Any(x => x.MemberId == methodId) ? methodId : null;
 
-        return testResults
-            .Where(x => ResolveLinkedMemberId(x.TestName, linkedMembers).HasValue)
-            .ToList();
+        return ResolveLinkedMemberId(testName, linkedMembers);
     }
 
     internal static int? ResolveLinkedMemberId(
@@ -1811,6 +1821,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             .OrderBy(x => x.TestName)
             .Select(x => new PostAttemptTestResultDetail(
                 x.Id,
+                x.MethodId,
                 x.TestName,
                 x.Outcome,
                 x.Duration.TotalMilliseconds))
@@ -1915,6 +1926,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
 
     private sealed record PostAttemptTestResultDetail(
         int Id,
+        int MethodId,
         string TestName,
         string Outcome,
         double DurationMs);

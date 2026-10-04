@@ -54,6 +54,7 @@ class _CsvAppender:
         self.path = path
         self._started = False
         self._rows = 0
+        self._columns: list[str] | None = None
 
     def discard_stale(self) -> None:
         """Remove a leftover file when this run produced no rows for it.
@@ -72,6 +73,12 @@ class _CsvAppender:
     def append(self, frame: pd.DataFrame) -> None:
         if frame is None or frame.empty:
             return
+        if self._columns is None:
+            self._columns = list(frame.columns)
+        elif set(frame.columns) != set(self._columns):
+            raise ValueError(f"Inconsistent columns for {self.path}: "
+                             f"expected {self._columns}, got {list(frame.columns)}")
+        frame = frame.reindex(columns=self._columns)
         frame.to_csv(
             self.path,
             mode="a" if self._started else "w",

@@ -1143,7 +1143,7 @@ def run(
         df,
         normalized_generated,
         assertions,
-        sidecar_present=not raw_assertions.empty,
+        sidecar_present=raw_assertions.attrs.get("sidecar_present", not raw_assertions.empty),
     )
     if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
         from analysis.db import connect, get_assertion_lineage_bundle

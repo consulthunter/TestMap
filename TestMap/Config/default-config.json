@@ -230,11 +230,11 @@
     "IncludeDetailedErrors": true,
     "Evaluation": {
       "TestMap": {
-        "Enabled": true
+        "Enabled": false
       },
       "Tools": {
-        "Enabled": false,
-        "ToolIds": ["copilot-custom"],
+        "Enabled": true,
+        "ToolIds": ["openhands"],
         "RequireAvailabilityInSetup": true
       },
       "Assertions": {
@@ -244,16 +244,14 @@
     },
     "Tools": [
       {
-        "Id": "copilot-custom",
-        "ImageKey": "copilot",
-        "Provider": "CustomOpenAi",
-        "Model": "GLM-5.3",
+        "Id": "openhands",
+        "ImageKey": "openhands",
+        "Provider": "OpenAi",
+        "Model": "gpt-5-mini",
         "TimeoutMinutes": 45,
-        "Endpoint": "https://llm-api.arc.vt.edu/api/",
-        "RequiredEnvironmentVariables": ["GITHUB_COPILOT_TOKEN", "CUSTOM_API_KEY"],
+        "RequiredEnvironmentVariables": [ "OPENAI_API_KEY" ],
         "Environment": {
-          "COPILOT_HOME": "/tmp/testmap-copilot-home",
-          "COPILOT_ALLOW_MODE": "allow-all"
+          "OPENHANDS_APPROVAL_MODE": "always-approve"
         }
       }
     ]

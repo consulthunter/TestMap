@@ -15,6 +15,7 @@ Key design constraints
 from __future__ import annotations
 
 import json
+import re
 
 import pandas as pd
 
@@ -394,8 +395,67 @@ def _compute_producer(df: pd.DataFrame) -> pd.Series:
     return tool.where(lane.eq(LANE_AGENTIC) & tool.notna(), model)
 
 
+TOOL_BACKBONE_SUFFIX = re.compile(
+    r"-(custom-[a-z0-9.]+|openai|anthropic|gemini|glm|kimi|gpt|claude)$", re.IGNORECASE
+)
+LLM_TOOL_FAMILY = "llm (direct)"
+
+
+def compute_tool_family(df: pd.DataFrame) -> pd.Series:
+    """The tool family behind each attempt, with the backbone suffix removed.
+
+    ``openhands-custom-gpt`` and ``openhands-gemini`` are one family (``openhands``)
+    running on different backbones; the backbone itself is the ``model`` column, which
+    both lanes carry. Splitting the two lets tool and model effects be seen separately
+    (and their interaction seen at all); ``producer`` keeps them fused.
+    Native single-model tools (``codex``, ``claude``, ``gemini``) are their own family.
+    """
+    lane = df.get("lane", pd.Series("", index=df.index))
+    tool = (df["tool_id"].astype("object") if "tool_id" in df.columns
+            else pd.Series(pd.NA, index=df.index, dtype="object"))
+    family = tool.map(
+        lambda value: TOOL_BACKBONE_SUFFIX.sub("", str(value)) if pd.notna(value) and str(value).strip() else pd.NA
+    )
+    return family.where(lane.eq(LANE_AGENTIC) & family.notna(), LLM_TOOL_FAMILY)
+
+
+# Provider prefixes, deployment/version suffixes and reasoning-effort suffixes that name
+# the same underlying model differently in the two lanes.
+MODEL_PREFIXES = re.compile(r"^(us|eu|apac)\.(anthropic|amazon|meta)\.", re.IGNORECASE)
+MODEL_VERSION_SUFFIX = re.compile(r"-v\d+(?::\d+)?$", re.IGNORECASE)
+MODEL_REASONING_SUFFIX = re.compile(r"-(thinking(-high|-low|-medium)?|high|low|medium)$", re.IGNORECASE)
+MODEL_DATED_VERSION = re.compile(r"(\d)-(\d)-\d{6,8}")
+
+
+def compute_model_family(df: pd.DataFrame) -> pd.Series:
+    """The backbone model behind each attempt, normalized so lanes line up.
+
+    The same backbone is written differently per lane: the LLM arm may run
+    ``GLM-5.3-thinking-high`` while a tool runs ``GLM-5.3``, and Bedrock ids carry a
+    provider prefix and deployment suffix. Dropping the reasoning-effort suffix makes
+    the two comparable, but it also hides a real difference, so compare the raw
+    ``model`` column before reading a tool-vs-LLM contrast as like-for-like.
+    """
+    if "model" not in df.columns:
+        return pd.Series(pd.NA, index=df.index, dtype="object")
+
+    def _normalize(value: object) -> object:
+        if pd.isna(value) or not str(value).strip():
+            return pd.NA
+        text = str(value).strip()
+        text = MODEL_PREFIXES.sub("", text)
+        text = MODEL_VERSION_SUFFIX.sub("", text)
+        text = MODEL_REASONING_SUFFIX.sub("", text)
+        text = MODEL_DATED_VERSION.sub(lambda m: f"{m.group(1)}.{m.group(2)}", text)
+        return text.lower()
+
+    return df["model"].map(_normalize)
+
+
 def _add_producer_and_infrastructure(df: pd.DataFrame) -> None:
     df["producer"] = _compute_producer(df)
+    df["tool_family"] = compute_tool_family(df)
+    df["model_family"] = compute_model_family(df)
     df["infrastructure_failure_reason"] = _compute_infrastructure_failure_reason(df)
     df["infrastructure_failure"] = df["infrastructure_failure_reason"].notna()
 
@@ -920,18 +980,92 @@ CHAIN_KEY_FIELDS = ["candidate_key", "lane", "producer", "budget_mode"]
 
 
 def chain_key_columns(df: pd.DataFrame) -> list[str]:
-    """The chain identity columns present in *df*: candidate, lane, producer, budget arm."""
-    return [c for c in CHAIN_KEY_FIELDS if c in df.columns]
+    """Identify independent runs/work items, with a legacy configuration fallback."""
+    keys = [c for c in CHAIN_KEY_FIELDS if c in df.columns]
+    for aliases in (("experiment_run_uid", "experiment_run_id"),
+                    ("resume_stable_key", "matrix_work_item_key")):
+        for column in aliases:
+            if column in df and df[column].astype("string").str.strip().ne("").fillna(False).any():
+                keys.append(column)
+                break
+    return keys
+
+
+CHAIN_DURATION_COLUMNS = ("duration_seconds", "generation_duration_seconds", "validation_duration_seconds")
+
+
+def final_chain_outcomes(attempts_df: pd.DataFrame) -> pd.DataFrame:
+    """One row per chain: its final evaluable attempt.
+
+    A repair chain counts once, at the outcome it ended on, instead of once per repair
+    step. Counting steps penalises the lane that retries: a chain that fails four times
+    and then succeeds would add four failures and one success. Single-attempt chains
+    (pass@1, agentic runs) are unchanged.
+
+    Infrastructure failures are dropped first, so a chain whose last step hit an
+    infrastructure failure ends at its last evaluable step; a chain with no evaluable
+    step is missing and has no row. ``chain_attempts`` counts the evaluable steps.
+
+    Cost belongs to the whole chain, not its final step: each ``chain_<column>`` sums
+    one of CHAIN_DURATION_COLUMNS over the evaluable steps. Tokens need no summing here,
+    since ``effective_tokens`` on the final step is already the chain total (terminal
+    cumulative tokens for LLM repair chains, the run total for agentic runs).
+
+    Already-collapsed input (it carries ``chain_attempts``) is returned unchanged, so
+    collapsing twice cannot overwrite chain totals with a single step's values.
+    """
+    if attempts_df.empty or "chain_attempts" in attempts_df.columns:
+        return attempts_df.copy()
+    df = (attempts_df if "producer" in attempts_df.columns
+          else attempts_df.assign(producer=_compute_producer(attempts_df)))
+    if "infrastructure_failure" in df.columns:
+        df = df[~_is_true(df["infrastructure_failure"])]
+    if df.empty:
+        return df.copy()
+
+    keys = chain_key_columns(df)
+    order = (pd.to_numeric(df["attempt_number"], errors="coerce").fillna(0)
+             if "attempt_number" in df.columns else pd.Series(0, index=df.index))
+    ordered = df.assign(_order=order).sort_values("_order", kind="stable")
+    grouped = ordered.groupby(keys, dropna=False, sort=False)
+    final = grouped.tail(1).copy()
+    extra = {"chain_attempts": grouped["_order"].transform("size").loc[final.index]}
+    for column in CHAIN_DURATION_COLUMNS:
+        if column in ordered.columns:
+            seconds = pd.to_numeric(ordered[column], errors="coerce")
+            extra[f"chain_{column}"] = (
+                seconds.groupby([ordered[k] for k in keys], dropna=False, sort=False)
+                .transform(lambda s: s.sum(min_count=1)).loc[final.index])
+    return final.assign(**extra).drop(columns="_order")
+
+
+def _order_chain(group: pd.DataFrame) -> pd.DataFrame:
+    """Order measured repair steps; reject ambiguous sequence numbers."""
+    if "attempt_number" not in group or group["attempt_number"].isna().all():
+        if len(group) > 1 and any(
+            c in group and group[c].notna().any()
+            for c in ("cumulative_tokens", "cumulative_input_tokens", "cumulative_output_tokens")
+        ):
+            raise ValueError("Cumulative chain costs require attempt_number.")
+        return group
+    order = pd.to_numeric(group["attempt_number"], errors="coerce")
+    if order.isna().any() or order.duplicated().any():
+        raise ValueError("Each chain requires unique, non-missing attempt_number values; "
+                         "check run/work-item identity before aggregating repetitions.")
+    return group.loc[order.sort_values(kind="stable").index]
 
 
 def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
-    """Collapse attempt rows to one row per chain: (candidate_key, lane, producer, budget_mode).
+    """Collapse attempt rows to one row per independently executed repair chain.
 
     A producer is one LLM model or one agentic tool, and ``budget_mode`` is the
     experiment arm (for example ``PassAt1`` versus ``PassAt1RepairAt5``, which run
     as separate chains for the same model). Both are part of the grain: pooling a
     lane's producers would credit the lane with a success whenever any one of its
     models or tools succeeded, and pooling arms would merge two first attempts.
+    Run and stable work-item identities also distinguish independent repetitions
+    when present; see :func:`chain_key_columns`. Steps are ordered by numeric
+    ``attempt_number`` before selecting cumulative costs.
 
     Infrastructure failures (``infrastructure_failure``) are missing data. Outcomes are
     computed over the remaining, evaluable attempts; a producer with none has NA
@@ -968,6 +1102,7 @@ def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
     records: list[dict] = []
 
     for _, group in df.groupby(chain_key_columns(df), sort=False, dropna=False):
+        group = _order_chain(group)
         infra = infra_all.loc[group.index]
         evaluable = group[~infra]
         pool = evaluable if not evaluable.empty else group
@@ -989,9 +1124,14 @@ def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
             best = pool.iloc[0]
 
         def _any(column: str) -> object:
-            if evaluable.empty:
+            if evaluable.empty or column not in evaluable:
                 return pd.NA
-            return bool(_is_true(evaluable[column]).any()) if column in group.columns else False
+            values = evaluable[column]
+            if _is_true(values).any():
+                return True
+            # An unknown observation can still have positive impact. Only an
+            # entirely measured negative chain is a known negative.
+            return pd.NA if values.isna().any() else False
 
         def _count(column: str) -> int:
             return int(_is_true(evaluable[column]).sum()) if column in group.columns else 0
@@ -1168,7 +1308,8 @@ def build_paired_comparison(
         if side["candidate_key"].duplicated().any():
             raise ValueError(
                 f"The {label} lane has several rows per candidate; "
-                f"name the {label} producer (and budget mode) to pair on."
+                f"name the {label} producer (and budget mode), then select one "
+                "run/work item per candidate before pairing."
             )
 
     llm = llm.set_index("candidate_key")

@@ -486,7 +486,8 @@ def load_mappings(conn: sqlite3.Connection) -> pd.DataFrame:
         FROM source_test_mappings
     """)
     if mappings.empty or not _has_table(conn, "source_test_mapping_trace_steps"):
-        mappings["trace_steps"] = 0 if not mappings.empty else None
+        for column in ("trace_steps", "distinct_relationship_kinds", "distinct_edge_sources"):
+            mappings[column] = pd.Series(pd.NA, index=mappings.index, dtype="Int64")
         return mappings
 
     steps = _query(conn, """

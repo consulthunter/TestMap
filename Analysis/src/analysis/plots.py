@@ -417,3 +417,32 @@ def failure_flow_alluvial(
     ax.axis("off")
     ax.set_title(f"Failure flow: {left_col} → {right_col}")
     return ax
+
+
+def tool_model_heatmap(
+    df: pd.DataFrame,
+    metric_col: str = "validated_evidence_positive",
+    tool_col: str = "tool_family",
+    model_col: str = "model_family",
+    min_attempts: int = 1,
+    ax: Optional[Axes] = None,
+) -> Axes:
+    """Heatmap of *metric_col* by tool family (rows) × backbone model (columns).
+
+    Grouping by ``producer`` fuses the two factors, so a tool that works on one
+    backbone and fails on another looks like two unrelated producers. Cells with
+    fewer than *min_attempts* attempts are blanked rather than shown as 0 or 1.
+    """
+    ax = _ax(ax)
+    if not all(c in df.columns for c in [tool_col, model_col, metric_col]):
+        return ax
+    values = df.assign(_metric=df[metric_col].astype(float))
+    pivot = values.pivot_table(values="_metric", index=tool_col, columns=model_col, aggfunc="mean")
+    counts = values.pivot_table(values="_metric", index=tool_col, columns=model_col, aggfunc="size")
+    pivot = pivot.where(counts >= min_attempts)
+    sns.heatmap(pivot, ax=ax, cmap="RdYlGn", center=0.5, vmin=0, vmax=1, linewidths=0.5,
+                annot=True, fmt=".2f", cbar_kws={"label": metric_col})
+    ax.set_title(f"{metric_col} by tool family × backbone model")
+    ax.set_xlabel(model_col)
+    ax.set_ylabel(tool_col)
+    return ax

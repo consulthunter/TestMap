@@ -86,6 +86,7 @@ public sealed class RoslynAnalysisUtilitiesTests
             objectName,
             "Product.Tests",
             true,
+            "class",
             "tests/Product.Tests/ReaderTests.cs",
             "tests/Product.Tests/Product.Tests.csproj",
             true,

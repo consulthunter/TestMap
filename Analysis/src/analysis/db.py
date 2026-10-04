@@ -122,7 +122,28 @@ def get_candidate_methods(conn: sqlite3.Connection) -> pd.DataFrame:
 
 def get_projects(conn: sqlite3.Connection) -> pd.DataFrame:
     """Repository/project rows (owner, repo_name) for building repo-qualified keys."""
-    return _query(conn, "SELECT id, owner, repo_name FROM projects")
+    optional = ["last_analyzed_commit", "resolved_commit", "repository_identity"]
+    columns = [c if _has_column(conn, "projects", c) else f"NULL AS {c}" for c in optional]
+    return _query(conn, "SELECT id, owner, repo_name, " + ", ".join(columns) + " FROM projects")
+
+
+def usable_member_line_coverage(members: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFrame:
+    """Only observations with explicit usable line counts support gap differences.
+
+    Legacy rows without availability metadata remain unmeasured. Where corrected
+    attribution metadata exists, only mapped observations are eligible.
+    """
+    if (members.empty or reports.empty or "line_counts_available" not in members
+            or "has_usable_coverage" not in reports):
+        return members.iloc[:0].copy()
+    valid = pd.to_numeric(members["line_counts_available"], errors="coerce").eq(1)
+    if "attribution_status" in members:
+        valid &= members["attribution_status"].eq("Mapped")
+    usable = pd.to_numeric(reports["has_usable_coverage"], errors="coerce").eq(1)
+    if "line_counts_available" in reports:
+        usable &= pd.to_numeric(reports["line_counts_available"], errors="coerce").eq(1)
+    valid &= members["coverage_report_id"].isin(reports.loc[usable, "id"])
+    return members.loc[valid].copy()
 
 
 def get_canonical_attempt_identities(conn: sqlite3.Connection) -> pd.DataFrame:

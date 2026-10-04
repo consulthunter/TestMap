@@ -17,9 +17,130 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.db import connect
+from analysis.db import connect, _has_table, _has_column, _optional_table, usable_member_line_coverage
 from analysis.files import ensure_output_dir
 from analysis.schema import TRAINING_LABELS, TRAINING_MAPPING_FIELDS
+
+
+def _initial_reports(conn, table: str) -> pd.DataFrame:
+    """Select one report from the first persisted test run of each project.
+
+    Mutation additionally requires a solution baseline. Without test-run
+    provenance, only a single legacy report per project is safe to select.
+    """
+    reports = _optional_table(conn, table)
+    if reports.empty:
+        return reports
+    if "project_id" not in reports:
+        reports["project_id"] = pd.NA
+    runs = _optional_table(conn, "test_runs")
+    if not runs.empty and {"project_id", "test_run_id"} <= set(reports):
+        first = runs.sort_values("id").drop_duplicates("project_id")
+        reports = reports.merge(first[["project_id", "id"]].rename(
+            columns={"id": "test_run_id"}), on=["project_id", "test_run_id"], validate="many_to_one")
+    else:
+        single = reports.groupby("project_id", dropna=False)["id"].transform("size").eq(1)
+        reports = reports[single]
+    if table == "mutation_testing_reports":
+        if "is_baseline" in reports:
+            reports = reports[reports["is_baseline"].eq(1)]
+        if "scope_kind" in reports:
+            reports = reports[reports["scope_kind"].eq("Solution")]
+    return reports.sort_values("id").drop_duplicates("project_id")
+
+
+def _scoped_rows(conn, table: str, report_column: str, reports: pd.DataFrame,
+                 report_table: str) -> pd.DataFrame:
+    if not _has_table(conn, table):
+        return pd.DataFrame()
+    if not reports.empty:
+        if not _has_column(conn, table, report_column):
+            return pd.DataFrame()
+        ids = [int(x) for x in reports["id"]]
+    elif not _has_table(conn, report_table) and _has_column(conn, table, report_column):
+        # A legacy database with one identifiable snapshot can be used, but
+        # several snapshots without headers must not be silently pooled.
+        ids = [r[0] for r in conn.execute(
+            f'SELECT DISTINCT "{report_column}" FROM "{table}" WHERE "{report_column}" IS NOT NULL')]
+        if len(ids) != 1:
+            return pd.DataFrame()
+    elif not _has_table(conn, report_table) and not _has_column(conn, table, report_column):
+        return pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
+    else:
+        return pd.DataFrame()
+    marks = ",".join("?" for _ in ids)
+    return pd.read_sql_query(f'SELECT * FROM "{table}" WHERE "{report_column}" IN ({marks})',
+                             conn, params=ids)
+
+
+def _attach_initial_measurements(conn, rows: pd.DataFrame) -> pd.DataFrame:
+    """Attach unique, explicitly scoped measurements without expanding mappings."""
+    coverage_reports = _initial_reports(conn, "coverage_reports")
+    mutation_reports = _initial_reports(conn, "mutation_testing_reports")
+    out = rows.copy()
+    out["measurement_snapshot_policy"] = (
+        "initial-test-run-v1" if _has_table(conn, "test_runs") else "legacy-single-snapshot")
+    for reports, prefix in ((coverage_reports, "coverage"), (mutation_reports, "mutation")):
+        for source, suffix in (("id", "report_id"), ("test_run_id", "test_run_id")):
+            out[f"{prefix}_{suffix}"] = (out["project_id"].map(reports.set_index("project_id")[source])
+                                         if not reports.empty and source in reports else pd.NA)
+
+    mc = _scoped_rows(conn, "member_coverages", "coverage_report_id", coverage_reports, "coverage_reports")
+    modern = _has_table(conn, "coverage_reports")
+    usable = usable_member_line_coverage(mc, coverage_reports) if modern else mc
+    cov_rows = []
+    for member, group in mc.groupby("member_id") if not mc.empty else []:
+        valid = usable[usable["member_id"].eq(member)]
+        measures = valid[["line_rate", "lines_covered", "lines_valid"]].drop_duplicates()
+        known = len(measures) == 1 and measures.notna().all(axis=None)
+        record = {"source_member_id": member,
+                  "coverage_observation_status": ("Measured" if known else
+                                                   "ConflictingObservations" if len(measures) > 1 else "Unavailable"),
+                  "source_coverage": pd.NA, "source_covered_lines": pd.NA, "source_total_lines": pd.NA}
+        if known:
+            record.update(zip(("source_coverage", "source_covered_lines", "source_total_lines"), measures.iloc[0]))
+        cov_rows.append(record)
+    if cov_rows:
+        out = out.merge(pd.DataFrame(cov_rows), on="source_member_id", how="left", validate="many_to_one")
+    else:
+        for column in ("coverage_observation_status", "source_coverage", "source_covered_lines", "source_total_lines"):
+            out[column] = pd.NA
+    out["coverage_observation_status"] = out["coverage_observation_status"].fillna("Unavailable")
+
+    gaps = _scoped_rows(conn, "coverage_gaps", "coverage_report_id", coverage_reports, "coverage_reports")
+    out["coverage_gap_count"] = pd.NA
+    gaps_scoped = not modern or (
+        not coverage_reports.empty and _has_column(conn, "coverage_gaps", "coverage_report_id"))
+    if _has_table(conn, "coverage_gaps") and gaps_scoped:
+        counts = (gaps.groupby("member_id")["line_number"].nunique()
+                  if not gaps.empty and "line_number" in gaps else
+                  gaps.groupby("member_id").size() if not gaps.empty else pd.Series(dtype="Int64"))
+        measured = out["coverage_observation_status"].eq("Measured")
+        out.loc[measured, "coverage_gap_count"] = out.loc[measured, "source_member_id"].map(counts).fillna(0)
+
+    # Aggregate in SQL: the pilot can contain hundreds of thousands of mutants.
+    mutant_condition = "0"
+    params = []
+    if not mutation_reports.empty and _has_column(conn, "mutants", "mutation_testing_report_id"):
+        params = [int(x) for x in mutation_reports["id"]]
+        mutant_condition = "mutation_testing_report_id IN (" + ",".join("?" for _ in params) + ")"
+    elif not _has_table(conn, "mutation_testing_reports"):
+        if _has_column(conn, "mutants", "mutation_testing_report_id"):
+            ids = [r[0] for r in conn.execute("SELECT DISTINCT mutation_testing_report_id FROM mutants")]
+            if len(ids) == 1 and ids[0] is not None:
+                mutant_condition, params = "mutation_testing_report_id = ?", ids
+        else:
+            mutant_condition = "1"
+    mutation = pd.read_sql_query(f"""
+        SELECT member_id AS source_member_id,
+               SUM(lower(status) = 'killed') AS killed_mutant_count,
+               SUM(lower(status) = 'survived') AS survived_mutant_count
+        FROM mutants WHERE member_id IS NOT NULL AND {mutant_condition}
+        GROUP BY member_id
+    """, conn, params=params)
+    mutation["mutation_score"] = 100 * mutation["killed_mutant_count"] / (
+        mutation["killed_mutant_count"] + mutation["survived_mutant_count"]).replace(0, float("nan"))
+    return out.merge(mutation, on="source_member_id", how="left", validate="many_to_one")
 
 
 def build_mapping_rows(conn) -> pd.DataFrame:
@@ -33,37 +154,9 @@ def build_mapping_rows(conn) -> pd.DataFrame:
             FROM test_smells
             WHERE member_id IS NOT NULL
             GROUP BY member_id
-        ),
-        gap_summary AS (
-            SELECT member_id, COUNT(*) AS coverage_gap_count
-            FROM coverage_gaps
-            GROUP BY member_id
-        ),
-        mutation_summary AS (
-            SELECT
-                member_id,
-                SUM(CASE WHEN lower(status) = 'survived' THEN 1 ELSE 0 END) AS survived_mutant_count,
-                SUM(CASE WHEN lower(status) = 'killed' THEN 1 ELSE 0 END) AS killed_mutant_count,
-                CASE
-                    WHEN SUM(CASE WHEN lower(status) IN ('survived', 'killed') THEN 1 ELSE 0 END) = 0 THEN NULL
-                    ELSE 100.0 * SUM(CASE WHEN lower(status) = 'killed' THEN 1 ELSE 0 END)
-                         / SUM(CASE WHEN lower(status) IN ('survived', 'killed') THEN 1 ELSE 0 END)
-                END AS mutation_score
-            FROM mutants
-            WHERE member_id IS NOT NULL
-            GROUP BY member_id
-        ),
-        latest_coverage AS (
-            SELECT mc.*
-            FROM member_coverages mc
-            INNER JOIN (
-                SELECT member_id, MAX(coverage_report_id) AS coverage_report_id
-                FROM member_coverages
-                GROUP BY member_id
-            ) latest ON latest.member_id = mc.member_id
-                    AND latest.coverage_report_id = mc.coverage_report_id
         )
         SELECT
+            stm.id AS mapping_id,
             p.owner       AS repo_owner,
             p.repo_name,
             p.last_analyzed_commit AS commit_hash,
@@ -75,10 +168,6 @@ def build_mapping_rows(conn) -> pd.DataFrame:
             m_src.start_line_number AS source_line,
             m_src.modifiers AS source_visibility,
             cm2.cyclomatic_complexity AS source_complexity,
-            mc.line_rate               AS source_coverage,
-            mc.lines_covered           AS source_covered_lines,
-            mc.lines_valid             AS source_total_lines,
-            cg.coverage_gap_count,
             m_tst.id       AS test_member_id,
             m_tst.name     AS test_method_name,
             f_tst.file_path AS test_file_path,
@@ -89,9 +178,6 @@ def build_mapping_rows(conn) -> pd.DataFrame:
             stm.path_length            AS path_length,
             ts.test_smell_count,
             ts.test_smell_ids,
-            mtr.mutation_score,
-            mtr.survived_mutant_count,
-            mtr.killed_mutant_count,
             ci.risk_score              AS candidate_risk_score,
             ci.metric_driven_score,
             ci.test_state,
@@ -108,12 +194,12 @@ def build_mapping_rows(conn) -> pd.DataFrame:
         LEFT JOIN projects p ON p.id = stm.project_id
         LEFT JOIN candidate_inventory ci ON ci.source_test_mapping_id = stm.id
         LEFT JOIN code_metrics cm2 ON cm2.entity_id = m_src.id AND lower(cm2.entity_type) = 'member'
-        LEFT JOIN latest_coverage mc ON mc.member_id = m_src.id
-        LEFT JOIN gap_summary cg ON cg.member_id = m_src.id
-        LEFT JOIN mutation_summary mtr ON mtr.member_id = m_src.id
         LEFT JOIN smell_summary ts ON ts.member_id = m_tst.id
     """
-    return pd.read_sql_query(sql, conn)
+    rows = pd.read_sql_query(sql, conn)
+    if rows["mapping_id"].duplicated().any():
+        raise ValueError("Static mapping joins are not unique by mapping_id.")
+    return _attach_initial_measurements(conn, rows)
 
 
 def build_candidate_rows(conn) -> pd.DataFrame:

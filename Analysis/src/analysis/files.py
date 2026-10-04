@@ -99,8 +99,8 @@ def read_result_grains(
         missing = required - set(df.columns)
         if missing:
             raise ValueError(f"{path} is not a current result CSV; missing {sorted(missing)}.")
-        versions = df["results_schema_version"].dropna().astype(str).str.strip()
-        if versions.empty or not versions.eq(expected_schema_version).all():
+        versions = df["results_schema_version"].astype(str).str.strip()
+        if not versions.eq(expected_schema_version).all():
             found = sorted(versions.unique().tolist())
             raise ValueError(
                 f"{path} does not contain only results_schema_version "
@@ -111,7 +111,8 @@ def read_result_grains(
         df["_source_file"] = str(path)
         frames.append(df)
 
-    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+        columns=["results_schema_version", "row_kind", "attempt_id"])
     known = {"attempt", "generated_test", "test_result"}
     unknown = set(combined["row_kind"].dropna().astype(str)) - known
     if unknown:
@@ -165,8 +166,8 @@ def read_assertion_observations(
             raise ValueError(
                 f"{path} is not an assertion sidecar; missing {sorted(missing)}."
             )
-        versions = frame["assertion_schema_version"].dropna().astype(str).str.strip()
-        if versions.empty or not versions.eq(ASSERTION_SIDECAR_SCHEMA_VERSION).all():
+        versions = frame["assertion_schema_version"].astype(str).str.strip()
+        if not versions.eq(ASSERTION_SIDECAR_SCHEMA_VERSION).all():
             found = sorted(versions.unique().tolist())
             raise ValueError(
                 f"{path} does not contain only assertion_schema_version "
@@ -174,7 +175,9 @@ def read_assertion_observations(
             )
         frame["_source_file"] = str(path)
         frames.append(frame)
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    result = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    result.attrs["sidecar_present"] = bool(discovered)
+    return result
 
 
 def read_schema4_result_bundle(

@@ -443,7 +443,7 @@ public class MethodSelectionService : IMethodSelectionService
         var solution = solutionEntity.ToDomain();
         var methodSignature = ExtractMethodSignature(member.FullString, member.Name);
 
-        var memberVisibility = ResolveMemberVisibility(memberEntity);
+        var memberVisibility = ResolveMemberVisibility(memberEntity, sourceObjectEntity.Kind);
         var testContext = await FindBestTestContextAsync(
             member.Id,
             member.Name,
@@ -1216,6 +1216,7 @@ public class MethodSelectionService : IMethodSelectionService
                     TestFile = testFile,
                     TestProject = testProject,
                     Entrypoint = entrypointMember,
+                    EntrypointObjectKind = entrypointObject.Kind,
                     EntrypointProject = entrypointProject
                 })
             .ToListAsync(cancellationToken);
@@ -1228,6 +1229,7 @@ public class MethodSelectionService : IMethodSelectionService
                 row.TestFile,
                 row.TestProject,
                 row.Entrypoint,
+                row.EntrypointObjectKind,
                 row.EntrypointProject,
                 Path = pathsByEntrypoint[row.Entrypoint.Id]
             })
@@ -1241,6 +1243,7 @@ public class MethodSelectionService : IMethodSelectionService
 
         if (selected == null) return null;
 
+        var entrypointVisibility = ResolveMemberVisibility(selected.Entrypoint, selected.EntrypointObjectKind);
         var pathText = string.Join(" -> ", selected.Path);
         return await BuildGroundedTestContextAsync(
             new TestContextEvidenceRow(
@@ -1256,8 +1259,8 @@ public class MethodSelectionService : IMethodSelectionService
                     TargetMemberId = sourceMemberId,
                     EntrypointMemberId = selected.Entrypoint.Id,
                     PathMemberIds = selected.Path,
-                    Strategy = ResolveCallerPathStrategy(ResolveMemberVisibility(selected.Entrypoint)),
-                    IsLegalFromTest = ResolveMemberVisibility(selected.Entrypoint) is MemberVisibility.Public or MemberVisibility.Internal,
+                    Strategy = ResolveCallerPathStrategy(entrypointVisibility),
+                    IsLegalFromTest = entrypointVisibility is MemberVisibility.Public or MemberVisibility.Internal,
                     RequiresReflection = false
                 },
                 selected.Path),
@@ -1292,6 +1295,7 @@ public class MethodSelectionService : IMethodSelectionService
                 join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
                 join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
                 join entrypointMember in _dbContext.Members.AsNoTracking() on helperInvocation.InvokedMemberId equals entrypointMember.Id
+                join entrypointObject in _dbContext.Objects.AsNoTracking() on entrypointMember.ObjectEntityId equals entrypointObject.Id
                 where helperInvocation.InvokedMemberId.HasValue
                       && entrypointIds.Contains(helperInvocation.InvokedMemberId.GetValueOrDefault())
                       && helperMember.ObjectEntityId == testObject.Id
@@ -1310,7 +1314,8 @@ public class MethodSelectionService : IMethodSelectionService
                     TestFile = testFile,
                     TestProject = testProject,
                     HelperMember = helperMember,
-                    Entrypoint = entrypointMember
+                    Entrypoint = entrypointMember,
+                    EntrypointObjectKind = entrypointObject.Kind
                 })
             .ToListAsync(cancellationToken);
 
@@ -1328,6 +1333,7 @@ public class MethodSelectionService : IMethodSelectionService
                     row.TestProject,
                     row.HelperMember,
                     row.Entrypoint,
+                    row.EntrypointObjectKind,
                     Path = fullPath
                 };
             })
@@ -1339,7 +1345,7 @@ public class MethodSelectionService : IMethodSelectionService
 
         if (selected == null) return null;
 
-        var entrypointVisibility = ResolveMemberVisibility(selected.Entrypoint);
+        var entrypointVisibility = ResolveMemberVisibility(selected.Entrypoint, selected.EntrypointObjectKind);
         var pathText = string.Join(" -> ", selected.Path);
         return await BuildGroundedTestContextAsync(
             new TestContextEvidenceRow(
@@ -2429,28 +2435,14 @@ using System;"
             $"evidence={evidence}. {testMapping}";
     }
 
-    private static MemberVisibility ResolveMemberVisibility(Persistence.Ef.Entities.Code.MemberEntity member)
+    private static MemberVisibility ResolveMemberVisibility(
+        Persistence.Ef.Entities.Code.MemberEntity member,
+        string objectKind)
     {
-        if (member.Modifiers.Any(x => x.Equals("public", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("public ", StringComparison.Ordinal))
-            return MemberVisibility.Public;
-        if (member.Modifiers.Any(x => x.Equals("private", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("private ", StringComparison.Ordinal))
-            return MemberVisibility.Private;
-        if (member.Modifiers.Any(x => x.Equals("protected", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("protected ", StringComparison.Ordinal))
-            return MemberVisibility.Protected;
-        if (member.Modifiers.Any(x => x.Equals("internal", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("internal ", StringComparison.Ordinal))
-            return MemberVisibility.Internal;
-        if (member.FullString.Contains('.', StringComparison.Ordinal) &&
-            member.FullString.Contains("=>", StringComparison.Ordinal))
-            return MemberVisibility.ExplicitInterface;
-
-        return MemberVisibility.Unknown;
+        return MemberVisibilityResolver.Resolve(member.Modifiers, member.FullString, objectKind);
     }
 
-    private static TestAccessStrategy ResolveDirectAccessStrategy(MemberVisibility visibility)
+    internal static TestAccessStrategy ResolveDirectAccessStrategy(MemberVisibility visibility)
     {
         return visibility switch
         {

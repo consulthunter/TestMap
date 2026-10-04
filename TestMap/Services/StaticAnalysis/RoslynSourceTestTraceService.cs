@@ -345,7 +345,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
             : "DeepProductionMethodPath";
     }
 
-    private static string ResolveAccessPathStrategy(IReadOnlyList<int> path, RoslynMemberSymbolIndex index)
+    internal static string ResolveAccessPathStrategy(IReadOnlyList<int> path, RoslynMemberSymbolIndex index)
     {
         var evidenceKind = ResolveEvidenceKind(path, index);
         if (evidenceKind == "HelperMediatedPath") return TestAccessStrategy.HelperMediatedPath.ToString();
@@ -394,19 +394,7 @@ public sealed class RoslynSourceTestTraceService : IRoslynSourceTestTraceService
 
     private static MemberVisibility ResolveVisibility(RoslynMemberSymbolRow member)
     {
-        if (member.Modifiers.Any(x => x.Equals("public", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("public ", StringComparison.Ordinal))
-            return MemberVisibility.Public;
-        if (member.Modifiers.Any(x => x.Equals("private", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("private ", StringComparison.Ordinal))
-            return MemberVisibility.Private;
-        if (member.Modifiers.Any(x => x.Equals("protected", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("protected ", StringComparison.Ordinal))
-            return MemberVisibility.Protected;
-        if (member.Modifiers.Any(x => x.Equals("internal", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("internal ", StringComparison.Ordinal))
-            return MemberVisibility.Internal;
-        return MemberVisibility.Unknown;
+        return MemberVisibilityResolver.Resolve(member.Modifiers, member.FullString, member.ObjectKind);
     }
 
     private sealed class MemberSymbolIndex

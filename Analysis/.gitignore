@@ -182,3 +182,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+# R analysis outputs (regenerate with R/pilot_parameters.R and R/power_complexity_glmm.R)
+R/output/
+.Rhistory

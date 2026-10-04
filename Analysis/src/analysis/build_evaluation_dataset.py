@@ -309,13 +309,13 @@ def _baseline_mutants(mutants: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFr
 def build_mutation_operators(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """Mutation-operator survival profile per repository (RQ6 depth).
+    """Mutation-operator survival profile per repository revision and baseline report.
 
     Aggregates ``mutants`` by ``mutator_name`` x ``status``. ``survival_rate`` =
     Survived / (Survived + Killed) over covered, non-timeout mutants — higher
     means the test suite misses that operator class more often. This is the
     baseline survival profile; before/after "newly killed" attribution is
-    deferred (it requires pairing mutation reports across attempts).
+    computed separately by ``build_metric_diffs``.
     """
     if not db_paths:
         return pd.DataFrame()
@@ -332,20 +332,41 @@ def build_mutation_operators(
         if mut.empty or "mutator_name" not in mut.columns or "status" not in mut.columns:
             continue
         mut = _baseline_mutants(mut, reports)
-        # The output layout is <owner>/<repo>/<commit>/analysis.db, so the parent
-        # folder is the commit; the database's own project row names the repository.
-        repo_name = (projects["repo_name"].iloc[0] if not projects.empty
-                     else Path(db_path).parent.name)
-        counts = (mut.groupby(["mutator_name", "status"]).size()
+        if mut.empty:
+            continue
+        # Preserve the report grain, even when a database contains more than one
+        # solution baseline. Consumers can select/aggregate baselines explicitly.
+        if "mutation_testing_report_id" not in mut:
+            mut = mut.assign(mutation_testing_report_id=pd.NA)
+        counts = (mut.groupby(["mutation_testing_report_id", "mutator_name", "status"], dropna=False).size()
                   .unstack(fill_value=0).reset_index())
-        counts.insert(0, "repo_name", repo_name)
+        if not reports.empty and "project_id" in reports:
+            counts = counts.merge(reports[["id", "project_id"]].rename(
+                columns={"id": "mutation_testing_report_id"}),
+                on="mutation_testing_report_id", how="left", validate="many_to_one")
+        elif len(projects) == 1:
+            counts["project_id"] = projects["id"].iloc[0]
+        else:
+            raise ValueError(f"Cannot resolve mutation report repository in {db_path}")
+        counts = counts.merge(projects.rename(columns={"id": "project_id", "owner": "repo_owner"}),
+                              on="project_id", how="left", validate="many_to_one")
+        counts["repository_identity"] = counts["repository_identity"].astype("string").str.strip().replace("", pd.NA).fillna(
+            counts["repo_owner"] + "/" + counts["repo_name"]).str.strip().str.lower()
+        counts["resolved_commit"] = counts["resolved_commit"].astype("string").str.strip().replace("", pd.NA).fillna(
+            counts["last_analyzed_commit"]).str.strip().str.lower()
+        counts["repository_key"] = (counts["repository_identity"] + "|"
+                                    + counts["resolved_commit"].fillna("").str.lower())
+        counts["repository_revision_key"] = counts["repository_key"]
+        counts["_source_db"] = str(Path(db_path).resolve())
         frames.append(counts)
 
     if not frames:
         return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True).fillna(0)
-    killed = df["Killed"] if "Killed" in df.columns else 0
-    survived = df["Survived"] if "Survived" in df.columns else 0
+    df = pd.concat(frames, ignore_index=True)
+    for status in ("Killed", "Survived", "Timeout", "NoCoverage", "CompileError", "Ignored"):
+        df[status] = df[status].fillna(0) if status in df else 0
+    killed = df["Killed"]
+    survived = df["Survived"]
     total = killed + survived
     if hasattr(total, "where"):
         # survival_rate = Survived / (Survived + Killed); NaN where no killable mutants.
@@ -420,6 +441,7 @@ def build_metric_diffs(
         get_mutants,
         get_mutation_reports,
         get_tool_attempts,
+        usable_member_line_coverage,
     )
     from analysis.files import find_databases
 
@@ -455,15 +477,18 @@ def build_metric_diffs(
         gap_set: dict = {}
         covered: set = set()
         if not cov_reports.empty:
+            usable_covs = usable_member_line_coverage(member_covs, cov_reports)
             run_of_report = cov_reports[["id", "test_run_id"]].rename(columns={"id": "coverage_report_id"})
-            if not gaps.empty:
+            if not gaps.empty and not usable_covs.empty:
                 g = (gaps[gaps["member_id"].isin(targets)]
+                     .merge(usable_covs[["coverage_report_id", "member_id"]].drop_duplicates(),
+                            on=["coverage_report_id", "member_id"], how="inner", validate="many_to_one")
                      .merge(run_of_report, on="coverage_report_id", how="inner")
                      .dropna(subset=["test_run_id", "member_id"]))
                 for (tr, mid), grp in g.groupby(["test_run_id", "member_id"]):
                     gap_set[(int(tr), int(mid))] = set(grp["line_number"])
             if not member_covs.empty:
-                mc = (member_covs[member_covs["member_id"].isin(targets)]
+                mc = (usable_covs[usable_covs["member_id"].isin(targets)]
                       .merge(run_of_report, on="coverage_report_id", how="inner")
                       .dropna(subset=["test_run_id", "member_id"]))
                 covered = {(int(tr), int(mid)) for tr, mid in zip(mc["test_run_id"], mc["member_id"])}
@@ -547,23 +572,28 @@ def save_datasets(
     mutation_operators: pd.DataFrame | None = None,
     assertion_observations: pd.DataFrame | None = None,
     traced_assertions: pd.DataFrame | None = None,
+    repository_families: pd.DataFrame | None = None,
 ) -> None:
     """Write all datasets to *output_dir*."""
     attempts.to_csv(output_dir / "evaluation_attempts.csv", index=False)
     candidates.to_csv(output_dir / "evaluation_candidates.csv", index=False)
     repositories.to_csv(output_dir / "evaluation_repositories.csv", index=False)
-    if not generated_tests.empty:
-        generated_tests.to_csv(output_dir / "generated_tests.csv", index=False)
-    if tool_generated_test_links is not None and not tool_generated_test_links.empty:
-        tool_generated_test_links.to_csv(output_dir / "tool_generated_test_links.csv", index=False)
-    if mutation_operators is not None and not mutation_operators.empty:
-        mutation_operators.to_csv(output_dir / "mutation_operators.csv", index=False)
-    if assertion_observations is not None:
-        assertion_observations.to_csv(
-            output_dir / "assertion_observations.csv", index=False
-        )
-    if traced_assertions is not None:
-        traced_assertions.to_csv(output_dir / "traced_assertions.csv", index=False)
+    optional = {
+        "generated_tests.csv": generated_tests,
+        "tool_generated_test_links.csv": tool_generated_test_links,
+        "mutation_operators.csv": mutation_operators,
+        "assertion_observations.csv": assertion_observations,
+        "traced_assertions.csv": traced_assertions,
+        "evaluation_repository_families.csv": repository_families,
+    }
+    for filename, frame in optional.items():
+        path = output_dir / filename
+        if frame is not None and len(frame.columns):
+            frame.to_csv(path, index=False)
+        else:
+            # Fixed filenames owned by this exporter; never leave a previous
+            # cohort's optional data behind when this build did not produce it.
+            path.unlink(missing_ok=True)
 
     with open(output_dir / "evaluation_overview.json", "w", encoding="utf-8") as f:
         json.dump(overview, f, indent=2, default=str)
@@ -634,6 +664,9 @@ def run(
 
     # RQ6 depth: mutation-operator survival profile.
     mutation_operators = build_mutation_operators(db_paths)
+    if not mutation_operators.empty:
+        mutation_operators = mutation_operators[
+            mutation_operators["repository_key"].isin(attempts.get("repository_key", []))]
 
     save_datasets(
         attempts,
@@ -646,9 +679,8 @@ def run(
         mutation_operators=mutation_operators,
         assertion_observations=assertions if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION else None,
         traced_assertions=traced_assertions if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION else None,
+        repository_families=repository_families,
     )
-    if not repository_families.empty:
-        repository_families.to_csv(out / "evaluation_repository_families.csv", index=False)
 
     print(f"Datasets written to {out}")
     print(f"  attempts:     {len(attempts):,}")

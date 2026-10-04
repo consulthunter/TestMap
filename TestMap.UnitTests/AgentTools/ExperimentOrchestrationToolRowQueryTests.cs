@@ -368,27 +368,41 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
 
     [Fact]
     [Trait("Category", "Unit")]
-    public void SelectGeneratedPostAttemptTestResults_FiltersToLinkedGeneratedTests()
+    public void ResolvePostAttemptResultMemberId_SameNamedBaselineTest_IsNotLinked()
     {
-        var results = new List<(string TestName, string Outcome)>
-        {
-            ("TestMap_Example.Tests.StudentTest.TestStudentConstructor", "Passed"),
-            ("ProgramTest.TestStartAddStudent", "Passed"),
-            ("ProgramTest.TestStartInvalidChoice(value: 9)", "Failed")
-        };
+        // The tool wrote ProgramTest.TestRemoveStudent (member 44); the baseline suite already
+        // has StudentListTest.TestRemoveStudent (member 24). Both names end in ".TestRemoveStudent".
+        var linkedMembers = new List<(int MemberId, string Name)> { (44, "TestRemoveStudent") };
+
+        var baseline = ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            24,
+            "TestMap_Example.Tests.StudentListTest.TestRemoveStudent",
+            linkedMembers);
+        var generated = ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            44,
+            "TestRemoveStudent",
+            linkedMembers);
+
+        Assert.Null(baseline);
+        Assert.Equal(44, generated);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ResolvePostAttemptResultMemberId_UnresolvedMethodId_FallsBackToName()
+    {
         var linkedMembers = new List<(int MemberId, string Name)>
         {
             (10, "TestStartAddStudent"),
             (11, "TestStartInvalidChoice")
         };
 
-        var selected = ExperimentOrchestrationService.SelectGeneratedPostAttemptTestResults(
-            results,
-            linkedMembers);
-
-        Assert.Equal(2, selected.Count);
-        Assert.Equal("ProgramTest.TestStartAddStudent", selected[0].TestName);
-        Assert.Equal("ProgramTest.TestStartInvalidChoice(value: 9)", selected[1].TestName);
+        Assert.Null(ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            0, "TestMap_Example.Tests.StudentTest.TestStudentConstructor", linkedMembers));
+        Assert.Equal(10, ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            0, "ProgramTest.TestStartAddStudent", linkedMembers));
+        Assert.Equal(11, ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            0, "ProgramTest.TestStartInvalidChoice(value: 9)", linkedMembers));
     }
 
     // ─── GetLinkedTestMemberNamesAsync ────────────────────────────────────────
