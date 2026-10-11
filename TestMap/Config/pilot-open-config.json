@@ -178,7 +178,7 @@
         "Model": "GLM-5.3-thinking-high"
       },
       {
-        "Id": "custom-kimi",
+        "Id": "custom-deepseek",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash"
       },
@@ -203,16 +203,16 @@
         "Enabled": true,
         "ToolIds": [
           "copilot-custom-glm",
-          "copilot-custom-kimi",
+          "copilot-custom-deepseek",
           "copilot-custom-gpt",
           "mini-swe-agent-custom-glm",
-          "mini-swe-agent-custom-kimi",
+          "mini-swe-agent-custom-deepseek",
           "mini-swe-agent-custom-gpt",
           "aider-custom-glm",
-          "aider-custom-kimi",
+          "aider-custom-deepseek",
           "aider-custom-gpt",
           "openhands-custom-glm",
-          "openhands-custom-kimi",
+          "openhands-custom-deepseek",
           "openhands-custom-gpt"
         ],
         "RequireAvailabilityInSetup": true
@@ -238,7 +238,7 @@
         }
       },
       {
-        "Id": "openhands-custom-kimi",
+        "Id": "openhands-custom-deepseek",
         "ImageKey": "openhands",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",
@@ -281,7 +281,7 @@
         }
       },
       {
-        "Id": "aider-custom-kimi",
+        "Id": "aider-custom-deepseek",
         "ImageKey": "aider",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",
@@ -325,7 +325,7 @@
         }
       },
       {
-        "Id": "mini-swe-agent-custom-kimi",
+        "Id": "mini-swe-agent-custom-deepseek",
         "ImageKey": "mini-swe-agent",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",
@@ -369,7 +369,7 @@
         }
       },
       {
-        "Id": "copilot-custom-kimi",
+        "Id": "copilot-custom-deepseek",
         "ImageKey": "copilot",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",

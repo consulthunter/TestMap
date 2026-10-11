@@ -223,7 +223,7 @@
       { "Id": "anthropic",      "Provider": "Anthropic" },
       { "Id": "gemini",         "Provider": "GoogleGemini" },
       { "Id": "custom-glm",     "Provider": "CustomOpenAi", "Model": "GLM-5.3-thinking-high" },
-      { "Id": "custom-kimi",    "Provider": "CustomOpenAi", "Model": "DeepSeek-V4.1-Flash" },
+      { "Id": "custom-deepseek", "Provider": "CustomOpenAi", "Model": "DeepSeek-V4.1-Flash" },
       { "Id": "custom-gpt-oss", "Provider": "CustomOpenAi", "Model": "gpt-oss-120b" }
     ],
     "CandidateLimit": 1,
@@ -244,25 +244,25 @@
           "copilot-anthropic",
           "copilot-openai",
           "copilot-custom-glm",
-          "copilot-custom-kimi",
+          "copilot-custom-deepseek",
           "copilot-custom-gpt",
           "codex",
           "gemini",
           "claude",
           "mini-swe-agent-custom-glm",
-          "mini-swe-agent-custom-kimi",
+          "mini-swe-agent-custom-deepseek",
           "mini-swe-agent-custom-gpt",
           "mini-swe-agent-anthropic",
           "mini-swe-agent-openai",
           "mini-swe-agent-gemini",
           "aider-custom-glm",
-          "aider-custom-kimi",
+          "aider-custom-deepseek",
           "aider-custom-gpt",
           "aider-anthropic",
           "aider-openai",
           "aider-gemini",
           "openhands-custom-glm",
-          "openhands-custom-kimi",
+          "openhands-custom-deepseek",
           "openhands-custom-gpt",
           "openhands-anthropic",
           "openhands-openai",
@@ -322,7 +322,7 @@
         }
       },
       {
-        "Id": "openhands-custom-kimi",
+        "Id": "openhands-custom-deepseek",
         "ImageKey": "openhands",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",
@@ -395,7 +395,7 @@
         }
       },
       {
-        "Id": "aider-custom-kimi",
+        "Id": "aider-custom-deepseek",
         "ImageKey": "aider",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",
@@ -466,7 +466,7 @@
         }
       },
       {
-        "Id": "mini-swe-agent-custom-kimi",
+        "Id": "mini-swe-agent-custom-deepseek",
         "ImageKey": "mini-swe-agent",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",
@@ -578,7 +578,7 @@
         }
       },
       {
-        "Id": "copilot-custom-kimi",
+        "Id": "copilot-custom-deepseek",
         "ImageKey": "copilot",
         "Provider": "CustomOpenAi",
         "Model": "DeepSeek-V4.1-Flash",

@@ -88,6 +88,7 @@ public sealed class ExperimentLlmArmConfigBindingTests
     [InlineData("default-config.json")]
     [InlineData("pilot-config.json")]
     [InlineData("copilot-tool-experiment.json")]
+    [InlineData("deepseek-openhands-config.json")]
     public void Deserialize_RepositoryConfig_BindsAndValidates(string fileName)
     {
         var experiment = LoadConfig(fileName).ExperimentConfig;
@@ -116,7 +117,7 @@ public sealed class ExperimentLlmArmConfigBindingTests
         Assert.Empty(experiment.IncludeProviders);
         Assert.True(string.IsNullOrWhiteSpace(experiment.PreferredProvider));
         Assert.Equal(
-            ["openai", "amazon", "gemini", "custom-glm", "custom-kimi", "custom-gpt-oss"],
+            ["openai", "anthropic", "gemini", "custom-glm", "custom-deepseek", "custom-gpt-oss"],
             experiment.LlmArms.Select(x => x.Id).ToArray());
 
         // The three custom arms share one provider and differ only by model — the case arms exist

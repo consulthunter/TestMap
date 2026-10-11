@@ -18,13 +18,21 @@ public class CustomOpenAiGenerationProvider : SemanticKernelGenerationProviderBa
         var config = providerConfig as CustomOpenAiConfig
                      ?? throw new InvalidOperationException("Custom OpenAI config was not provided.");
 
+        // Supplying an HttpClient makes Semantic Kernel drop the SDK's 100-second network timeout
+        // and its hidden internal retries, so this timeout governs and step retries are the only
+        // retries (and the only ones the usage estimate counts).
+        var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(Math.Max(1, config.RequestTimeoutMinutes))
+        };
+
 #pragma warning disable SKEXP0010
         var service = new OpenAIChatCompletionService(
             config.Model,
             new Uri(config.Endpoint),
             config.ApiKey,
             config.OrgId,
-            null,
+            httpClient,
             null);
 #pragma warning restore SKEXP0010
 
