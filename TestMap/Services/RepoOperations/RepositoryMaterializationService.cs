@@ -67,6 +67,12 @@ public sealed class RepositoryMaterializationService(
             Repository.Clone(target.Url, workspacePath);
         }
 
+        CheckoutCommit(target, workspacePath);
+        RepositoryLineEndings.EnsureExactCheckout(workspacePath, target.Commit);
+    }
+
+    private void CheckoutCommit(RepositoryTarget target, string workspacePath)
+    {
         using var repository = new Repository(workspacePath);
         var origin = repository.Network.Remotes["origin"]?.Url;
         if (origin is null || !urls.Equivalent(origin, target.Url))

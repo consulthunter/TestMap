@@ -426,7 +426,10 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
                 using var doc = JsonDocument.Parse(File.ReadAllText(file));
                 var source = Path.GetRelativePath(artifactPath, file);
                 var parsed = TryParseOpenHandsPersistedUsage(doc.RootElement, source);
-                if (parsed != null)
+                // The CLI writes base_state.json when the conversation starts and refreshes it as
+                // it runs. A run killed at the timeout can leave only that initial all-zero
+                // snapshot, which is not a measurement of the run.
+                if (parsed != null && (parsed.InputTokens ?? 0) + (parsed.OutputTokens ?? 0) > 0)
                     latest = parsed;
             }
             catch (JsonException)
@@ -695,15 +698,29 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         if (!File.Exists(stdoutPath))
             return null;
 
-        ToolUsageSummary? latest = null;
+        // Aider prints one "Tokens:" line per LLM request (a later line can report fewer received
+        // tokens than an earlier one), so the attempt's usage is their sum.
+        long? inputTokens = null;
+        long? outputTokens = null;
         foreach (var line in File.ReadLines(stdoutPath))
         {
             var parsed = TryParseAiderTokenLine(line, Path.GetFileName(stdoutPath));
-            if (parsed != null)
-                latest = parsed;
+            if (parsed == null)
+                continue;
+
+            if (parsed.InputTokens.HasValue)
+                inputTokens = (inputTokens ?? 0) + parsed.InputTokens.Value;
+            if (parsed.OutputTokens.HasValue)
+                outputTokens = (outputTokens ?? 0) + parsed.OutputTokens.Value;
         }
 
-        return latest;
+        if (!inputTokens.HasValue && !outputTokens.HasValue)
+            return null;
+
+        return new ToolUsageSummary(
+            inputTokens.HasValue ? ClampToInt(inputTokens.Value) : null,
+            outputTokens.HasValue ? ClampToInt(outputTokens.Value) : null,
+            $"{Path.GetFileName(stdoutPath)}:tokens-line");
     }
 
     private static ToolUsageSummary? TryParseAiderTokenLine(string line, string sourceFile)

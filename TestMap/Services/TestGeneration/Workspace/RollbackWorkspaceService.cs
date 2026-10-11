@@ -1,6 +1,7 @@
 using LibGit2Sharp;
 using TestMap.App;
 using TestMap.Models.Targets;
+using TestMap.Services.RepoOperations;
 
 namespace TestMap.Services.TestGeneration.Workspace;
 
@@ -20,9 +21,15 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
 
     public Task RollbackChangesAsync(CancellationToken cancellationToken = default)
     {
-        using var repo = new Repository(_context.Project.DirectoryPath);
-        var baseCommitSha = _context.VerifiedBaseCommit ?? repo.Head.Tip?.Sha ??
+        string baseCommitSha;
+        using (var head = new Repository(_context.Project.DirectoryPath))
+        {
+            baseCommitSha = _context.VerifiedBaseCommit ?? head.Head.Tip?.Sha ??
                             throw new InvalidOperationException("Repository has no verified base commit to restore.");
+        }
+        RepositoryLineEndings.EnsureExactCheckout(_context.Project.DirectoryPath, baseCommitSha);
+
+        using var repo = new Repository(_context.Project.DirectoryPath);
         var baseCommit = repo.Lookup<Commit>(baseCommitSha) ??
                          throw new InvalidOperationException("The verified base commit is unavailable locally.");
         Commands.Checkout(repo, baseCommit, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });

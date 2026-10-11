@@ -47,6 +47,38 @@ public sealed class CoverageTargetResolverTests
         Assert.Null(resolution.LineRate);
     }
 
+    /// <summary>
+    /// Gridify's coverage lists the generic extension method IsValid&lt;T&gt; under both
+    /// "Gridify.GridifyExtensions" and "Gridify.GridifyExtensions&lt;T&gt;". The two entries are
+    /// one method, so the target must resolve rather than read as ambiguous.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_SameMethodListedUnderGenericAndNonGenericClass_Resolves()
+    {
+        const string signature = "<T>(Demo.IFiltering, out System.Collections.Generic.List<string>, Demo.IMapper<T>)";
+        var report = Report(
+            Object("Demo.Extensions", "src/Extensions.cs",
+                Method("IsValid", "<T>(Demo.IFiltering, Demo.IMapper<T>)", 10, 15, 1.0),
+                Method("IsValid", signature, 40, 60, 0.87)),
+            Object("Demo.Extensions<T>", "src/Extensions.cs",
+                Method("IsValid", signature, 40, 60, 0.87)));
+        var target = new TargetMemberDescriptor(
+            7,
+            "IsValid",
+            "public static bool IsValid<T>(this IFiltering filtering, out List<string> errors, IMapper<T>? mapper = null)",
+            "Demo.Extensions",
+            "src/Extensions.cs",
+            39,
+            59);
+
+        var resolution = CoverageTargetResolver.Resolve(report, target);
+
+        Assert.Equal("Resolved", resolution.Status);
+        Assert.Equal("DuplicateEntries", resolution.MatchKind);
+        Assert.Equal(0.87, resolution.LineRate);
+    }
+
     [Fact]
     [Trait("Category", "Unit")]
     public void Resolve_ConvertsZeroBasedSourceLineToOneBasedCoverageLine()

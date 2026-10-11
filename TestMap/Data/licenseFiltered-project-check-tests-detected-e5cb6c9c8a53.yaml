@@ -1,0 +1,14 @@
+schema_version: 2
+generated_at_utc: 2026-07-16T18:26:57.6723535+00:00
+source:
+  file: licenseFiltered.yaml
+  sha256: cbe4ff6d47fb16ee24a83ad6d6a4b72e7a2c8ae51b5e5f606bc56632f687c542
+derivation:
+  kind: project_test_presence
+  category: tests_detected
+  policy_name: project-test-presence
+  policy_version: 1
+  report:
+    file: licenseFiltered-project-check-report-d14258c49078.yaml
+    sha256: d14258c490786e957b30fae663db653d78d1d0ed981c332b5b5f2dbb11287e81
+targets:

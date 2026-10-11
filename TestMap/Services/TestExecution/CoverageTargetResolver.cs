@@ -52,9 +52,43 @@ public static class CoverageTargetResolver
         if (methods.Count == 1)
             return CoverageTargetResolution.Resolved(methods[0].LineRate, "UniqueName");
 
+        // The coverage collector can list one method under several class entries (for example
+        // "Ns.Type" and "Ns.Type<T>" for a generic extension method). Entries with the same
+        // signature over the same lines are one method, not an overload.
+        var duplicateLineRate = TryMergeDuplicates(bySignature.Count > 1 ? bySignature : methods);
+        if (duplicateLineRate.HasValue)
+            return CoverageTargetResolution.Resolved(duplicateLineRate.Value, "DuplicateEntries");
+
         return CoverageTargetResolution.Missing(
             "AmbiguousTargetMethod",
             $"Coverage contained {methods.Count} possible matches for '{target.MethodName}'.");
+    }
+
+    private static double? TryMergeDuplicates(IReadOnlyList<MemberCoverageModel> methods)
+    {
+        if (methods.Count < 2) return null;
+
+        var first = methods[0];
+        var lineNumbers = first.Lines.Select(x => x.Number).Distinct().Order().ToList();
+        foreach (var method in methods.Skip(1))
+        {
+            if (!string.Equals(method.Signature.Trim(), first.Signature.Trim(), StringComparison.Ordinal))
+                return null;
+            if (!method.Lines.Select(x => x.Number).Distinct().Order().SequenceEqual(lineNumbers))
+                return null;
+        }
+
+        if (methods.All(x => x.LineRate.Equals(first.LineRate))) return first.LineRate;
+        if (lineNumbers.Count == 0) return null;
+
+        // Entries disagree: a line is covered when any entry recorded a hit on it.
+        var covered = methods
+            .SelectMany(x => x.Lines)
+            .Where(x => x.Hits > 0)
+            .Select(x => x.Number)
+            .Distinct()
+            .Count();
+        return (double)covered / lineNumbers.Count;
     }
 
     private static bool MatchesFile(string coverageFile, string sourceFile)

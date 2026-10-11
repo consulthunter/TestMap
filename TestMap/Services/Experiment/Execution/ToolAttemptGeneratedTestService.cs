@@ -73,6 +73,9 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
         // Find test members whose declaration starts on a line added by the tool.
         // Merely belonging to a changed file is insufficient because that file can
         // contain pre-existing tests that must not be attributed to the attempt.
+        // Only rows versioned by this attempt's analysis qualify: an unchanged pre-existing test
+        // reuses its baseline row, whose location is still the baseline one, so after an insertion
+        // above it that stale start line can fall inside the added-line set.
         // Join path: MemberEntity → ObjectEntity → FileEntity
         var candidateMembers = await (
             from member in _dbContext.Members.AsNoTracking()
@@ -80,6 +83,8 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
             join file in _dbContext.Files on obj.FileId equals file.Id
             where member.IsTestMember
                   && member.Kind == "method"
+                  && member.OriginKind == MemberOrigin.ToolAttempt
+                  && member.OriginAttemptId == attempt.Id
                   && absolutePaths.Contains(file.FilePath)
             select new
             {

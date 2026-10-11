@@ -105,6 +105,41 @@ public sealed class RollbackWorkspaceServiceTests : IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() => new RollbackWorkspaceService(new ProjectContext(project)).RollbackChangesAsync());
     }
 
+    /// <summary>
+    /// A checkout made under core.autocrlf=true (Git for Windows' system default) holds CRLF
+    /// files that the host reports clean but a Linux container reports modified. Rollback must
+    /// pin autocrlf=false and leave the committed bytes on disk.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RollbackChangesAsync_CrlfCheckout_RestoresCommittedLineEndings()
+    {
+        var repoPath = CreateRepository();
+        var lfFile = Path.Combine(repoPath, "lines.txt");
+        using (var repo = new Repository(repoPath))
+        {
+            await File.WriteAllTextAsync(lfFile, "a\nb\n");
+            Commands.Stage(repo, "lines.txt");
+            var signature = new Signature("TestMap", "testmap@example.com", DateTimeOffset.UtcNow);
+            repo.Commit("LF file", signature, signature);
+
+            repo.Config.Set("core.autocrlf", "true", ConfigurationLevel.Local);
+            File.Delete(lfFile);
+            repo.CheckoutPaths(repo.Head.Tip.Sha, ["lines.txt"], new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
+        }
+        Assert.Equal("a\r\nb\r\n", await File.ReadAllTextAsync(lfFile));
+
+        var service = new RollbackWorkspaceService(
+            new ProjectContext(new ProjectModel(directoryPath: repoPath)));
+
+        await service.RollbackChangesAsync();
+
+        Assert.Equal("a\nb\n", await File.ReadAllTextAsync(lfFile));
+        using var restored = new Repository(repoPath);
+        Assert.Equal("false", restored.Config.Get<string>("core.autocrlf", ConfigurationLevel.Local)?.Value);
+        Assert.False(restored.RetrieveStatus().IsDirty);
+    }
+
     private string CreateRepository()
     {
         var repoPath = Path.Combine(Path.GetTempPath(), $"testmap-rollback-{Guid.NewGuid():N}");

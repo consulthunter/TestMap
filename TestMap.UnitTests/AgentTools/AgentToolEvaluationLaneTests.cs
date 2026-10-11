@@ -603,6 +603,35 @@ public sealed class AgentToolEvaluationLaneTests
         }
     }
 
+    /// <summary>
+    /// A run killed at the timeout can leave only the all-zero base_state.json written when the
+    /// conversation started. That snapshot is not a measurement, so usage must read as missing.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_OpenHandsInitialZeroSnapshot_ReturnsNull()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            var conversationPath = Path.Combine(artifactPath, "openhands-state", "conversations", "abc123");
+            Directory.CreateDirectory(conversationPath);
+            File.WriteAllText(
+                Path.Combine(conversationPath, "base_state.json"),
+                """
+                {"stats":{"usage_to_metrics":{"agent":{"accumulated_token_usage":{"prompt_tokens":0,"completion_tokens":0}}}}}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "openhands");
+
+            Assert.Null(usage);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
     [Fact]
     [Trait("Category", "Unit")]
     public void ExtractUsage_OpenHandsAliases_AreNotDoubleCounted()
@@ -659,7 +688,7 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
-    public void ExtractUsage_AiderStdoutWithMultipleTokenLines_UsesLatest()
+    public void ExtractUsage_AiderStdoutWithMultipleTokenLines_SumsRequests()
     {
         var artifactPath = CreateTempArtifactDirectory();
         try
@@ -674,8 +703,8 @@ public sealed class AgentToolEvaluationLaneTests
             var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "aider");
 
             Assert.NotNull(usage);
-            Assert.Equal(4500, usage.InputTokens);
-            Assert.Equal(900, usage.OutputTokens);
+            Assert.Equal(5300, usage.InputTokens);
+            Assert.Equal(1100, usage.OutputTokens);
         }
         finally
         {

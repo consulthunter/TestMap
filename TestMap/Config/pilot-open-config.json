@@ -1,0 +1,405 @@
+{
+  "RuntimeConfig": {
+    "Project": {
+      "KeepProjectFiles": true,
+      "AnalyzeLatestCommit": false
+    },
+    "FilePaths": {
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\pilot.yaml",
+      "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
+      "TempDirPath": "D:\\Projects\\TestMap\\Temp",
+      "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
+    },
+    "Docker": {
+      "DefaultContext": "desktop-linux",
+      "WindowsContext": "desktop-windows",
+      "WindowsNetwork": "nat",
+      "StrykerConcurrency": 4,
+      "Images": {
+        "ValidationSdkAll": "testmap-validation-sdk-all:latest",
+        "AgentTools": {
+          "copilot": "testmap-agent-eval-copilot:latest",
+          "mini-swe-agent": "testmap-agent-eval-mini-swe-agent:latest",
+          "aider": "testmap-agent-eval-aider:latest",
+          "openhands": "testmap-agent-eval-openhands:latest"
+        }
+      }
+    },
+    "Frameworks": {
+      "NUnit": [
+        "Test",
+        "TestCase",
+        "TestCaseSource",
+        "Theory"
+      ],
+      "xUnit": [
+        "Fact",
+        "Theory"
+      ],
+      "MSTest": [
+        "TestMethod",
+        "DataSource"
+      ],
+      "Microsoft.VisualStudio.TestTools.UnitTesting": [
+        "TestMethod",
+        "DataSource"
+      ]
+    },
+    "MaxConcurrency": 5,
+    "RunDateFormat": "yyyy-MM-dd"
+  },
+  "TestingConfig": {
+    "GenerationConfig": {
+      "Objective": "test-suite-expansion",
+      "Provider": "custom-openai",
+      "Mode": "chat",
+      "MetricsPath": "coverage-and-mutation",
+      "BudgetMode": "pass-at1-repair-at5",
+      "Temperature": 0,
+      "StepErrorRetries": 0,
+      "StepRetryDelayMs": 1000,
+      "ContextMode": "chained-history",
+      "TargetSelection": {
+        "Strategy": "existing",
+        "CandidateLimit": 20,
+        "ContextMappingMode": "heuristic-with-grounded-preference",
+        "MaxTestCodeDepth": 3,
+        "MaxProductionCallDepth": 3,
+        "MaxIndirectInvocationDepth": 2
+      },
+      "Steps": {
+        "EnableEvidencePackage": true,
+        "EnableContextGraph": true,
+        "EnableContextResolution": true,
+        "EnableRoslynValidation": false,
+        "EnableSpeculativePlanning": false,
+        "EnableScenario": false,
+        "EnableMethodName": false,
+        "EnableArrangePlan": false,
+        "EnableInputPlan": false,
+        "EnableActionPlan": false,
+        "EnableAssertionPlan": false,
+        "EnableFinalTest": true
+      },
+      "Acceptance": {
+        "RequireCompilationSuccess": true,
+        "RequireTestsToRun": true,
+        "RequireAllTestsPass": true,
+        "RequireCoverageImprovement": true,
+        "MinCoverageImprovement": 0
+      }
+    },
+    "MetadataEnrichmentConfig": {
+      "Enabled": true,
+      "UseModel": false,
+      "Provider": "custom-openai",
+      "Mode": "chat",
+      "Temperature": 0.0,
+      "RequestDelayMs": 2000,
+      "MaxCategories": 3,
+      "PromptVersion": "test-metadata-v1"
+    },
+    "TestingFrameworks": [
+      {
+        "patterns": [
+          "Test",
+          "TestCase",
+          "TestCaseSource",
+          "Theory"
+        ]
+      },
+      {
+        "patterns": [
+          "Fact",
+          "Theory"
+        ]
+      },
+      {
+        "patterns": [
+          "TestMethod",
+          "DataSource"
+        ]
+      }
+    ]
+  },
+  "AiProviderConfig": {
+    "CustomOpenAi": {
+      "Model": "GLM-5.3",
+      "OrgId": "",
+      "ApiKey": "",
+      "Endpoint": "https://llm-api.arc.vt.edu/api/",
+      "Provider": "custom-openai"
+    }
+  },
+  "ExperimentConfig": {
+    "Objective": "test-suite-expansion",
+    "CandidateSelectionStrategy": "metric-driven-improvement",
+    "GenerationApproach": "metrics-driven",
+    "Executor": "basic-extension",
+    "Approaches": [
+      "metrics-driven"
+    ],
+    "MetricsPaths": [
+      "coverage-and-mutation"
+    ],
+    "BudgetModes": [
+      "pass-at1",
+      "pass-at1-repair-at5"
+    ],
+    "ContextMappingMode": "heuristic-with-grounded-preference",
+    "CompareHistoryModes": false,
+    "ContextModes": [
+      "chained-history"
+    ],
+    "StepAblation": {
+      "Enabled": false,
+      "Steps": [
+        "evidence-package",
+        "context-graph",
+        "context-resolution",
+        "roslyn-validation",
+        "scenario",
+        "method-name",
+        "arrange-plan",
+        "input-plan",
+        "action-plan",
+        "assertion-plan",
+        "final-test"
+      ],
+      "IncludeBaseline": true,
+      "IncludeAllDisabled": false,
+      "MaxVariants": 32
+    },
+    "Temperature": 1,
+    "LlmArms": [
+      {
+        "Id": "custom-glm",
+        "Provider": "CustomOpenAi",
+        "Model": "GLM-5.3-thinking-high"
+      },
+      {
+        "Id": "custom-kimi",
+        "Provider": "CustomOpenAi",
+        "Model": "DeepSeek-V4.1-Flash"
+      },
+      {
+        "Id": "custom-gpt-oss",
+        "Provider": "CustomOpenAi",
+        "Model": "gpt-oss-120b"
+      }
+    ],
+    "CandidateLimit": 1,
+    "MinCoverageThreshold": 0.0,
+    "MaxCoverageThreshold": 0.99,
+    "StepErrorRetries": 3,
+    "StepRetryDelayMs": 2000,
+    "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output",
+    "IncludeDetailedErrors": true,
+    "Evaluation": {
+      "TestMap": {
+        "Enabled": true
+      },
+      "Tools": {
+        "Enabled": true,
+        "ToolIds": [
+          "copilot-custom-glm",
+          "copilot-custom-kimi",
+          "copilot-custom-gpt",
+          "mini-swe-agent-custom-glm",
+          "mini-swe-agent-custom-kimi",
+          "mini-swe-agent-custom-gpt",
+          "aider-custom-glm",
+          "aider-custom-kimi",
+          "aider-custom-gpt",
+          "openhands-custom-glm",
+          "openhands-custom-kimi",
+          "openhands-custom-gpt"
+        ],
+        "RequireAvailabilityInSetup": true
+      },
+      "Assertions": {
+        "Enabled": true,
+        "MaxDepth": 4
+      }
+    },
+    "Tools": [
+      {
+        "Id": "openhands-custom-glm",
+        "ImageKey": "openhands",
+        "Provider": "CustomOpenAi",
+        "Model": "GLM-5.3",
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "OPENHANDS_APPROVAL_MODE": "always-approve"
+        }
+      },
+      {
+        "Id": "openhands-custom-kimi",
+        "ImageKey": "openhands",
+        "Provider": "CustomOpenAi",
+        "Model": "DeepSeek-V4.1-Flash",
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "OPENHANDS_APPROVAL_MODE": "always-approve"
+        }
+      },
+      {
+        "Id": "openhands-custom-gpt",
+        "ImageKey": "openhands",
+        "Provider": "CustomOpenAi",
+        "Model": "gpt-oss-120b",
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "OPENHANDS_APPROVAL_MODE": "always-approve"
+        }
+      },
+      {
+        "Id": "aider-custom-glm",
+        "ImageKey": "aider",
+        "Provider": "CustomOpenAi",
+        "Model": "GLM-5.3",
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "AIDER_YES": "true",
+          "AIDER_AUTO_COMMITS": "false"
+        }
+      },
+      {
+        "Id": "aider-custom-kimi",
+        "ImageKey": "aider",
+        "Provider": "CustomOpenAi",
+        "Model": "DeepSeek-V4.1-Flash",
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "AIDER_YES": "true",
+          "AIDER_AUTO_COMMITS": "false"
+        }
+      },
+      {
+        "Id": "aider-custom-gpt",
+        "ImageKey": "aider",
+        "Provider": "CustomOpenAi",
+        "Model": "gpt-oss-120b",
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "AIDER_YES": "true",
+          "AIDER_AUTO_COMMITS": "false"
+        }
+      },
+      {
+        "Id": "mini-swe-agent-custom-glm",
+        "ImageKey": "mini-swe-agent",
+        "Provider": "CustomOpenAi",
+        "Model": "GLM-5.3",
+        "TimeoutMinutes": 45,
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "MINI_ALLOW_MODE": "yolo"
+        }
+      },
+      {
+        "Id": "mini-swe-agent-custom-kimi",
+        "ImageKey": "mini-swe-agent",
+        "Provider": "CustomOpenAi",
+        "Model": "DeepSeek-V4.1-Flash",
+        "TimeoutMinutes": 45,
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "MINI_ALLOW_MODE": "yolo"
+        }
+      },
+      {
+        "Id": "mini-swe-agent-custom-gpt",
+        "ImageKey": "mini-swe-agent",
+        "Provider": "CustomOpenAi",
+        "Model": "gpt-oss-120b",
+        "TimeoutMinutes": 45,
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "RequiredEnvironmentVariables": [
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "MINI_ALLOW_MODE": "yolo"
+        }
+      },
+      {
+        "Id": "copilot-custom-glm",
+        "ImageKey": "copilot",
+        "Provider": "CustomOpenAi",
+        "Model": "GLM-5.3",
+        "TimeoutMinutes": 45,
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "RequiredEnvironmentVariables": [
+          "GITHUB_COPILOT_TOKEN",
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "COPILOT_HOME": "/tmp/testmap-copilot-home",
+          "COPILOT_ALLOW_MODE": "allow-all"
+        }
+      },
+      {
+        "Id": "copilot-custom-kimi",
+        "ImageKey": "copilot",
+        "Provider": "CustomOpenAi",
+        "Model": "DeepSeek-V4.1-Flash",
+        "TimeoutMinutes": 45,
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "RequiredEnvironmentVariables": [
+          "GITHUB_COPILOT_TOKEN",
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "COPILOT_HOME": "/tmp/testmap-copilot-home",
+          "COPILOT_ALLOW_MODE": "allow-all"
+        }
+      },
+      {
+        "Id": "copilot-custom-gpt",
+        "ImageKey": "copilot",
+        "Provider": "CustomOpenAi",
+        "Model": "gpt-oss-120b",
+        "TimeoutMinutes": 45,
+        "Endpoint": "https://llm-api.arc.vt.edu/api/",
+        "RequiredEnvironmentVariables": [
+          "GITHUB_COPILOT_TOKEN",
+          "CUSTOM_API_KEY"
+        ],
+        "Environment": {
+          "COPILOT_HOME": "/tmp/testmap-copilot-home",
+          "COPILOT_ALLOW_MODE": "allow-all"
+        }
+      }
+    ]
+  }
+}
