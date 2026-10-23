@@ -135,6 +135,47 @@ def test_valid_gap_diff(database):
     assert build_metric_diffs([str(path)]).lines_closed.iloc[0] == 2
 
 
+def test_method_mutation_score_before_after_delta(database):
+    path, _ = database
+    row = build_metric_diffs([str(path)]).iloc[0]
+    assert row.method_mutation_score_before == 50
+    assert row.method_mutation_score_after == 100
+    assert row.method_mutation_score_delta == 50
+    assert row.method_mutants_before == 2
+    assert row.method_mutants_after == 2
+
+
+def test_method_mutation_score_counts_only_the_target_members_valid_mutants(database):
+    path, con = database
+    con.executescript("""
+    ALTER TABLE mutants ADD COLUMN is_static INTEGER DEFAULT 0;
+    INSERT INTO members VALUES(11,1,'Other','void Other()',20,'public');
+    INSERT INTO mutants VALUES
+        (5,10,2,'NoCoverage','Boolean','c',0),
+        (6,10,2,'CompileError','Boolean','d',0),
+        (7,10,2,'Ignored','Boolean','e',0),
+        (8,10,2,'Survived','Boolean','f',1),
+        (9,11,2,'Survived','Boolean','g',0);
+    """)
+    con.commit()
+    row = build_metric_diffs([str(path)]).iloc[0]
+    # Run 2: a, b killed + c no coverage; compile error, ignored, static and other-member excluded.
+    assert row.method_mutants_after == 3
+    assert row.method_mutation_score_after == pytest.approx(200 / 3)
+    assert row.method_mutation_score_delta == pytest.approx(200 / 3 - 50)
+
+
+def test_method_mutation_score_is_missing_when_post_run_did_not_mutate_member(database):
+    path, con = database
+    con.execute("DELETE FROM mutants WHERE mutation_testing_report_id=2")
+    con.commit()
+    row = build_metric_diffs([str(path)]).iloc[0]
+    assert row.method_mutation_score_before == 50
+    assert pd.isna(row.method_mutation_score_after)
+    assert pd.isna(row.method_mutation_score_delta)
+    assert pd.isna(row.method_mutants_after)
+
+
 def test_gap_diff_ignores_unusable_report_in_same_test_run(database):
     path, con = database
     con.executescript("""

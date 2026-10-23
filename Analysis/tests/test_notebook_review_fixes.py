@@ -336,6 +336,25 @@ def test_before_after_diff_does_not_count_a_vanished_survivor_as_killed():
     assert before_after_diff(1, 2, member, gaps, covered, survived, detected, mutated)[1] == 0
 
 
+def test_method_mutation_score_is_detected_over_valid_mutants():
+    from analysis.build_evaluation_dataset import method_mutation_score
+    member = 7
+    detected = {(1, member): {"a"}}
+    undetected = {(1, member): {"b", "c", "d"}}
+    assert method_mutation_score(1, member, detected, undetected, {(1, member)}) == (25.0, 4)
+
+
+def test_method_mutation_score_is_missing_when_the_run_did_not_mutate_the_member():
+    from analysis.build_evaluation_dataset import method_mutation_score
+    assert method_mutation_score(3, 7, {}, {}, {(1, 7)}) == (None, None)
+
+
+def test_method_mutation_score_is_undefined_without_valid_mutants():
+    from analysis.build_evaluation_dataset import method_mutation_score
+    # Mutated, but only ignored/compile-error mutants: zero denominator, not 0%.
+    assert method_mutation_score(1, 7, {}, {}, {(1, 7)}) == (None, 0)
+
+
 # ---------------------------------------------------------------------------
 # Small-sample statistics
 # ---------------------------------------------------------------------------

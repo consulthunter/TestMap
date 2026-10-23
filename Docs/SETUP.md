@@ -7,6 +7,8 @@ This guide gets TestMap from a fresh checkout to a small local experiment.
 Install:
 
 - .NET SDK 10
+>Note: You need to install the SDKs for the projects you wish to analyze. If you're trying 
+to replicate the experiment. You'd need the SDK for 5, 6, 7, 8, 9, and 10.
 - Git
 - Docker Desktop
 - A Docker context that can run Linux containers, usually `desktop-linux`

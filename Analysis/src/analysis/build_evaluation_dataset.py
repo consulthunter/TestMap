@@ -378,6 +378,8 @@ def build_mutation_operators(
 
 # Stryker counts a timed-out mutant as detected.
 DETECTED_MUTANT_STATUSES = frozenset({"Killed", "Timeout"})
+# Stryker's undetected mutants; with the detected ones they form the score's valid mutants.
+UNDETECTED_MUTANT_STATUSES = frozenset({"Survived", "NoCoverage"})
 
 
 def before_after_diff(
@@ -410,15 +412,40 @@ def before_after_diff(
     return lines_closed, newly_killed
 
 
+def method_mutation_score(
+    run: int,
+    member: int,
+    detected_set: dict,
+    undetected_set: dict,
+    mutated: set,
+) -> tuple[float | None, int | None]:
+    """Mutation score (percentage points) and valid-mutant count for one member in one run.
+
+    Uses Stryker's definition restricted to the member's mutants: detected / (detected +
+    undetected). Ignored, compile-error and static mutants are excluded. Both values are
+    None when the run did not mutate the member; the score alone is None when the member
+    has no valid mutants.
+    """
+    k = (run, member)
+    if k not in mutated:
+        return None, None
+    detected = len(detected_set.get(k, set()))
+    valid = detected + len(undetected_set.get(k, set()))
+    return (100 * detected / valid if valid else None), valid
+
+
 def build_metric_diffs(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """Per-attempt before/after metric diffs: coverage lines closed + mutants newly killed.
+    """Per-attempt before/after metric diffs against the targeted source member.
 
-    Computes set differences against the targeted source member (see
-    :func:`before_after_diff`):
+    Set differences (see :func:`before_after_diff`):
     - ``lines_closed``        = baseline coverage gaps minus post-attempt gaps
     - ``mutants_newly_killed``= baseline survivors detected in the post-attempt run
+
+    Method-local mutation score (see :func:`method_mutation_score`):
+    - ``method_mutation_score_before/after/delta`` in percentage points
+    - ``method_mutants_before/after`` = valid mutants behind each score
 
     Tool lane uses ``tool_attempts.targeted_baseline_id`` (before) +
     ``post_attempt_test_run_id`` (after) — available now. LLM lane uses
@@ -493,28 +520,46 @@ def build_metric_diffs(
                       .dropna(subset=["test_run_id", "member_id"]))
                 covered = {(int(tr), int(mid)) for tr, mid in zip(mc["test_run_id"], mc["member_id"])}
 
-        # Keyed the same way: surviving and detected mutant ids, and whether the run
-        # mutated the member at all.
+        # Keyed the same way: surviving, detected and undetected mutant ids, and whether
+        # the run mutated the member at all.
         surv_set: dict = {}
         detected_set: dict = {}
+        undetected_set: dict = {}
         mutated: set = set()
         if not mutants.empty and not mut_reports.empty and "status" in mutants.columns:
             s = (mutants[mutants["member_id"].isin(targets)]
                  .merge(mut_reports[["id", "test_run_id"]].rename(columns={"id": "mutation_testing_report_id"}),
                         on="mutation_testing_report_id", how="inner")
                  .dropna(subset=["test_run_id", "member_id"]))
+            if "is_static" in s.columns:
+                s = s[~s["is_static"].fillna(False).astype(bool)]
             key_col = "stryker_mutant_id" if "stryker_mutant_id" in s.columns else "id"
             for (tr, mid), grp in s.groupby(["test_run_id", "member_id"]):
                 k = (int(tr), int(mid))
                 mutated.add(k)
                 surv_set[k] = set(grp.loc[grp["status"] == "Survived", key_col])
                 detected_set[k] = set(grp.loc[grp["status"].isin(DETECTED_MUTANT_STATUSES), key_col])
+                undetected_set[k] = set(grp.loc[grp["status"].isin(UNDETECTED_MUTANT_STATUSES), key_col])
 
         def diff(before_run, after_run, member_id):
             if pd.isna(before_run) or pd.isna(after_run) or pd.isna(member_id):
                 return None
-            return before_after_diff(int(before_run), int(after_run), int(member_id),
-                                     gap_set, covered, surv_set, detected_set, mutated)
+            b, a, m = int(before_run), int(after_run), int(member_id)
+            lines_closed, newly_killed = before_after_diff(
+                b, a, m, gap_set, covered, surv_set, detected_set, mutated)
+            score_before, n_before = method_mutation_score(b, m, detected_set, undetected_set, mutated)
+            score_after, n_after = method_mutation_score(a, m, detected_set, undetected_set, mutated)
+            return {
+                "lines_closed": lines_closed,
+                "mutants_newly_killed": newly_killed,
+                "method_mutation_score_before": score_before,
+                "method_mutation_score_after": score_after,
+                "method_mutation_score_delta": (score_after - score_before
+                                                if score_before is not None and score_after is not None
+                                                else None),
+                "method_mutants_before": n_before,
+                "method_mutants_after": n_after,
+            }
 
         cm_member = (cand_methods.set_index("id")["source_member_id"]
                      if not cand_methods.empty else pd.Series(dtype="float64"))
@@ -530,8 +575,7 @@ def build_metric_diffs(
                 aid = agentic_keys.get(int(ta.id))
                 if aid is None:
                     continue
-                rows.append({"attempt_id": aid, "lane": "agentic",
-                             "lines_closed": d[0], "mutants_newly_killed": d[1]})
+                rows.append({"attempt_id": aid, "lane": "agentic", **d})
 
         # LLM lane (auto-activates once baseline_test_run_id/test_run_id are populated).
         if (not execs.empty
@@ -549,16 +593,14 @@ def build_metric_diffs(
                 aid = llm_keys.get(gaid)
                 if aid is None:
                     continue
-                rows.append({"attempt_id": aid, "lane": "llm",
-                             "lines_closed": d[0], "mutants_newly_killed": d[1]})
+                rows.append({"attempt_id": aid, "lane": "llm", **d})
 
     if not rows:
         return pd.DataFrame()
+    metric_cols = [c for c in rows[0] if c not in ("attempt_id", "lane")]
     return (pd.DataFrame(rows)
             .groupby("attempt_id", as_index=False)
-            .agg(lane=("lane", "first"),
-                 lines_closed=("lines_closed", "max"),
-                 mutants_newly_killed=("mutants_newly_killed", "max")))
+            .agg(lane=("lane", "first"), **{c: (c, "max") for c in metric_cols}))
 
 
 def save_datasets(
