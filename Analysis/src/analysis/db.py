@@ -224,6 +224,27 @@ def get_generated_test_executions(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM generated_test_executions")
 
 
+def get_shared_baseline_bundle(
+    conn: sqlite3.Connection,
+) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
+    """Baseline ids each lane compared against, per candidate method.
+
+    Returns LLM-lane rows (candidate_method_id, baseline_test_run_id), tool-lane rows
+    (candidate_method_id, targeted_baseline_id), and whether the database comes from a
+    producer that measures one shared baseline per candidate (``candidate_baselines``).
+    """
+    llm = _query(
+        conn,
+        """
+        SELECT ga.candidate_method_id, gte.baseline_test_run_id
+        FROM generated_test_executions gte
+        JOIN generation_attempts ga ON ga.id = gte.generation_attempt_id
+        """,
+    )
+    tool = _query(conn, "SELECT candidate_method_id, targeted_baseline_id FROM tool_attempts")
+    return llm, tool, _has_table(conn, "candidate_baselines")
+
+
 def get_tool_attempt_generated_tests(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM tool_attempt_generated_tests")
 

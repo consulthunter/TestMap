@@ -59,6 +59,7 @@ public class TestMapDbContext : DbContext
     public DbSet<ToolAttemptEntity> ToolAttempts => Set<ToolAttemptEntity>();
     public DbSet<ToolAttemptGeneratedTestEntity> ToolAttemptGeneratedTests => Set<ToolAttemptGeneratedTestEntity>();
     public DbSet<WorkspaceIntegrityObservationEntity> WorkspaceIntegrityObservations => Set<WorkspaceIntegrityObservationEntity>();
+    public DbSet<CandidateBaselineEntity> CandidateBaselines => Set<CandidateBaselineEntity>();
     public DbSet<AssertionLineageMeasurementEntity> AssertionLineageMeasurements =>
         Set<AssertionLineageMeasurementEntity>();
     public DbSet<GeneratedTestAssertionSummaryEntity> GeneratedTestAssertionSummaries =>

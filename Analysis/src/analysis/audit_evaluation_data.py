@@ -1060,6 +1060,50 @@ def audit_assertion_persistence(
     return findings
 
 
+def audit_shared_baselines(
+    llm: pd.DataFrame,
+    tool: pd.DataFrame,
+    shared_baseline_producer: bool,
+) -> list[dict]:
+    """Both lanes must compare a candidate against one targeted baseline.
+
+    Databases written before the shared baseline (no ``candidate_baselines`` table) measured
+    a baseline per LLM attempt, so a mismatch there is expected and reported as info.
+    """
+    frames = []
+    if not llm.empty and "baseline_test_run_id" in llm.columns:
+        frames.append(llm.rename(columns={"baseline_test_run_id": "baseline_id"})
+                      [["candidate_method_id", "baseline_id"]])
+    if not tool.empty and "targeted_baseline_id" in tool.columns:
+        frames.append(tool.rename(columns={"targeted_baseline_id": "baseline_id"})
+                      [["candidate_method_id", "baseline_id"]])
+    if not frames:
+        return []
+
+    ids = pd.concat(frames, ignore_index=True).dropna(subset=["baseline_id"])
+    per_candidate = ids.groupby("candidate_method_id")["baseline_id"].nunique()
+    mixed = per_candidate[per_candidate > 1]
+    if mixed.empty:
+        return []
+
+    if shared_baseline_producer:
+        return [{
+            "check": "candidate_baseline_mismatch",
+            "severity": "error",
+            "count": int(len(mixed)),
+            "detail": (f"{len(mixed)} candidates were compared against more than one targeted "
+                       f"baseline across lanes or attempts (candidate_method_id: "
+                       f"{sorted(int(x) for x in mixed.index)})."),
+        }]
+    return [{
+        "check": "legacy_per_attempt_baselines",
+        "severity": "info",
+        "count": int(len(mixed)),
+        "detail": (f"{len(mixed)} candidates use per-attempt LLM baselines; this database "
+                   f"predates the shared per-candidate baseline."),
+    }]
+
+
 # ---------------------------------------------------------------------------
 # Report builder
 # ---------------------------------------------------------------------------
@@ -1145,11 +1189,12 @@ def run(
         assertions,
         sidecar_present=raw_assertions.attrs.get("sidecar_present", not raw_assertions.empty),
     )
-    if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
-        from analysis.db import connect, get_assertion_lineage_bundle
+    from analysis.db import connect, get_assertion_lineage_bundle, get_shared_baseline_bundle
 
-        for db_path in find_databases(list(db_paths)):
-            with connect(db_path) as connection:
+    for db_path in find_databases(list(db_paths)):
+        with connect(db_path) as connection:
+            findings += audit_shared_baselines(*get_shared_baseline_bundle(connection))
+            if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
                 findings += audit_assertion_persistence(
                     *get_assertion_lineage_bundle(connection)
                 )

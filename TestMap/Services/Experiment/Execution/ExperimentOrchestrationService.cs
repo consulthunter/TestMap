@@ -85,8 +85,12 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
     private readonly AssertionLineageMeasurementRepository? _assertionLineageMeasurementRepository;
     private readonly IAssertionLineageAnalysisService? _assertionLineageAnalysisService;
     private readonly IAssertionObservationWriter? _assertionObservationWriter;
+    private readonly ICandidateBaselineStore _candidateBaselineStore;
     private ExperimentConfig? _activeExperimentConfig;
     private int? _activeExperimentRunId;
+
+    // The shared targeted baseline of the candidate the LLM lane is working on.
+    private int? _activeBaselineTestRunId;
 
     // Baseline test smells and metrics as they stood at the pinned commit, keyed by test member
     // id. Captured before any attempt runs; see CaptureBaselineSnapshotAsync.
@@ -130,9 +134,11 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         IWorkspaceIntegrityService workspaceIntegrity,
         AssertionLineageMeasurementRepository? assertionLineageMeasurementRepository = null,
         IAssertionLineageAnalysisService? assertionLineageAnalysisService = null,
-        IAssertionObservationWriter? assertionObservationWriter = null)
+        IAssertionObservationWriter? assertionObservationWriter = null,
+        ICandidateBaselineStore? candidateBaselineStore = null)
     {
         _context = context;
+        _candidateBaselineStore = candidateBaselineStore ?? new InMemoryCandidateBaselineStore();
         _config = config;
         _methodSelection = methodSelection;
         _pipeline = pipeline;
@@ -310,11 +316,14 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 matrix,
                 methodContextsByMemberId.Values,
                 cancellationToken);
-            var targetedBaselinesByCandidateId = await PrecomputeTargetedBaselinesAsync(
+            var targetedBaselinesByCandidateId = await PrepareCandidateBaselinesAsync(
                 experimentRun.Id,
+                ResolveResumeGroupId(experimentRun),
+                repositoryIdentity,
+                commitHash,
                 candidateMethods,
                 methodContextsByMemberId,
-                toolAvailabilityPlan,
+                config.Evaluation.TestMap.Enabled || toolAvailabilityPlan.ExecutableTools.Count > 0,
                 cancellationToken);
 
             foreach (var candidateMethod in candidateMethods)
@@ -338,36 +347,47 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     continue;
                 }
 
+                if (!targetedBaselinesByCandidateId.TryGetValue(candidateMethod.Id, out var targetedBaseline) ||
+                    !targetedBaseline.Usable)
+                {
+                    _context.Project.Logger?.Warning(
+                        "Skipping method {MethodName} in both lanes because its shared targeted baseline is unusable: {Reason}",
+                        candidateMethod.MethodName,
+                        targetedBaseline?.SkipReason ?? "No targeted baseline was prepared for this candidate.");
+                    continue;
+                }
+
                 candidateMethod.ExistingTestMemberId = methodContext.Method.ExistingTestMemberId;
                 candidateMethod.ExistingTestMethodName = methodContext.Method.ExistingTestMethodName;
                 await _candidateMethodRepo.UpdateAsync(candidateMethod, cancellationToken);
 
                 if (config.Evaluation.TestMap.Enabled)
-                    foreach (var matrixItem in matrix.Items)
-                        await ExecuteTestMapMatrixItemAsync(
-                            experimentRun,
-                            candidateMethod,
-                            methodContext,
-                            matrixItem,
-                            cancellationToken);
+                {
+                    _activeBaselineTestRunId = targetedBaseline.TestRunId;
+                    try
+                    {
+                        foreach (var matrixItem in matrix.Items)
+                            await ExecuteTestMapMatrixItemAsync(
+                                experimentRun,
+                                candidateMethod,
+                                methodContext,
+                                matrixItem,
+                                cancellationToken);
+                    }
+                    finally
+                    {
+                        _activeBaselineTestRunId = null;
+                    }
+                }
 
                 if (config.Evaluation.Tools.Enabled)
-                {
-                    targetedBaselinesByCandidateId.TryGetValue(
-                        candidateMethod.Id,
-                        out var targetedBaseline);
                     await ExecuteToolEvaluationAsync(
                         experimentRun,
                         candidateMethod,
                         methodContext,
                         toolAvailabilityPlan,
-                        targetedBaseline ?? new TargetedBaselineResult
-                        {
-                            Ran = false,
-                            SkipReason = "No precomputed targeted baseline was available for this candidate."
-                        },
+                        targetedBaseline,
                         cancellationToken);
-                }
             }
 
             var finalIntegrity = await RequireVerifiedIntegrityAsync(
@@ -500,25 +520,57 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
         string TestProjectPath,
         string TargetFramework);
 
-    internal async Task<Dictionary<int, TargetedBaselineResult>> PrecomputeTargetedBaselinesAsync(
+    /// <summary>
+    /// Measures each candidate once, before either lane, so the LLM lane and every agent tool
+    /// compare against the same targeted baseline. A baseline stored by an earlier run in the
+    /// same resume group is reused, so a resumed candidate never mixes two baselines.
+    /// </summary>
+    internal async Task<Dictionary<int, TargetedBaselineResult>> PrepareCandidateBaselinesAsync(
         int experimentRunId,
+        string resumeGroupId,
+        string repositoryIdentity,
+        string commitHash,
         IReadOnlyCollection<CandidateMethod> candidateMethods,
         IReadOnlyDictionary<int, CandidateMethodContext> methodContextsByMemberId,
-        AgentToolAvailabilityPlan toolAvailabilityPlan,
+        bool anyLaneEnabled,
         CancellationToken cancellationToken)
     {
         var results = new Dictionary<int, TargetedBaselineResult>();
-        if (toolAvailabilityPlan.ExecutableTools.Count == 0)
+        if (!anyLaneEnabled)
             return results;
 
         foreach (var candidateMethod in candidateMethods)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await RequireVerifiedIntegrityAsync(
-                IntegrityCheckpoint.PreBaseline, false, null, null, null, cancellationToken);
 
             if (!methodContextsByMemberId.TryGetValue(candidateMethod.MemberId, out var methodContext))
                 continue;
+
+            var stableKey = ExperimentResumeService.BuildCandidateBaselineKey(
+                resumeGroupId,
+                repositoryIdentity,
+                commitHash,
+                candidateMethod);
+            var stored = await _candidateBaselineStore.GetAsync(stableKey, cancellationToken);
+            if (stored != null)
+            {
+                _context.Project.Logger?.Information(
+                    "Reusing targeted baseline {TestRunId} for {MethodName} from experiment run {ExperimentRunId}.",
+                    stored.TestRunId,
+                    candidateMethod.MethodName,
+                    stored.ExperimentRunId);
+                results[candidateMethod.Id] = new TargetedBaselineResult
+                {
+                    Ran = true,
+                    TestRunId = stored.TestRunId,
+                    Usable = stored.Usable,
+                    SkipReason = stored.FailureReason
+                };
+                continue;
+            }
+
+            await RequireVerifiedIntegrityAsync(
+                IntegrityCheckpoint.PreBaseline, false, null, null, null, cancellationToken);
 
             try
             {
@@ -528,10 +580,20 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                     methodContext,
                     cancellationToken);
                 results[candidateMethod.Id] = result;
+                await _candidateBaselineStore.SaveAsync(
+                    new CandidateBaselineRecord(
+                        stableKey,
+                        experimentRunId,
+                        candidateMethod.Id,
+                        candidateMethod.MemberId,
+                        result.TestRunId,
+                        result.Usable,
+                        result.Usable ? string.Empty : result.SkipReason),
+                    cancellationToken);
 
-                if (!result.Ran)
+                if (!result.Usable)
                     _context.Project.Logger?.Warning(
-                        "Skipping precomputed targeted baseline for {MethodName}: {Reason}",
+                        "Targeted baseline for {MethodName} is unusable: {Reason}",
                         candidateMethod.MethodName,
                         result.SkipReason);
             }
@@ -2568,6 +2630,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
             testMethodName,
             GenerationObjectivePolicy.ResolveExecutor(GetActiveObjective()),
             _activeExperimentRunId,
+            _activeBaselineTestRunId,
             cancellationToken);
         var validation = _generationValidationService.Validate(
             execution,
@@ -2612,7 +2675,7 @@ public class ExperimentOrchestrationService : IExperimentOrchestrationService
                 ? (long)Math.Round(execution.GeneratedTestExecutionTimeMs.Value)
                 : null,
             TestRunId = execution.TestRun?.DbId > 0 ? execution.TestRun.DbId : null,
-            BaselineTestRunId = execution.BaselineTestRun?.DbId > 0 ? execution.BaselineTestRun.DbId : null,
+            BaselineTestRunId = execution.BaselineTestRunId,
             MemberId = execution.GeneratedTestMemberId,
             IntendedSourceMemberId = execution.IntendedSourceMemberId,
             AssertionLineageAnalysis = execution.AssertionLineageAnalysis,

@@ -38,6 +38,15 @@ Column and semantics reference for the datasets in `data/`. For the operational 
 ## Metrics
 
 - Coverage stored as a 0–1 fraction; mutation score as 0–100.
+- **Shared baseline.** Each candidate is measured once (a targeted coverage + mutation run)
+  before either lane, recorded in `candidate_baselines`, and both lanes compare against it:
+  LLM `baseline_test_run_id` and agentic `targeted_baseline_id` are the same run, so `*_before`
+  is identical across every arm and tool of a candidate. A resumed run reuses the stored
+  baseline. A candidate whose baseline is unusable is skipped in both lanes, with the reason
+  in `candidate_baselines.failure_reason`. The audit's `candidate_baseline_mismatch` error
+  flags any candidate compared against more than one baseline. Databases without
+  `candidate_baselines` (pilots V1–V3) measured a baseline per LLM attempt; the audit reports
+  those as `legacy_per_attempt_baselines` (info).
 - `*_before` / `*_after` / `*_delta` for coverage and mutation. When a build/test failure prevents a
   post-measurement, `*_after`/`*_delta` are set to `NaN` (not 0) so they drop out of distributions.
 - `effective_tokens` — lane-fair token cost. **Attempt level**: agentic `total_tokens`; LLM

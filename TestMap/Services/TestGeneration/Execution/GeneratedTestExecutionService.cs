@@ -8,6 +8,7 @@ using TestMap.Models.Testing;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TestMap.Models.Code;
+using TestMap.Services.Experiment.Execution;
 using TestMap.Services.StaticAnalysis;
 using TestMap.Services.StaticAnalysis.Assertions;
 using TestMap.Services.StaticAnalysis.Enrichment;
@@ -34,6 +35,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
     private readonly TestRunRepository _testRunRepository;
     private readonly MutationTestingReportRepository _mutationTestingReportRepository;
     private readonly MemberRepository _memberRepository;
+    private readonly IAttemptMetricComparisonService _metricComparisonService;
     private readonly IAssertionLineageAnalysisService? _assertionLineageAnalysisService;
 
     public GeneratedTestExecutionService(
@@ -48,6 +50,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         TestRunRepository testRunRepository,
         MutationTestingReportRepository mutationTestingReportRepository,
         MemberRepository memberRepository,
+        IAttemptMetricComparisonService metricComparisonService,
         IAssertionLineageAnalysisService? assertionLineageAnalysisService = null)
     {
         _context = context;
@@ -61,6 +64,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         _testRunRepository = testRunRepository;
         _mutationTestingReportRepository = mutationTestingReportRepository;
         _memberRepository = memberRepository;
+        _metricComparisonService = metricComparisonService;
         _assertionLineageAnalysisService = assertionLineageAnalysisService;
     }
 
@@ -70,6 +74,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         string testMethodName,
         TestActionExecutorMode? mode = null,
         int? experimentRunId = null,
+        int? baselineTestRunId = null,
         CancellationToken cancellationToken = default)
     {
         var executionMode = mode ??
@@ -97,37 +102,58 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 ? await _roslynValidationService.CaptureBeforeAsync(context, cancellationToken)
                 : RoslynGeneratedTestDiagnosticSnapshot.Skip("Roslyn validation is disabled by generation step configuration.");
 
-            var baselineRun = await RunScopedValidationMetricsAsync(
-                context,
-                experimentRunId,
-                isMutationBaseline: true);
-            if (!IsUsableValidationRun(baselineRun))
+            BaselineMeasurement baseline;
+            if (baselineTestRunId.HasValue)
             {
-                return new GeneratedTestExecutionResult
-                {
-                    GeneratedTestCode = generatedTest,
-                    GeneratedTestMethodName = testMethodName,
-                    CodeExtracted = true,
-                    MethodNameExtracted = true,
-                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
-                    BaselineMutationScore = baselineRun.MutationScore,
-                    TestRun = baselineRun,
-                    FailureKind = TestFailureKind.Infrastructure,
-                    RuntimeErrors = baselineRun.FailureAnalysis?.Evidence,
-                    ErrorLogs = baselineRun.FailureAnalysis?.Evidence,
-                    FailureStage = baselineRun.FailureAnalysis?.Stage ?? "pre-integration-validation",
-                    FailureCategory = baselineRun.FailureAnalysis?.Category ?? "pre_integration_scoped_metrics_failed",
-                    FailureSummary = baselineRun.FailureAnalysis?.Summary ??
-                                     "Targeted pre-integration coverage/mutation validation failed before applying the generated test."
-                };
+                // Experiments measure each candidate once before either lane runs; the
+                // orchestrator has already confirmed this baseline is usable.
+                var shared = await _metricComparisonService.CompareAsync(
+                    context.Method.MemberId,
+                    baselineTestRunId,
+                    null,
+                    cancellationToken);
+                baseline = new BaselineMeasurement(baselineTestRunId, shared.CoverageBefore, shared.MutationScoreBefore);
             }
+            else
+            {
+                var baselineRun = await RunScopedValidationMetricsAsync(
+                    context,
+                    experimentRunId,
+                    isMutationBaseline: true);
+                int? baselineRunId = baselineRun.DbId > 0 ? baselineRun.DbId : null;
+                if (!IsUsableValidationRun(baselineRun))
+                {
+                    return new GeneratedTestExecutionResult
+                    {
+                        GeneratedTestCode = generatedTest,
+                        GeneratedTestMethodName = testMethodName,
+                        CodeExtracted = true,
+                        MethodNameExtracted = true,
+                        BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
+                        BaselineMutationScore = baselineRun.MutationScore,
+                        BaselineTestRunId = baselineRunId,
+                        FailureKind = TestFailureKind.Infrastructure,
+                        RuntimeErrors = baselineRun.FailureAnalysis?.Evidence,
+                        ErrorLogs = baselineRun.FailureAnalysis?.Evidence,
+                        FailureStage = baselineRun.FailureAnalysis?.Stage ?? "pre-integration-validation",
+                        FailureCategory = baselineRun.FailureAnalysis?.Category ?? "pre_integration_scoped_metrics_failed",
+                        FailureSummary = baselineRun.FailureAnalysis?.Summary ??
+                                         "Targeted pre-integration coverage/mutation validation failed before applying the generated test."
+                    };
+                }
 
-            if (baselineRun is GeneratedTestRunModel { MethodCoverage: null } generatedBaselineRun)
-                _context.Project.Logger?.Warning(
-                    "Target method coverage was unavailable for the pre-integration run. Status={CoverageStatus}; Reason={CoverageReason}. " +
-                    "Validation will continue and coverage deltas will remain unavailable unless both paired measurements resolve.",
-                    generatedBaselineRun.MethodCoverageStatus,
-                    generatedBaselineRun.MethodCoverageReason);
+                if (baselineRun is GeneratedTestRunModel { MethodCoverage: null } generatedBaselineRun)
+                    _context.Project.Logger?.Warning(
+                        "Target method coverage was unavailable for the pre-integration run. Status={CoverageStatus}; Reason={CoverageReason}. " +
+                        "Validation will continue and coverage deltas will remain unavailable unless both paired measurements resolve.",
+                        generatedBaselineRun.MethodCoverageStatus,
+                        generatedBaselineRun.MethodCoverageReason);
+
+                baseline = new BaselineMeasurement(
+                    baselineRunId,
+                    ResolveScopedMethodCoverage(baselineRun),
+                    baselineRun.MutationScore);
+            }
 
             var actionResult = await _applicationService.ApplyAsync(
                 context,
@@ -145,9 +171,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     CodeExtracted = true,
                     MethodNameExtracted = true,
                     ApplicationSucceeded = false,
-                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
-                    BaselineMutationScore = baselineRun.MutationScore,
-                    TestRun = baselineRun,
+                    BaselineCoverage = baseline.Coverage,
+                    BaselineMutationScore = baseline.MutationScore,
+                    BaselineTestRunId = baseline.TestRunId,
                     ActionKind = actionResult.ActionKind,
                     ApplicationRuleDecisions = actionResult.RuleDecisions,
                     PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
@@ -180,9 +206,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
                     AppliedUsingCount = actionResult.AppliedUsingCount,
                     AppliedHelperCount = actionResult.AppliedHelperCount,
-                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
-                    BaselineMutationScore = baselineRun.MutationScore,
-                    TestRun = baselineRun,
+                    BaselineCoverage = baseline.Coverage,
+                    BaselineMutationScore = baseline.MutationScore,
+                    BaselineTestRunId = baseline.TestRunId,
                     FailureKind = TestFailureKind.Generation,
                     FailureStage = "application",
                     FailureCategory = "generated_test_method_not_applied",
@@ -229,9 +255,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
                     AppliedUsingCount = actionResult.AppliedUsingCount,
                     AppliedHelperCount = actionResult.AppliedHelperCount,
-                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
-                    BaselineMutationScore = baselineRun.MutationScore,
-                    TestRun = baselineRun,
+                    BaselineCoverage = baseline.Coverage,
+                    BaselineMutationScore = baseline.MutationScore,
+                    BaselineTestRunId = baseline.TestRunId,
                     CompilationSucceeded = false,
                     RoslynValidationSucceeded = roslynValidation.Succeeded,
                     RoslynValidationSkipped = roslynValidation.Skipped,
@@ -267,9 +293,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                     PatchApplicationOutcome = actionResult.PatchApplicationOutcome,
                     AppliedUsingCount = actionResult.AppliedUsingCount,
                     AppliedHelperCount = actionResult.AppliedHelperCount,
-                    BaselineCoverage = ResolveScopedMethodCoverage(baselineRun),
-                    BaselineMutationScore = baselineRun.MutationScore,
-                    TestRun = baselineRun,
+                    BaselineCoverage = baseline.Coverage,
+                    BaselineMutationScore = baseline.MutationScore,
+                    BaselineTestRunId = baseline.TestRunId,
                     CompilationSucceeded = false,
                     RoslynValidationSucceeded = roslynValidation.Succeeded,
                     RoslynValidationSkipped = roslynValidation.Skipped,
@@ -301,6 +327,9 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 context,
                 experimentRunId,
                 isMutationBaseline: false);
+            var metrics = baselineTestRunId.HasValue
+                ? await CompareWithSharedBaselineAsync(context, baselineTestRunId.Value, buildResult, cancellationToken)
+                : AttemptMetrics.FromRuns(baseline, buildResult);
 
             return CreateExecutionResult(
                 context,
@@ -310,9 +339,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 buildResult,
                 roslynValidation,
                 preBuildDecision,
-                ResolveScopedMethodCoverage(baselineRun),
-                baselineRun.MutationScore,
-                baselineRun,
+                metrics,
+                baseline.TestRunId,
                 generatedTestMemberId,
                 assertionLineageAnalysis);
         }
@@ -343,9 +371,8 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         TestRunModel buildResult,
         RoslynGeneratedTestValidationResult roslynValidation,
         RoslynPreBuildDecision preBuildDecision,
-        double? baselineCoverage,
-        double? baselineMutationScore,
-        TestRunModel baselineRun,
+        AttemptMetrics metrics,
+        int? baselineTestRunId,
         int? generatedTestMemberId,
         AssertionLineageAnalysisResult assertionLineageAnalysis)
     {
@@ -353,15 +380,6 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
         var failedTests = buildResult.Results.Where(x => x.Outcome != "Passed").ToList();
         var testsExecuted = buildResult.Results.Count > 0;
         var allTestsPassed = compilationSucceeded && testsExecuted && failedTests.Count == 0;
-        double? coverageAfter = buildResult is GeneratedTestRunModel generatedRun
-            ? generatedRun.MethodCoverage
-            : null;
-        double? coverageImprovement = coverageAfter.HasValue && baselineCoverage.HasValue
-            ? coverageAfter.Value - baselineCoverage.Value
-            : null;
-        var mutationScoreImprovement = CalculateMutationScoreImprovement(
-            baselineMutationScore,
-            buildResult.MutationScore);
 
         var result = new GeneratedTestExecutionResult
         {
@@ -381,12 +399,12 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             TestsExecuted = testsExecuted,
             AllTestsPassed = allTestsPassed,
             FailedTestCount = failedTests.Count,
-            BaselineCoverage = baselineCoverage,
-            CoverageAfter = coverageAfter,
-            CoverageImprovement = coverageImprovement,
-            BaselineMutationScore = baselineMutationScore,
-            MutationScoreAfter = buildResult.MutationScore,
-            MutationScoreImprovement = mutationScoreImprovement,
+            BaselineCoverage = metrics.CoverageBefore,
+            CoverageAfter = metrics.CoverageAfter,
+            CoverageImprovement = metrics.CoverageDelta,
+            BaselineMutationScore = metrics.MutationScoreBefore,
+            MutationScoreAfter = metrics.MutationScoreAfter,
+            MutationScoreImprovement = metrics.MutationScoreDelta,
             GeneratedTestExecutionTimeMs = ResolveGeneratedTestExecutionTimeMs(
                 buildResult.Results,
                 testMethodName),
@@ -396,7 +414,7 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             RoslynDiagnosticsAfter = roslynValidation.After.Diagnostics,
             NewRoslynDiagnostics = roslynValidation.NewDiagnostics,
             TestRun = buildResult,
-            BaselineTestRun = baselineRun,
+            BaselineTestRunId = baselineTestRunId,
             GeneratedTestMemberId = generatedTestMemberId,
             IntendedSourceMemberId = context.Method.MemberId,
             AssertionLineageAnalysis = assertionLineageAnalysis,
@@ -555,11 +573,56 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
             : matching.Sum(x => x.Duration.TotalMilliseconds);
     }
 
-    private static double? CalculateMutationScoreImprovement(double? baselineMutationScore, double? mutationScoreAfter)
+    /// <summary>
+    /// Compares the attempt with the candidate's shared baseline through the same stored-report
+    /// path the agent-tool lane uses, so both lanes report identical before values and deltas.
+    /// </summary>
+    private async Task<AttemptMetrics> CompareWithSharedBaselineAsync(
+        CandidateMethodContext context,
+        int baselineTestRunId,
+        TestRunModel buildResult,
+        CancellationToken cancellationToken)
     {
-        return baselineMutationScore.HasValue && mutationScoreAfter.HasValue
-            ? mutationScoreAfter.Value - baselineMutationScore.Value
-            : null;
+        var comparison = await _metricComparisonService.CompareAsync(
+            context.Method.MemberId,
+            baselineTestRunId,
+            buildResult.DbId > 0 ? buildResult.DbId : null,
+            cancellationToken);
+        return new AttemptMetrics(
+            comparison.CoverageBefore,
+            comparison.CoverageAfter,
+            comparison.CoverageDelta,
+            comparison.MutationScoreBefore,
+            comparison.MutationScoreAfter,
+            comparison.MutationScoreDelta);
+    }
+
+    private sealed record BaselineMeasurement(int? TestRunId, double? Coverage, double? MutationScore);
+
+    private sealed record AttemptMetrics(
+        double? CoverageBefore,
+        double? CoverageAfter,
+        double? CoverageDelta,
+        double? MutationScoreBefore,
+        double? MutationScoreAfter,
+        double? MutationScoreDelta)
+    {
+        // Without a shared baseline (generate-tests), both runs are compared in memory.
+        public static AttemptMetrics FromRuns(BaselineMeasurement baseline, TestRunModel buildResult)
+        {
+            var coverageAfter = ResolveScopedMethodCoverage(buildResult);
+            return new AttemptMetrics(
+                baseline.Coverage,
+                coverageAfter,
+                coverageAfter.HasValue && baseline.Coverage.HasValue
+                    ? coverageAfter.Value - baseline.Coverage.Value
+                    : null,
+                baseline.MutationScore,
+                buildResult.MutationScore,
+                baseline.MutationScore.HasValue && buildResult.MutationScore.HasValue
+                    ? buildResult.MutationScore.Value - baseline.MutationScore.Value
+                    : null);
+        }
     }
 
     private Task<TestRunModel> RunScopedValidationMetricsAsync(
@@ -744,7 +807,7 @@ internal static class GeneratedTestExecutionResultExtensions
             RoslynPreBuildRuleDecisions = result.RoslynPreBuildRuleDecisions,
             GeneratedTestExecutionTimeMs = result.GeneratedTestExecutionTimeMs,
             TestRun = result.TestRun,
-            BaselineTestRun = result.BaselineTestRun,
+            BaselineTestRunId = result.BaselineTestRunId,
             GeneratedTestMemberId = result.GeneratedTestMemberId,
             IntendedSourceMemberId = result.IntendedSourceMemberId,
             AssertionLineageAnalysis = result.AssertionLineageAnalysis,

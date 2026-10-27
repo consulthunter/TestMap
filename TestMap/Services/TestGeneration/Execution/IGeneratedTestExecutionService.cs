@@ -16,6 +16,7 @@ public interface IGeneratedTestExecutionService
         string testMethodName,
         TestActionExecutorMode? mode = null,
         int? experimentRunId = null,
+        int? baselineTestRunId = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -66,8 +67,11 @@ public sealed class GeneratedTestExecutionResult
     public int AppliedHelperCount { get; init; }
     public double? GeneratedTestExecutionTimeMs { get; init; }
     public TestRunModel? TestRun { get; init; }
-    /// <summary>The pre-attempt baseline test run (before the generated test was applied).</summary>
-    public TestRunModel? BaselineTestRun { get; init; }
+    /// <summary>
+    /// DB id of the baseline the attempt was compared against: the candidate's shared targeted
+    /// baseline in experiments, or the attempt's own pre-integration run otherwise.
+    /// </summary>
+    public int? BaselineTestRunId { get; init; }
     /// <summary>DB id of the persisted generated-test member (when it validated and was analyzed).</summary>
     public int? GeneratedTestMemberId { get; init; }
     /// <summary>The source member this attempt was asked to exercise.</summary>

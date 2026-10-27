@@ -174,6 +174,26 @@ public sealed class ExperimentResumeService : IExperimentResumeService
         return string.IsNullOrWhiteSpace(value) ? "none" : value.Trim();
     }
 
+    /// <summary>
+    /// Identifies a candidate's shared targeted baseline. It omits the matrix values because one
+    /// baseline serves every arm and tool for the candidate, and the objective because the
+    /// baseline measures the unmodified workspace.
+    /// </summary>
+    public static string BuildCandidateBaselineKey(
+        string resumeGroupId,
+        string repositoryIdentity,
+        string commitHash,
+        CandidateMethod candidateMethod)
+    {
+        return string.Join(
+            "|",
+            Normalize(resumeGroupId),
+            Normalize(repositoryIdentity),
+            Normalize(commitHash),
+            BuildCandidateIdentity(candidateMethod),
+            "targeted-baseline");
+    }
+
     internal static string BuildCandidateIdentity(CandidateMethod candidateMethod)
     {
         return candidateMethod.CandidateCohortMemberId.HasValue

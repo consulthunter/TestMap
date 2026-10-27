@@ -217,49 +217,38 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
 
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task PrecomputeTargetedBaselinesAsync_RollsBackBaselineArtifactsBeforeLanes()
+    public async Task PrepareCandidateBaselinesAsync_RollsBackBaselineArtifactsBeforeLanes()
     {
         var repoPath = CreateRepository();
         var baselineService = new WritingTargetedBaselineService(repoPath, testRunId: 42);
-        var service = MakeService(repoPath, baselineService);
+        var store = new InMemoryCandidateBaselineStore();
+        var service = MakeService(repoPath, baselineService, store);
         var candidate = new CandidateMethod
         {
             Id = 7,
             MemberId = 11,
             MethodName = "Start"
         };
-        var context = MakeContext(candidate, repoPath);
-        var plan = new AgentToolAvailabilityPlan
-        {
-            Decisions =
-            [
-                new AgentToolAvailabilityDecision
-                {
-                    Tool = new ExperimentToolConfig { Id = "codex" },
-                    Availability = new ToolAvailabilityResult { ToolId = "codex", IsAvailable = true },
-                    ShouldExecute = true
-                }
-            ]
-        };
 
-        var result = await service.PrecomputeTargetedBaselinesAsync(
-            experimentRunId: 3,
-            [candidate],
-            new Dictionary<int, CandidateMethodContext> { [candidate.MemberId] = context },
-            plan,
-            CancellationToken.None);
+        var result = await PrepareAsync(service, candidate, repoPath, experimentRunId: 3);
 
         Assert.Equal(1, baselineService.CallCount);
-        Assert.True(result[candidate.Id].Ran);
+        Assert.True(result[candidate.Id].Usable);
         Assert.Equal(42, result[candidate.Id].TestRunId);
         Assert.False(Directory.Exists(Path.Combine(repoPath, "coverage")));
         Assert.False(Directory.Exists(Path.Combine(repoPath, "TestMap-Example", "obj")));
         Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(repoPath, "tracked.txt")));
+
+        var stored = await store.GetAsync(BaselineKey(candidate));
+        Assert.NotNull(stored);
+        Assert.Equal(42, stored.TestRunId);
+        Assert.True(stored.Usable);
+        Assert.Equal(3, stored.ExperimentRunId);
     }
 
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task PrecomputeTargetedBaselinesAsync_DoesNotRunWithoutExecutableTools()
+    public async Task PrepareCandidateBaselinesAsync_DoesNotRunWhenNoLaneIsEnabled()
     {
         var repoPath = CreateRepository();
         var baselineService = new WritingTargetedBaselineService(repoPath, testRunId: 42);
@@ -271,20 +260,85 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
             MethodName = "Start"
         };
 
-        var result = await service.PrecomputeTargetedBaselinesAsync(
-            experimentRunId: 3,
-            [candidate],
-            new Dictionary<int, CandidateMethodContext> { [candidate.MemberId] = MakeContext(candidate, repoPath) },
-            new AgentToolAvailabilityPlan(),
-            CancellationToken.None);
+        var result = await PrepareAsync(service, candidate, repoPath, experimentRunId: 3, anyLaneEnabled: false);
 
         Assert.Empty(result);
         Assert.Equal(0, baselineService.CallCount);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task PrepareCandidateBaselinesAsync_OnResume_ReusesStoredBaselineWithoutRemeasuring()
+    {
+        var repoPath = CreateRepository();
+        var baselineService = new WritingTargetedBaselineService(repoPath, testRunId: 99);
+        var store = new InMemoryCandidateBaselineStore();
+        var candidate = new CandidateMethod { Id = 7, MemberId = 11, MethodName = "Start" };
+        await store.SaveAsync(new CandidateBaselineRecord(
+            BaselineKey(candidate), ExperimentRunId: 2, CandidateMethodId: 5, MemberId: 11,
+            TestRunId: 42, Usable: true, FailureReason: string.Empty));
+        var service = MakeService(repoPath, baselineService, store);
+
+        // The resumed run re-inserts the candidate under a new id; the key follows its member.
+        var resumed = new CandidateMethod { Id = 8, MemberId = 11, MethodName = "Start" };
+        var result = await PrepareAsync(service, resumed, repoPath, experimentRunId: 3);
+
+        Assert.Equal(0, baselineService.CallCount);
+        Assert.True(result[resumed.Id].Usable);
+        Assert.Equal(42, result[resumed.Id].TestRunId);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task PrepareCandidateBaselinesAsync_RecordsUnusableBaselineAndDoesNotRemeasureIt()
+    {
+        var repoPath = CreateRepository();
+        var baselineService = new WritingTargetedBaselineService(
+            repoPath, testRunId: 42, usable: false, skipReason: "Restore failed.");
+        var store = new InMemoryCandidateBaselineStore();
+        var service = MakeService(repoPath, baselineService, store);
+        var candidate = new CandidateMethod { Id = 7, MemberId = 11, MethodName = "Start" };
+
+        var first = await PrepareAsync(service, candidate, repoPath, experimentRunId: 3);
+        var second = await PrepareAsync(service, candidate, repoPath, experimentRunId: 4);
+
+        Assert.Equal(1, baselineService.CallCount);
+        Assert.False(first[candidate.Id].Usable);
+        Assert.False(second[candidate.Id].Usable);
+        Assert.Equal("Restore failed.", second[candidate.Id].SkipReason);
+        var stored = await store.GetAsync(BaselineKey(candidate));
+        Assert.NotNull(stored);
+        Assert.False(stored.Usable);
+        Assert.Equal("Restore failed.", stored.FailureReason);
+    }
+
+    private const string ResumeGroupId = "series-a";
+    private const string RepositoryIdentity = "owner/repo";
+    private const string CommitHash = "0123456789abcdef0123456789abcdef01234567";
+
+    private static string BaselineKey(CandidateMethod candidate) =>
+        ExperimentResumeService.BuildCandidateBaselineKey(ResumeGroupId, RepositoryIdentity, CommitHash, candidate);
+
+    private static Task<Dictionary<int, TargetedBaselineResult>> PrepareAsync(
+        ExperimentOrchestrationService service,
+        CandidateMethod candidate,
+        string repoPath,
+        int experimentRunId,
+        bool anyLaneEnabled = true) =>
+        service.PrepareCandidateBaselinesAsync(
+            experimentRunId,
+            ResumeGroupId,
+            RepositoryIdentity,
+            CommitHash,
+            [candidate],
+            new Dictionary<int, CandidateMethodContext> { [candidate.MemberId] = MakeContext(candidate, repoPath) },
+            anyLaneEnabled,
+            CancellationToken.None);
+
     private static ExperimentOrchestrationService MakeService(
         string repoPath,
-        ITargetedBaselineService targetedBaselineService)
+        ITargetedBaselineService targetedBaselineService,
+        ICandidateBaselineStore? candidateBaselineStore = null)
     {
         var project = new ProjectModel(directoryPath: repoPath);
         var context = new ProjectContext(project);
@@ -323,7 +377,8 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
             toolPostAttemptMeasurementService: null!,
             generationApproaches: [],
             new RollbackWorkspaceService(context),
-            new AlwaysCleanWorkspaceIntegrityService());
+            new AlwaysCleanWorkspaceIntegrityService(),
+            candidateBaselineStore: candidateBaselineStore);
     }
 
     private static CandidateMethodContext MakeContext(CandidateMethod candidate, string repoPath) =>
@@ -388,11 +443,19 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
     {
         private readonly string _repoPath;
         private readonly int _testRunId;
+        private readonly bool _usable;
+        private readonly string _skipReason;
 
-        public WritingTargetedBaselineService(string repoPath, int testRunId)
+        public WritingTargetedBaselineService(
+            string repoPath,
+            int testRunId,
+            bool usable = true,
+            string skipReason = "")
         {
             _repoPath = repoPath;
             _testRunId = testRunId;
+            _usable = usable;
+            _skipReason = skipReason;
         }
 
         public int CallCount { get; private set; }
@@ -414,7 +477,13 @@ public sealed class ExperimentOrchestrationServiceTests : IDisposable
             Directory.CreateDirectory(objDir);
             await File.WriteAllTextAsync(Path.Combine(objDir, "project.assets.json"), "{}", cancellationToken);
 
-            return new TargetedBaselineResult { Ran = true, TestRunId = _testRunId };
+            return new TargetedBaselineResult
+            {
+                Ran = true,
+                TestRunId = _testRunId,
+                Usable = _usable,
+                SkipReason = _skipReason
+            };
         }
     }
 

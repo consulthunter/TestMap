@@ -278,6 +278,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CandidateMethodRepository>();
         services.AddScoped<GenerationAttemptRepository>();
         services.AddScoped<WorkspaceIntegrityObservationRepository>();
+        services.AddScoped<ICandidateBaselineStore, CandidateBaselineRepository>();
         services.AddScoped<GenerationStepRepository>();
         services.AddScoped<TestExecutionRepository>();
         services.AddScoped<AssertionLineageMeasurementRepository>();

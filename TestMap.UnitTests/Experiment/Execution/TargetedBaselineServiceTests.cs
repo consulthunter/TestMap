@@ -1,4 +1,5 @@
 using TestMap.Models.Experiment;
+using TestMap.Models.Results;
 using TestMap.Models.Testing;
 using TestMap.Services.Experiment.Execution;
 using TestMap.Services.TestExecution;
@@ -14,7 +15,11 @@ public sealed class TargetedBaselineServiceTests
     {
         var buildTestService = new CapturingBuildTestService
         {
-            Result = new TestRunModel { DbId = 123 }
+            Result = new TestRunModel
+            {
+                DbId = 123,
+                Results = [new TestResultModel { TestName = "CalculatorTests.Adds", Outcome = "Passed" }]
+            }
         };
         var service = new TargetedBaselineService(buildTestService);
         var candidate = new CandidateMethod { MethodName = "Calculate" };
@@ -23,6 +28,7 @@ public sealed class TargetedBaselineServiceTests
         var result = await service.RunAsync(9, candidate, context);
 
         Assert.True(result.Ran);
+        Assert.True(result.Usable);
         Assert.Equal(123, result.TestRunId);
         Assert.NotNull(buildTestService.Request);
         Assert.Equal(BuildTestRunMode.Iteration, buildTestService.Request.Mode);
@@ -32,6 +38,48 @@ public sealed class TargetedBaselineServiceTests
         Assert.Equal("Calculate", buildTestService.Request.CoveredMethodName);
         Assert.Equal(9, buildTestService.Request.ExperimentRunId);
         Assert.True(buildTestService.Request.IsMutationBaseline);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RunAsync_WhenBaselineFailsToBuild_ReportsUnusableWithReason()
+    {
+        var buildTestService = new CapturingBuildTestService
+        {
+            Result = new TestRunModel
+            {
+                DbId = 124,
+                FailureAnalysis = new FailureAnalysisModel { Stage = "build", Summary = "Restore failed." }
+            }
+        };
+        var service = new TargetedBaselineService(buildTestService);
+
+        var result = await service.RunAsync(9, new CandidateMethod { MethodName = "Calculate" }, MakeContext());
+
+        Assert.True(result.Ran);
+        Assert.False(result.Usable);
+        Assert.Equal(124, result.TestRunId);
+        Assert.Equal("Restore failed.", result.SkipReason);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RunAsync_WithoutPersistedRun_ReportsUnusable()
+    {
+        var buildTestService = new CapturingBuildTestService
+        {
+            Result = new TestRunModel
+            {
+                Results = [new TestResultModel { TestName = "CalculatorTests.Adds", Outcome = "Passed" }]
+            }
+        };
+        var service = new TargetedBaselineService(buildTestService);
+
+        var result = await service.RunAsync(9, new CandidateMethod { MethodName = "Calculate" }, MakeContext());
+
+        Assert.False(result.Usable);
+        Assert.Null(result.TestRunId);
+        Assert.Contains("persisted test run id", result.SkipReason);
     }
 
     [Fact]

@@ -150,4 +150,38 @@ public sealed class ExperimentResumeServiceTests
         Assert.Equal(ExperimentMatrixWorkItemStatus.Pending, decision.WorkItem.Status);
         Assert.Contains(decision.RuleDecisions, x => x.Value == "ResumeStaleRunningReset");
     }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildCandidateBaselineKey_FollowsCandidateIdentityNotRowId()
+    {
+        var original = new CandidateMethod { Id = 1, MemberId = 123 };
+        var resumed = new CandidateMethod { Id = 9, MemberId = 123 };
+        var other = new CandidateMethod { Id = 2, MemberId = 456 };
+
+        var originalKey = ExperimentResumeService.BuildCandidateBaselineKey("run", "owner/repo", "abc", original);
+
+        Assert.Equal(
+            originalKey,
+            ExperimentResumeService.BuildCandidateBaselineKey("run", "owner/repo", "abc", resumed));
+        Assert.NotEqual(
+            originalKey,
+            ExperimentResumeService.BuildCandidateBaselineKey("run", "owner/repo", "abc", other));
+        Assert.NotEqual(
+            originalKey,
+            ExperimentResumeService.BuildCandidateBaselineKey("other-run", "owner/repo", "abc", original));
+        Assert.EndsWith("|targeted-baseline", originalKey);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void BuildCandidateBaselineKey_UsesCohortMemberWhenPresent()
+    {
+        var first = new CandidateMethod { MemberId = 123, CandidateCohortMemberId = 77 };
+        var renumbered = new CandidateMethod { MemberId = 321, CandidateCohortMemberId = 77 };
+
+        Assert.Equal(
+            ExperimentResumeService.BuildCandidateBaselineKey("run", "owner/repo", "abc", first),
+            ExperimentResumeService.BuildCandidateBaselineKey("run", "owner/repo", "abc", renumbered));
+    }
 }

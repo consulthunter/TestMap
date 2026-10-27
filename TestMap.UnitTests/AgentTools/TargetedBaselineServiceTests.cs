@@ -101,6 +101,7 @@ public sealed class TargetedBaselineServiceTests
             methodContext: MakeContext());
 
         Assert.True(result.Ran);
+        Assert.True(result.Usable);
         Assert.Equal(42, result.TestRunId);
         Assert.True(string.IsNullOrWhiteSpace(result.SkipReason));
     }
@@ -156,7 +157,11 @@ public sealed class TargetedBaselineServiceTests
         public MockBuildTestService(int dbId = 1) => _dbId = dbId;
 
         public Task<TestRunModel> BuildTestAsync(BuildTestRunRequest request) =>
-            Task.FromResult(new TestRunModel { DbId = _dbId });
+            Task.FromResult(new TestRunModel
+            {
+                DbId = _dbId,
+                Results = [new TestResultModel { TestName = "Tests.Passes", Outcome = "Passed" }]
+            });
     }
 
     private sealed class CapturingMockBuildTestService : IBuildTestService
