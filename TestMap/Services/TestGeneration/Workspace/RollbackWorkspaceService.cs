@@ -29,6 +29,35 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
         }
         RepositoryLineEndings.EnsureExactCheckout(_context.Project.DirectoryPath, baseCommitSha);
 
+        var remaining = RestoreBaseCommit(baseCommitSha);
+        if (remaining.Count > 0)
+        {
+            // A path that differs only by line endings survives a forced checkout plus hard reset,
+            // because its normalized content already matches. Rewriting the tree from a fresh
+            // index puts the committed bytes back.
+            _context.Project.Logger?.Warning(
+                "Workspace still differs from pinned base commit {BaseCommit} after reset; rewriting the working tree. Remaining: {Remaining}",
+                baseCommitSha,
+                string.Join(", ", remaining));
+            RepositoryLineEndings.RewriteWorkingTree(_context.Project.DirectoryPath, baseCommitSha);
+            remaining = RestoreBaseCommit(baseCommitSha);
+        }
+
+        if (remaining.Count > 0)
+            throw new RepositoryMaterializationException(
+                MaterializationStatus.Failed,
+                $"Workspace restoration to the pinned base commit failed. Remaining: {string.Join(", ", remaining.Take(20))}");
+        _context.CurrentCommit = baseCommitSha.ToLowerInvariant();
+        _context.Project.Logger?.Debug("Repository rolled back to pinned base commit {BaseCommit}", baseCommitSha);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Forces the workspace to <paramref name="baseCommitSha"/> and returns what still differs:
+    /// a moved HEAD and every non-ignored status entry. Empty means restored.
+    /// </summary>
+    private List<string> RestoreBaseCommit(string baseCommitSha)
+    {
         using var repo = new Repository(_context.Project.DirectoryPath);
         var baseCommit = repo.Lookup<Commit>(baseCommitSha) ??
                          throw new InvalidOperationException("The verified base commit is unavailable locally.");
@@ -36,11 +65,14 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
         repo.Reset(ResetMode.Hard, baseCommit);
         DeleteUntrackedFiles(repo);
         DeleteIgnoredBuildArtifacts(repo.Info.WorkingDirectory);
-        if (!string.Equals(repo.Head.Tip?.Sha, baseCommitSha, StringComparison.OrdinalIgnoreCase) || repo.RetrieveStatus().IsDirty)
-            throw new RepositoryMaterializationException(MaterializationStatus.Failed, "Workspace restoration to the pinned base commit failed.");
-        _context.CurrentCommit = baseCommitSha.ToLowerInvariant();
-        _context.Project.Logger?.Debug("Repository rolled back to pinned base commit {BaseCommit}", baseCommitSha);
-        return Task.CompletedTask;
+
+        var remaining = new List<string>();
+        if (!string.Equals(repo.Head.Tip?.Sha, baseCommitSha, StringComparison.OrdinalIgnoreCase))
+            remaining.Add($"HEAD at {repo.Head.Tip?.Sha ?? "<none>"}");
+        remaining.AddRange(repo.RetrieveStatus()
+            .Where(x => x.State != FileStatus.Ignored && x.State != FileStatus.Unaltered)
+            .Select(x => $"{x.State} {x.FilePath}"));
+        return remaining;
     }
 
     public Task PersistAcceptedChangesAsync(string message, CancellationToken cancellationToken = default)

@@ -8,19 +8,27 @@ namespace TestMap.Services.RepoOperations;
 /// <c>core.autocrlf=true</c>), so a repository without a <c>.gitattributes</c> is checked out
 /// with CRLF line endings. The Linux agent containers then read every such file as modified
 /// against HEAD, and the whole tree is attributed to the tool attempt.
+///
+/// <c>core.autocrlf=false</c> alone is not enough for a repository whose attributes mark files
+/// <c>text=auto</c>: those still check out with the native eol, CRLF on Windows. An agent that
+/// rewrites such a file unchanged saves it with LF, and LibGit2Sharp then reports it modified
+/// in a way a forced checkout plus hard reset cannot clear, because the normalized content
+/// already matches. Pinning <c>core.eol=lf</c> checks those files out as the committed LF bytes.
 /// </summary>
 internal static class RepositoryLineEndings
 {
     private const string AutoCrlfKey = "core.autocrlf";
+    private const string EolKey = "core.eol";
 
-    /// <summary>Sets <c>core.autocrlf=false</c> locally. Returns true when the setting changed.</summary>
+    /// <summary>
+    /// Sets <c>core.autocrlf=false</c> and <c>core.eol=lf</c> locally. Returns true when either
+    /// setting changed.
+    /// </summary>
     public static bool Pin(Repository repository)
     {
-        var current = repository.Config.Get<string>(AutoCrlfKey, ConfigurationLevel.Local)?.Value;
-        if (string.Equals(current, "false", StringComparison.OrdinalIgnoreCase)) return false;
-
-        repository.Config.Set(AutoCrlfKey, "false", ConfigurationLevel.Local);
-        return true;
+        var autoCrlfChanged = PinLocal(repository, AutoCrlfKey, "false");
+        var eolChanged = PinLocal(repository, EolKey, "lf");
+        return autoCrlfChanged || eolChanged;
     }
 
     /// <summary>
@@ -42,7 +50,7 @@ internal static class RepositoryLineEndings
         rewritten.Reset(ResetMode.Hard, commit);
     }
 
-    /// <summary>Pins the setting and, when it changed, rewrites the tree from <paramref name="commitSha"/>.</summary>
+    /// <summary>Pins the settings and, when they changed, rewrites the tree from <paramref name="commitSha"/>.</summary>
     public static void EnsureExactCheckout(string workspacePath, string commitSha)
     {
         bool changed;
@@ -52,5 +60,14 @@ internal static class RepositoryLineEndings
         }
 
         if (changed) RewriteWorkingTree(workspacePath, commitSha);
+    }
+
+    private static bool PinLocal(Repository repository, string key, string value)
+    {
+        var current = repository.Config.Get<string>(key, ConfigurationLevel.Local)?.Value;
+        if (string.Equals(current, value, StringComparison.OrdinalIgnoreCase)) return false;
+
+        repository.Config.Set(key, value, ConfigurationLevel.Local);
+        return true;
     }
 }
