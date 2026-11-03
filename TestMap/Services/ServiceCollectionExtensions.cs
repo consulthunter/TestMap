@@ -312,7 +312,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IExperimentResumeService, ExperimentResumeService>();
         services.AddScoped<ITargetedBaselineService, TargetedBaselineService>();
         services.AddScoped<IAttemptMetricComparisonService, AttemptMetricComparisonService>();
-        services.AddScoped<IToolPostAttemptRefreshService, ToolPostAttemptRefreshService>();
         services.AddScoped<IToolPostAttemptAnalysisService, ToolPostAttemptAnalysisService>();
         services.AddScoped<IToolAttemptGeneratedTestService, ToolAttemptGeneratedTestService>();
         services.AddScoped<IToolPostAttemptMeasurementService, ToolPostAttemptMeasurementService>();

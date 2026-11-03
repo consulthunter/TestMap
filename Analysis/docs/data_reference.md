@@ -101,6 +101,14 @@ duplicate member-coverage observations are collapsed; conflicting values become 
 `Unavailable`. Missing or unusable coverage does not produce a zero gap count. Static joins
 that duplicate a mapping are rejected rather than expanding the training population.
 
+`source_test_mappings` holds both baseline and attempt-time mappings, updated in place by
+`(project_id, source_member_id, test_member_id, evidence_kind)`, so mapping IDs are stable.
+Baseline mappings are the rows whose test member has `members.origin_kind = 'Baseline'`; the
+training export and the MSR mapping frame keep only those. An attempt's mappings are reached
+through `tool_attempt_generated_tests.mapping_id` (tool lane) or the LLM row's
+`generated_test_member_id` joined to `test_member_id`. LLM-generated tests with the same name
+in the same file share one member row, so its mapping reflects the latest attempt.
+
 ## Empty datasets and rebuilds
 
 Header-only result grains and assertion sidecars are valid under the explicitly selected

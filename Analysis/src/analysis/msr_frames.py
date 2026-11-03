@@ -473,17 +473,24 @@ def load_mappings(conn: sqlite3.Connection) -> pd.DataFrame:
     if not _has_table(conn, "source_test_mappings"):
         return pd.DataFrame()
 
-    mappings = _query(conn, """
-        SELECT id AS observation_id,
-               source_member_id,
-               test_member_id,
-               evidence_kind,
-               is_grounded,
-               access_path_strategy,
-               path_length,
-               confidence,
-               resolver_version
-        FROM source_test_mappings
+    # Attempt-time mappings persist alongside the baseline ones, keyed to the test member
+    # version an attempt produced. The mining layer describes the repository's own tests.
+    # Databases from before member versioning have no origin column and hold baseline only.
+    baseline_only = ""
+    if _has_columns(conn, "members", {"id", "origin_kind"}):
+        baseline_only = """
+        WHERE stm.test_member_id IN (SELECT id FROM members WHERE origin_kind = 'Baseline')"""
+    mappings = _query(conn, f"""
+        SELECT stm.id AS observation_id,
+               stm.source_member_id,
+               stm.test_member_id,
+               stm.evidence_kind,
+               stm.is_grounded,
+               stm.access_path_strategy,
+               stm.path_length,
+               stm.confidence,
+               stm.resolver_version
+        FROM source_test_mappings stm{baseline_only}
     """)
     if mappings.empty or not _has_table(conn, "source_test_mapping_trace_steps"):
         for column in ("trace_steps", "distinct_relationship_kinds", "distinct_edge_sources"):

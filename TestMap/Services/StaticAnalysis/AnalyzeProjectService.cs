@@ -99,9 +99,24 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         }
 
         await PersistRelationshipsAsync(state);
-        await _sourceTestMappingRefreshService.RefreshForProjectAsync(
+    }
+
+    public Task RefreshSourceTestMappingsAsync(
+        IReadOnlyCollection<int> observedMemberIds,
+        MemberAnalysisOrigin origin,
+        CancellationToken cancellationToken = default)
+    {
+        var solutionIds = _context.Project.Solutions
+            .Select(x => x.Id)
+            .Where(x => x > 0)
+            .Distinct()
+            .ToList();
+        return _sourceTestMappingRefreshService.RefreshAsync(
             _context.Project.DbId,
-            analysisProject.SolutionId);
+            solutionIds,
+            observedMemberIds.ToHashSet(),
+            origin,
+            cancellationToken);
     }
 
     private static RoslynProject RemoveSourceGenerators(RoslynProject project)

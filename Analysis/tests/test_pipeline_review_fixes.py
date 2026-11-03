@@ -8,7 +8,7 @@ from analysis.build_evaluation_dataset import build_metric_diffs, build_mutation
 from analysis.build_evaluation_dataset import run as build_datasets
 from analysis.audit_evaluation_data import audit_assertion_lineage
 from analysis.build_msr_datasets import _CsvAppender
-from analysis.export_training_dataset import build_mapping_rows
+from analysis.export_training_dataset import build_mapping_rows, build_pair_rows
 from analysis.files import read_result_grains, read_schema4_result_bundle
 from analysis.msr_frames import load_mappings
 from analysis.normalize import build_candidate_summary, build_paired_comparison
@@ -333,3 +333,23 @@ def test_mutation_profile_handles_blank_additive_provenance(database):
     """)
     con.commit()
     assert build_mutation_operators([str(path)]).repository_key.tolist() == ["owner/repo|revision"]
+
+
+@pytest.mark.parametrize("versioned", [True, False])
+def test_mapping_readers_keep_only_baseline_tests(database, versioned):
+    """Attempt-time mappings persist beside the baseline ones; the readers keep the repo's own tests."""
+    _, con = database
+    con.executescript("""
+    INSERT INTO members VALUES(21,2,'GeneratedTest','void GeneratedTest()',5,'public');
+    INSERT INTO source_test_mappings VALUES(2,1,10,21,'Direct',1,1,'Direct',1,'v1');
+    """)
+    if versioned:
+        con.executescript("""
+        ALTER TABLE members ADD COLUMN origin_kind TEXT NOT NULL DEFAULT 'Baseline';
+        UPDATE members SET origin_kind = 'ToolAttempt' WHERE id = 21;
+        """)
+    con.commit()
+    expected = [20] if versioned else [20, 21]
+    assert sorted(build_mapping_rows(con).test_member_id) == expected
+    assert sorted(build_pair_rows(con).test_member_id) == expected
+    assert sorted(load_mappings(con).test_member_id) == expected

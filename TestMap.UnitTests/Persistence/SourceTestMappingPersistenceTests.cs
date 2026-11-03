@@ -2,17 +2,21 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using TestMap.App;
 using TestMap.Models;
+using TestMap.Models.Code;
 using TestMap.Models.Configuration;
 using TestMap.Persistence.Ef;
+using TestMap.Persistence.Ef.Entities;
+using TestMap.Persistence.Ef.Entities.Code;
 using TestMap.Persistence.Ef.Entities.Experiment;
 using TestMap.Persistence.Ef.Mapping.Experiment;
 using TestMap.Services.StaticAnalysis;
+using Location = TestMap.Models.Code.Location;
 
 namespace TestMap.UnitTests.Persistence;
 
 /// <summary>
 /// Integration tests for <see cref="SourceTestMappingEntity"/> persistence and
-/// <see cref="SourceTestMappingRefreshService"/> replace logic, using an in-memory SQLite database.
+/// <see cref="SourceTestMappingRefreshService"/> upsert logic, using an in-memory SQLite database.
 /// </summary>
 public sealed class SourceTestMappingPersistenceTests
 {
@@ -135,43 +139,20 @@ public sealed class SourceTestMappingPersistenceTests
     }
 
     /// <summary>
-    /// SourceTestMappingRefreshService.RefreshForProjectAsync writes the mappings returned by
-    /// the trace service into the database, replacing the empty table with the new rows.
+    /// A baseline pass writes the mappings returned by the trace service into an empty table.
     /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task RefreshForProjectAsync_InsertsMappingsFromTraceService()
+    public async Task RefreshAsync_InsertsMappingsFromTraceService()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var db = await CreateDbAsync(connection);
+        await SeedTestMembersAsync(db, (200, MemberOrigin.Baseline, null));
+        var service = CreateService(db, new FixedTraceService([Mapping(1, 100, 200, "DirectMethodCall")]));
 
-        var mappings = new List<SourceTestMappingEntity>
-        {
-            new SourceTestMappingEntity
-            {
-                ProjectId = 1,
-                SourceMemberId = 100,
-                TestMemberId = 200,
-                EvidenceKind = "DirectMethodCall",
-                IsGrounded = true,
-                AccessPathStrategy = "Direct",
-                PathLength = 2,
-                Confidence = 1.0,
-                Summary = "Direct call.",
-                ResolverVersion = "v1",
-                CreatedAt = DateTime.UtcNow
-            }
-        };
+        await service.RefreshAsync(1, [1], new HashSet<int> { 200 }, MemberAnalysisOrigin.Baseline());
 
-        var service = new SourceTestMappingRefreshService(
-            new ProjectContext(new ProjectModel(config: new TestMapConfig())),
-            db,
-            new FixedTraceService(mappings));
-
-        await service.RefreshForProjectAsync(projectId: 1, solutionId: 1);
-
-        Assert.Equal(1, await db.SourceTestMappings.CountAsync());
         var saved = await db.SourceTestMappings.SingleAsync();
         Assert.Equal(100, saved.SourceMemberId);
         Assert.Equal(200, saved.TestMemberId);
@@ -179,124 +160,109 @@ public sealed class SourceTestMappingPersistenceTests
     }
 
     /// <summary>
-    /// A second call to RefreshForProjectAsync for the same project deletes all stale rows that
-    /// were written during the first call and inserts the fresh batch from the trace service.
+    /// A traced test's row that the new trace does not reproduce is removed; rows for tests the
+    /// pass did not trace stay, whatever their evidence.
     /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task RefreshForProjectAsync_ReplacesStaleRowsWithFreshBatch()
+    public async Task RefreshAsync_RemovesOnlyStaleRowsOfTracedTests()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var db = await CreateDbAsync(connection);
-
-        // Seed one stale mapping directly
-        db.SourceTestMappings.Add(new SourceTestMappingEntity
-        {
-            ProjectId = 1,
-            SourceMemberId = 50,
-            TestMemberId = 60,
-            EvidenceKind = "OldEvidence",
-            IsGrounded = false,
-            AccessPathStrategy = "Direct",
-            PathLength = 2,
-            Confidence = 0.5,
-            Summary = "stale",
-            ResolverVersion = "v0",
-            CreatedAt = DateTime.UtcNow.AddDays(-1)
-        });
+        await SeedTestMembersAsync(db, (200, MemberOrigin.Baseline, null), (300, MemberOrigin.ToolAttempt, 9));
+        db.SourceTestMappings.AddRange(
+            Mapping(1, 50, 200, "OldEvidence"),
+            Mapping(1, 50, 300, "OtherAttempt"));
         await db.SaveChangesAsync();
-        Assert.Equal(1, await db.SourceTestMappings.CountAsync());
+        var service = CreateService(db, new FixedTraceService([Mapping(1, 100, 200, "DirectMethodCall")]));
 
-        // Refresh replaces stale row with new mapping
-        var freshMappings = new List<SourceTestMappingEntity>
-        {
-            new SourceTestMappingEntity
-            {
-                ProjectId = 1,
-                SourceMemberId = 100,
-                TestMemberId = 200,
-                EvidenceKind = "DirectMethodCall",
-                IsGrounded = true,
-                AccessPathStrategy = "Direct",
-                PathLength = 2,
-                Confidence = 1.0,
-                Summary = "Fresh.",
-                ResolverVersion = "v1",
-                CreatedAt = DateTime.UtcNow
-            }
-        };
+        await service.RefreshAsync(1, [1], new HashSet<int> { 200 }, MemberAnalysisOrigin.Baseline());
 
-        var service = new SourceTestMappingRefreshService(
-            new ProjectContext(new ProjectModel(config: new TestMapConfig())),
-            db,
-            new FixedTraceService(freshMappings));
-
-        await service.RefreshForProjectAsync(projectId: 1, solutionId: 1);
-
-        Assert.Equal(1, await db.SourceTestMappings.CountAsync());
-        var remaining = await db.SourceTestMappings.SingleAsync();
-        Assert.Equal(100, remaining.SourceMemberId);
-        Assert.Equal("DirectMethodCall", remaining.EvidenceKind);
+        var rows = await db.SourceTestMappings.AsNoTracking().OrderBy(x => x.TestMemberId).ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal((100, 200, "DirectMethodCall"), (rows[0].SourceMemberId, rows[0].TestMemberId, rows[0].EvidenceKind));
+        Assert.Equal((50, 300, "OtherAttempt"), (rows[1].SourceMemberId, rows[1].TestMemberId, rows[1].EvidenceKind));
     }
 
     /// <summary>
     /// Refreshing project 1 does not remove mappings belonging to project 2.
-    /// The replace scope is strictly per-project.
     /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task RefreshForProjectAsync_DoesNotRemoveMappingsForOtherProjects()
+    public async Task RefreshAsync_DoesNotRemoveMappingsForOtherProjects()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var db = await CreateDbAsync(connection);
-
-        // Pre-seed a mapping for project 2
-        db.SourceTestMappings.Add(new SourceTestMappingEntity
-        {
-            ProjectId = 2,
-            SourceMemberId = 50,
-            TestMemberId = 60,
-            EvidenceKind = "DirectMethodCall",
-            IsGrounded = true,
-            AccessPathStrategy = "Direct",
-            PathLength = 2,
-            Confidence = 1.0,
-            Summary = "Project 2 mapping.",
-            ResolverVersion = "v1",
-            CreatedAt = DateTime.UtcNow
-        });
+        await SeedTestMembersAsync(db, (200, MemberOrigin.Baseline, null));
+        db.SourceTestMappings.Add(Mapping(2, 50, 200, "DirectMethodCall"));
         await db.SaveChangesAsync();
+        var service = CreateService(db, new FixedTraceService([Mapping(1, 100, 200, "DirectMethodCall")]));
 
-        // Refresh project 1 (which has one new mapping)
-        var project1Mappings = new List<SourceTestMappingEntity>
-        {
-            new SourceTestMappingEntity
-            {
-                ProjectId = 1,
-                SourceMemberId = 100,
-                TestMemberId = 200,
-                EvidenceKind = "DirectMethodCall",
-                IsGrounded = true,
-                AccessPathStrategy = "Direct",
-                PathLength = 2,
-                Confidence = 1.0,
-                Summary = "Project 1 mapping.",
-                ResolverVersion = "v1",
-                CreatedAt = DateTime.UtcNow
-            }
-        };
-
-        var service = new SourceTestMappingRefreshService(
-            new ProjectContext(new ProjectModel(config: new TestMapConfig())),
-            db,
-            new FixedTraceService(project1Mappings));
-
-        await service.RefreshForProjectAsync(projectId: 1, solutionId: 1);
+        await service.RefreshAsync(1, [1], new HashSet<int> { 200 }, MemberAnalysisOrigin.Baseline());
 
         Assert.Equal(1, await db.SourceTestMappings.CountAsync(x => x.ProjectId == 1));
         Assert.Equal(1, await db.SourceTestMappings.CountAsync(x => x.ProjectId == 2));
+    }
+
+    /// <summary>
+    /// An attempt pass traces only the observed tests the attempt versioned. A baseline test it
+    /// observed unchanged already has its baseline mapping.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RefreshAsync_AttemptPass_TracesOnlyNonBaselineTests()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDbAsync(connection);
+        await SeedTestMembersAsync(db,
+            (200, MemberOrigin.Baseline, null),
+            (201, MemberOrigin.ToolAttempt, 7),
+            (202, MemberOrigin.ToolAttempt, 8));
+        var tracer = new FixedTraceService([]);
+        var service = CreateService(db, tracer);
+
+        await service.RefreshAsync(1, [1], new HashSet<int> { 200, 201 }, MemberAnalysisOrigin.ToolAttempt(7));
+
+        Assert.Equal([201], tracer.TracedTestMemberIds.Order());
+        Assert.Equal([200, 201], tracer.IndexMemberIds.Order());
+    }
+
+    /// <summary>
+    /// A re-traced mapping keeps its id and creation time. Its trace steps are edited in place
+    /// by step index, so a changed path never collides on the (mapping, step_index) index.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RefreshAsync_ExistingMapping_UpdatesFieldsAndStepsInPlace()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDbAsync(connection);
+        await SeedTestMembersAsync(db, (200, MemberOrigin.Baseline, null));
+        var created = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var original = Mapping(1, 100, 200, "HelperMediatedPath", Step(0, 200, 300));
+        original.TraceSteps.Add(Step(1, 300, 100));
+        original.CreatedAt = created;
+        db.SourceTestMappings.Add(original);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var retraced = Mapping(1, 100, 200, "HelperMediatedPath", Step(0, 200, 400));
+        retraced.Confidence = 0.42;
+        var service = CreateService(db, new FixedTraceService([retraced]));
+        await service.RefreshAsync(1, [1], new HashSet<int> { 200 }, MemberAnalysisOrigin.Baseline());
+
+        db.ChangeTracker.Clear();
+        var saved = await db.SourceTestMappings.Include(x => x.TraceSteps).SingleAsync();
+        Assert.Equal(original.Id, saved.Id);
+        Assert.Equal(created, saved.CreatedAt);
+        Assert.Equal(0.42, saved.Confidence);
+        var step = Assert.Single(saved.TraceSteps);
+        Assert.Equal((0, 200, 400), (step.StepIndex, step.FromMemberId, step.ToMemberId));
+        Assert.Equal(1, await db.Set<SourceTestMappingTraceStepEntity>().CountAsync());
     }
 
     // ─── Infrastructure ───────────────────────────────────────────────────────
@@ -311,9 +277,93 @@ public sealed class SourceTestMappingPersistenceTests
         return db;
     }
 
+    private static SourceTestMappingRefreshService CreateService(TestMapDbContext db, IRoslynSourceTestTraceService tracer)
+    {
+        return new SourceTestMappingRefreshService(
+            new ProjectContext(new ProjectModel(config: new TestMapConfig())),
+            db,
+            tracer);
+    }
+
+    /// <summary>Seeds one test file holding test-method members with the given origins.</summary>
+    private static async Task SeedTestMembersAsync(
+        TestMapDbContext db,
+        params (int Id, string OriginKind, int? OriginAttemptId)[] members)
+    {
+        db.Projects.Add(new ProjectEntity { Id = 1, Owner = "owner", RepoName = "repo", DirectoryPath = ".", ContentHash = "p" });
+        db.CSharpSolutions.Add(new CSharpSolutionEntity { Id = 1, ProjectId = 1, FilePath = "repo.sln", ContentHash = "s" });
+        db.CSharpProjects.Add(new CSharpProjectEntity
+        {
+            Id = 1,
+            SolutionId = 1,
+            FilePath = "tests/Tests.csproj",
+            BuildMetadata = new ProjectBuildMetadataModel { IsTestProject = true },
+            ContentHash = "cp"
+        });
+        db.Files.Add(new FileEntity { Id = 1, CSharpProjectId = 1, FilePath = "tests/Tests.cs", ContentHash = "f" });
+        db.Objects.Add(new ObjectEntity
+        {
+            Id = 1, FileId = 1, Namespace = "Tests", Name = "Tests", Kind = "class", IsTestObject = true,
+            FullString = "public class Tests {}", ContentHash = "o"
+        });
+        foreach (var (id, originKind, originAttemptId) in members)
+            db.Members.Add(new MemberEntity
+            {
+                Id = id,
+                ObjectEntityId = 1,
+                Name = $"Test{id}",
+                Kind = "method",
+                IsTestMember = true,
+                FullString = $"public void Test{id}() {{ }}",
+                Location = new Location(id, 0, id, 0),
+                ContentHash = $"test-{id}",
+                OriginKind = originKind,
+                OriginAttemptId = originAttemptId
+            });
+        await db.SaveChangesAsync();
+    }
+
+    private static SourceTestMappingEntity Mapping(
+        int projectId,
+        int sourceMemberId,
+        int testMemberId,
+        string evidenceKind,
+        params SourceTestMappingTraceStepEntity[] steps)
+    {
+        var mapping = new SourceTestMappingEntity
+        {
+            ProjectId = projectId,
+            SourceMemberId = sourceMemberId,
+            TestMemberId = testMemberId,
+            EvidenceKind = evidenceKind,
+            IsGrounded = true,
+            AccessPathStrategy = "Direct",
+            PathLength = Math.Max(1, steps.Length),
+            Confidence = 1.0,
+            Summary = $"{evidenceKind} mapping.",
+            ResolverVersion = "v1",
+            CreatedAt = DateTime.UtcNow
+        };
+        foreach (var step in steps) mapping.TraceSteps.Add(step);
+        return mapping;
+    }
+
+    private static SourceTestMappingTraceStepEntity Step(int index, int from, int to)
+    {
+        return new SourceTestMappingTraceStepEntity
+        {
+            StepIndex = index,
+            FromMemberId = from,
+            ToMemberId = to,
+            RelationshipKind = "calls",
+            EdgeSource = "Roslyn",
+            Summary = $"{from} -> {to}"
+        };
+    }
+
     /// <summary>
     /// Test double for <see cref="IRoslynSourceTestTraceService"/> that returns a fixed
-    /// pre-set list of <see cref="SourceTestMappingEntity"/> objects.
+    /// pre-set list of <see cref="SourceTestMappingEntity"/> objects and records its scope.
     /// </summary>
     private sealed class FixedTraceService : IRoslynSourceTestTraceService
     {
@@ -321,10 +371,19 @@ public sealed class SourceTestMappingPersistenceTests
 
         public FixedTraceService(List<SourceTestMappingEntity> mappings) => _mappings = mappings;
 
+        public IReadOnlySet<int> IndexMemberIds { get; private set; } = new HashSet<int>();
+        public IReadOnlySet<int> TracedTestMemberIds { get; private set; } = new HashSet<int>();
+
         public Task<List<SourceTestMappingEntity>?> TraceAsync(
             int projectId,
             int solutionId,
+            IReadOnlySet<int> indexMemberIds,
+            IReadOnlySet<int> testMemberIds,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<List<SourceTestMappingEntity>?>(_mappings);
+        {
+            IndexMemberIds = indexMemberIds;
+            TracedTestMemberIds = testMemberIds;
+            return Task.FromResult<List<SourceTestMappingEntity>?>(_mappings);
+        }
     }
 }

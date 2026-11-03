@@ -143,6 +143,18 @@ def _attach_initial_measurements(conn, rows: pd.DataFrame) -> pd.DataFrame:
     return out.merge(mutation, on="source_member_id", how="left", validate="many_to_one")
 
 
+def _baseline_test_filter(conn) -> str:
+    """Keep mappings of the repository's own tests.
+
+    Attempt-time mappings persist in the same table, keyed to the test member version
+    an attempt produced. Databases from before member versioning have no origin column
+    and hold baseline mappings only.
+    """
+    if not _has_column(conn, "members", "origin_kind"):
+        return ""
+    return "        WHERE m_tst.origin_kind = 'Baseline'\n"
+
+
 def build_mapping_rows(conn) -> pd.DataFrame:
     """Build one row per source-test mapping enriched with coverage, mutation, and candidate data."""
     sql = """
@@ -196,7 +208,7 @@ def build_mapping_rows(conn) -> pd.DataFrame:
         LEFT JOIN code_metrics cm2 ON cm2.entity_id = m_src.id AND lower(cm2.entity_type) = 'member'
         LEFT JOIN smell_summary ts ON ts.member_id = m_tst.id
     """
-    rows = pd.read_sql_query(sql, conn)
+    rows = pd.read_sql_query(sql + _baseline_test_filter(conn), conn)
     if rows["mapping_id"].duplicated().any():
         raise ValueError("Static mapping joins are not unique by mapping_id.")
     return _attach_initial_measurements(conn, rows)
@@ -253,7 +265,7 @@ def build_pair_rows(conn) -> pd.DataFrame:
         JOIN members m_tst ON m_tst.id = stm.test_member_id
         LEFT JOIN projects p ON p.id = stm.project_id
     """
-    return pd.read_sql_query(sql, conn)
+    return pd.read_sql_query(sql + _baseline_test_filter(conn), conn)
 
 
 def run(db_path: str, output_dir: str, grain: str = "mapping") -> None:

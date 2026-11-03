@@ -15,4 +15,14 @@ public interface IAnalyzeProjectService
         CSharpProjectModel analysisProject,
         Dictionary<string, int>? sharedMemberIds = null,
         MemberAnalysisOrigin? origin = null);
+
+    /// <summary>
+    /// Refreshes source-test mappings once for a completed analysis pass. Call it after every
+    /// project in the pass has been analyzed, while the analyzed code is still on disk, with the
+    /// member ids the pass observed (the values of its shared member-id dictionary).
+    /// </summary>
+    Task RefreshSourceTestMappingsAsync(
+        IReadOnlyCollection<int> observedMemberIds,
+        MemberAnalysisOrigin origin,
+        CancellationToken cancellationToken = default);
 }

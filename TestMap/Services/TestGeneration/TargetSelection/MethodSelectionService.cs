@@ -1055,6 +1055,10 @@ public class MethodSelectionService : IMethodSelectionService
             .AsNoTracking()
             .Include(x => x.TraceSteps)
             .Where(x => x.SourceMemberId == sourceMemberId && x.ProjectId == _context.Project.DbId && x.IsGrounded)
+            // Attempt-time mappings persist alongside the baseline ones. Context comes only from
+            // the repository's own tests, never from a test an earlier attempt generated.
+            .Where(x => _dbContext.Members.Any(member =>
+                member.Id == x.TestMemberId && member.OriginKind == MemberOrigin.Baseline))
             .OrderBy(x => x.PathLength)
             .ThenByDescending(x => x.Confidence)
             .ThenBy(x => x.TestMemberId)

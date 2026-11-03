@@ -92,6 +92,12 @@ public sealed class ToolPostAttemptAnalysisService : IToolPostAttemptAnalysisSer
                 sharedMemberIds,
                 MemberAnalysisOrigin.ToolAttempt(toolAttemptId));
 
+        // Trace the tests this attempt added or changed, so LinkAsync finds their mappings.
+        await _analyzeProjectService.RefreshSourceTestMappingsAsync(
+            sharedMemberIds.Values,
+            MemberAnalysisOrigin.ToolAttempt(toolAttemptId),
+            cancellationToken);
+
         // Collect code metrics scoped to the test project only.
         await _codeMetricsService.CollectCodeMetricsAsync(testProject, cancellationToken);
 

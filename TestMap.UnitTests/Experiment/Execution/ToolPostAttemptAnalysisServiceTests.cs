@@ -77,6 +77,9 @@ public sealed class ToolPostAttemptAnalysisServiceTests
         Assert.Equal(2, analyze.Calls.Count);
         Assert.Contains(analyze.Calls, c => c.FilePath == srcProjectPath);
         Assert.Contains(analyze.Calls, c => c.FilePath == testProjectPath);
+
+        // Mappings are traced once for the whole pass, scoped to this attempt.
+        Assert.Equal(MemberAnalysisOrigin.ToolAttempt(123), Assert.Single(analyze.MappingRefreshes));
     }
 
     [Fact]
@@ -223,6 +226,17 @@ public sealed class ToolPostAttemptAnalysisServiceTests
             MemberAnalysisOrigin? origin = null)
         {
             Calls.Add(analysisProject);
+            return Task.CompletedTask;
+        }
+
+        public List<MemberAnalysisOrigin> MappingRefreshes { get; } = [];
+
+        public Task RefreshSourceTestMappingsAsync(
+            IReadOnlyCollection<int> observedMemberIds,
+            MemberAnalysisOrigin origin,
+            CancellationToken cancellationToken = default)
+        {
+            MappingRefreshes.Add(origin);
             return Task.CompletedTask;
         }
     }

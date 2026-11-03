@@ -675,6 +675,10 @@ public sealed class GeneratedTestExecutionService : IGeneratedTestExecutionServi
                 project,
                 sharedMemberIds,
                 MemberAnalysisOrigin.LlmAttempt(null));
+        await _analyzeProjectService.RefreshSourceTestMappingsAsync(
+            sharedMemberIds.Values,
+            MemberAnalysisOrigin.LlmAttempt(null),
+            cancellationToken);
 
         await _codeMetricsService.CollectCodeMetricsAsync(analysisProject, cancellationToken);
 
