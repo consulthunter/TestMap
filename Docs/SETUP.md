@@ -108,21 +108,28 @@ The default config expects local Docker images such as:
 
 ```text
 testmap-validation-sdk-all:latest
-testmap-agent-eval-codex:latest
-testmap-agent-eval-claude:latest
-testmap-agent-eval-gemini:latest
+testmap-dotnet-agent-base:0.1
+testmap-agent-eval-openhands:latest
+testmap-agent-eval-mini-swe-agent:latest
+testmap-agent-eval-aider:latest
+testmap-agent-eval-copilot:latest
 ```
 
 The exact images needed depend on the commands and tool lanes you run. Validation uses the validation
 image. Agent-tool experiments use the corresponding tool images listed under
-`RuntimeConfig.Docker.Images.AgentTools`.
+`RuntimeConfig.Docker.Images.AgentTools`; their Dockerfiles live under
+`TestMap/Docker/agentic-tools/`, and the tool images build on `testmap-dotnet-agent-base`. Codex,
+Claude, and Gemini images are also defined there but are not part of the current evaluation.
+
+Before a long run, check `docker images` sizes. A broken build can leave an image tagged to an
+empty `FROM scratch` image of a few hundred bytes, which fails only when an attempt starts.
 
 ## First Example Run
 
 Start with a small candidate limit and one target repository.
 
 ```powershell
-dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\pinned-targets-smoke.yaml
+dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\example.yaml
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- experiment --config .\TestMap\Config\default-config.json
 ```
@@ -150,7 +157,8 @@ Look under `RuntimeConfig.FilePaths.OutputDirPath` for:
 - generated experiment CSVs
 - tool-attempt artifacts
 - prompt, task-card, stdout, stderr, and JSONL logs for tool runs
-# Pinned Target Setup
+
+## Pinned Target Setup
 
 1. Create a manifest from a fixed source file or one GitHub repository URL.
 2. Archive the source/rejection bundle for schema 1 or the resolution-record/manifest bundle for

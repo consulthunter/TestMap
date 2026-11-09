@@ -336,7 +336,8 @@ Use these deliberately:
 
 Start with `CandidateLimit: 1`, one provider, one budget mode, and either the TestMap lane or one
 tool lane.
-# Pinned Experiment Input
+
+## Pinned Experiment Input
 
 For `experiment`, set `RuntimeConfig.FilePaths.TargetFilePath` to a schema v1 YAML manifest. A plain
 URL file is rejected in measured mode. `AnalyzeLatestCommit` does not override a manifest commit.
