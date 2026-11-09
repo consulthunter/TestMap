@@ -1,5 +1,7 @@
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.Testing.Generation;
+using TestMap.Services.StaticAnalysis.Assertions;
 using TestMap.Services.TestGeneration;
 
 namespace TestMap.Services.Experiment.Execution;
@@ -8,6 +10,7 @@ public static class ExperimentConfigurationValidator
 {
     public static void ValidateMatrixSettings(ExperimentConfig config)
     {
+        ArgumentNullException.ThrowIfNull(config);
         GenerationObjectivePolicy.Validate(
             config.Objective,
             config.Approaches ?? [],
@@ -27,9 +30,80 @@ public static class ExperimentConfigurationValidator
             throw new InvalidOperationException(
                 "ExperimentConfig.MetricsPaths must contain at least one path when MetricsDriven is in Approaches.");
 
+        ValidateLlmArms(config);
+
         if (config.Resume.Enabled && config.Resume.RewriteResultsFileOnResume)
             throw new InvalidOperationException(
                 "Experiment resume uses append-only results. Set ExperimentConfig.Resume.RewriteResultsFileOnResume to false.");
+
+        if (config.CandidateCohort.Mode != CandidateCohortMode.Disabled &&
+            string.IsNullOrWhiteSpace(config.CandidateCohort.Id))
+            throw new InvalidOperationException(
+                "ExperimentConfig.CandidateCohort.Id is required when candidate cohort mode is create or reuse.");
+
+        if (config.CandidateCohort.Mode == CandidateCohortMode.Reuse &&
+            config.CandidateCohort.RandomSeed.HasValue)
+            throw new InvalidOperationException(
+                "ExperimentConfig.CandidateCohort.RandomSeed is defined by the stored cohort and must be omitted in reuse mode.");
+
+        try
+        {
+            AssertionLineagePolicy.Validate(config.Evaluation.Assertions);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new InvalidOperationException(
+                "ExperimentConfig.Evaluation.Assertions contains an invalid assertion-lineage policy.",
+                exception);
+        }
+    }
+
+    /// <summary>
+    /// Arms are optional, but once declared they own provider selection outright. Everything here
+    /// fails the run at startup rather than part-way through a sweep.
+    /// </summary>
+    private static void ValidateLlmArms(ExperimentConfig config)
+    {
+        if (config.LlmArms == null || config.LlmArms.Count == 0)
+            return;
+
+        if (config.IncludeProviders is { Count: > 0 })
+            throw new InvalidOperationException(
+                "ExperimentConfig.LlmArms replaces IncludeProviders. Remove IncludeProviders, or drop LlmArms " +
+                "and keep one model per provider.");
+
+        if (!string.IsNullOrWhiteSpace(config.PreferredProvider))
+            throw new InvalidOperationException(
+                "ExperimentConfig.PreferredProvider has no meaning alongside LlmArms; arms run in the order " +
+                "they are declared. Remove PreferredProvider.");
+
+        foreach (var arm in config.LlmArms)
+            if (string.IsNullOrWhiteSpace(arm.Id))
+                throw new InvalidOperationException("Every ExperimentConfig.LlmArms entry requires a non-empty Id.");
+
+        var duplicateId = config.LlmArms
+            .GroupBy(x => x.Id.Trim(), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(x => x.Count() > 1);
+        if (duplicateId != null)
+            throw new InvalidOperationException(
+                $"ExperimentConfig.LlmArms contains more than one arm with Id '{duplicateId.Key}'. " +
+                "Arm ids identify results and must be unique.");
+
+        // Two arms resolving to the same provider, model and endpoint would produce identical
+        // attempts under different names, which silently double the run and skew any per-arm rate.
+        var duplicateTarget = config.LlmArms
+            .GroupBy(
+                x => string.Join(
+                    "|",
+                    x.Provider?.ToString() ?? "default",
+                    x.Model?.Trim() ?? string.Empty,
+                    x.Endpoint?.Trim() ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(x => x.Count() > 1);
+        if (duplicateTarget != null)
+            throw new InvalidOperationException(
+                "ExperimentConfig.LlmArms contains arms that resolve to the same provider, model and endpoint: " +
+                $"{string.Join(", ", duplicateTarget.Select(x => x.Id))}. Give them different models or remove one.");
     }
 
     public static void ValidateGenerationConfig(

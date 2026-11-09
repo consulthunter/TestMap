@@ -14,6 +14,8 @@ using TestMap.Services.Experiment.Evaluation;
 using TestMap.Services.Experiment.Evaluation.AgentTools;
 using TestMap.Services.Experiment.TaskCards;
 using TestMap.Services.TestGeneration.TargetSelection;
+using TestMap.Models.Targets;
+using TestMap.Services.Targets;
 
 namespace TestMap.UnitTests.AgentTools;
 
@@ -24,6 +26,7 @@ namespace TestMap.UnitTests.AgentTools;
 /// </summary>
 public sealed class AgentToolEvaluationLaneTests
 {
+    private const string TestBaseCommit = "0123456789abcdef0123456789abcdef01234567";
     private static ExperimentToolConfig MakeToolConfig() =>
         new() { Id = "codex", TimeoutMinutes = 45 };
 
@@ -113,7 +116,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId, targetedBaselineId: 44);
 
         // Act
@@ -148,7 +151,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new TestAgentToolRunner { ChangedFiles = [] };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -182,7 +185,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(
             MakeContext(runId, workItemId, candidateId),
@@ -219,7 +222,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(
             MakeContext(runId, workItemId, candidateId),
@@ -301,6 +304,12 @@ public sealed class AgentToolEvaluationLaneTests
             {
                 OutputPath = output.FullName
             };
+            var target = new TargetIdentityService().Create("owner/repository", TestBaseCommit, [1]);
+            project.BindTarget(target);
+            project.MaterializedRevision = new MaterializedRevision(
+                target.TargetId, target.Repository, TestBaseCommit, TestBaseCommit, target.Url,
+                new TargetPaths(workspace.FullName, Path.Combine(output.FullName, "analysis.db"), output.FullName, Path.Combine(output.FullName, "run.log")),
+                new string('a', 64), new string('b', 64), DateTimeOffset.UtcNow, MaterializationStatus.Available);
             var lane = new AgentToolEvaluationLane(
                 new TestAgentToolRunner { ChangedFiles = [] },
                 new AgentToolEnvironmentResolver(),
@@ -345,7 +354,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new ThrowingTestRunner("Docker daemon not reachable");
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -376,7 +385,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new TestAgentToolRunner { TimedOut = true };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -405,7 +414,7 @@ public sealed class AgentToolEvaluationLaneTests
         var runner = new TestAgentToolRunner { ExitCode = 2, ChangedFiles = ["SomeTests.cs"] };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
         var context = MakeContext(runId, workItemId, candidateId);
 
         // Act
@@ -524,6 +533,30 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ExtractUsage_GeminiJsonResult_ParsesConfiguredJsonArtifact()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "gemini.json"),
+                "{\"type\":\"result\",\"stats\":{\"input_tokens\":100,\"total_tokens\":130}}");
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "gemini");
+
+            Assert.NotNull(usage);
+            Assert.Equal(100, usage.InputTokens);
+            Assert.Equal(30, usage.OutputTokens);
+            Assert.Equal("gemini.json:result.stats", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ExtractUsage_OpenHandsPersistedState_SumsConversationMetrics()
     {
         var artifactPath = CreateTempArtifactDirectory();
@@ -560,9 +593,65 @@ public sealed class AgentToolEvaluationLaneTests
             var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "openhands");
 
             Assert.NotNull(usage);
-            Assert.Equal(156, usage.InputTokens);
-            Assert.Equal(35, usage.OutputTokens);
+            Assert.Equal(111, usage.InputTokens);
+            Assert.Equal(28, usage.OutputTokens);
             Assert.EndsWith("base_state.json:stats.usage_to_metrics", usage.Source);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    /// <summary>
+    /// A run killed at the timeout can leave only the all-zero base_state.json written when the
+    /// conversation started. That snapshot is not a measurement, so usage must read as missing.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_OpenHandsInitialZeroSnapshot_ReturnsNull()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            var conversationPath = Path.Combine(artifactPath, "openhands-state", "conversations", "abc123");
+            Directory.CreateDirectory(conversationPath);
+            File.WriteAllText(
+                Path.Combine(conversationPath, "base_state.json"),
+                """
+                {"stats":{"usage_to_metrics":{"agent":{"accumulated_token_usage":{"prompt_tokens":0,"completion_tokens":0}}}}}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "openhands");
+
+            Assert.Null(usage);
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractUsage_OpenHandsAliases_AreNotDoubleCounted()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            var statePath = Path.Combine(artifactPath, "state");
+            Directory.CreateDirectory(statePath);
+            File.WriteAllText(
+                Path.Combine(statePath, "base_state.json"),
+                """
+                {"accumulated_token_usage":{"prompt_tokens":100,"input_tokens":100,"cache_read_tokens":10,"completion_tokens":20,"output_tokens":20,"reasoning_tokens":5}}
+                """);
+
+            var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "openhands");
+
+            Assert.NotNull(usage);
+            Assert.Equal(100, usage.InputTokens);
+            Assert.Equal(20, usage.OutputTokens);
         }
         finally
         {
@@ -599,7 +688,7 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
-    public void ExtractUsage_AiderStdoutWithMultipleTokenLines_UsesLatest()
+    public void ExtractUsage_AiderStdoutWithMultipleTokenLines_SumsRequests()
     {
         var artifactPath = CreateTempArtifactDirectory();
         try
@@ -614,8 +703,8 @@ public sealed class AgentToolEvaluationLaneTests
             var usage = AgentToolEvaluationLane.ExtractUsage(artifactPath, "aider");
 
             Assert.NotNull(usage);
-            Assert.Equal(4500, usage.InputTokens);
-            Assert.Equal(900, usage.OutputTokens);
+            Assert.Equal(5300, usage.InputTokens);
+            Assert.Equal(1100, usage.OutputTokens);
         }
         finally
         {
@@ -705,6 +794,69 @@ public sealed class AgentToolEvaluationLaneTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ExtractObservedModel_CopilotOtelResponseModel_WinsOverRequestModel()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot-otel.jsonl"),
+                """
+                {"type":"span","name":"chat gpt-5.2","attributes":{"gen_ai.request.model":"gpt-5.2","gen_ai.response.model":"gpt-5.2-2026-05-01"}}
+                """);
+
+            Assert.Equal(
+                "gpt-5.2-2026-05-01",
+                AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "copilot"));
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractObservedModel_CopilotOtelSpanNameOnly_ReadsModelFromSpanName()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(artifactPath, "copilot-otel.jsonl"),
+                """
+                {"type":"span","name":"chat gpt-5.2","attributes":{"gen_ai.usage.input_tokens":100}}
+                {"type":"span","name":"chat claude-haiku-4.5","attributes":{"gen_ai.usage.input_tokens":200}}
+                """);
+
+            Assert.Equal(
+                "claude-haiku-4.5",
+                AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "copilot"));
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ExtractObservedModel_NoTelemetry_ReturnsNull()
+    {
+        var artifactPath = CreateTempArtifactDirectory();
+        try
+        {
+            Assert.Null(AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "copilot"));
+            Assert.Null(AgentToolEvaluationLane.ExtractObservedModel(artifactPath, "codex"));
+        }
+        finally
+        {
+            Directory.Delete(artifactPath, true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ExtractUsage_CopilotStderrTokenFooter_ReturnsInputAndOutputTokens()
     {
         var artifactPath = CreateTempArtifactDirectory();
@@ -740,37 +892,63 @@ public sealed class AgentToolEvaluationLaneTests
                 {
                   "info": {
                     "model_stats": {
+                      "instance_cost": 0.02,
                       "api_calls": 2
-                    }
+                    },
+                    "exit_status": "Submitted"
                   },
-                  "trajectory": [
+                  "messages": [
+                    { "role": "system", "content": "system prompt" },
+                    { "role": "user", "content": "task" },
                     {
-                      "response": {
-                        "usage": {
-                          "completion_tokens": 166,
-                          "prompt_tokens": 3481,
-                          "total_tokens": 3647,
-                          "prompt_tokens_details": {
-                            "cached_tokens": 0,
-                            "cache_creation_tokens": 3478
+                      "role": "assistant",
+                      "content": "",
+                      "extra": {
+                        "cost": 0.01,
+                        "response": {
+                          "id": "r1",
+                          "usage": {
+                            "completion_tokens": 166,
+                            "prompt_tokens": 3481,
+                            "total_tokens": 3647,
+                            "prompt_tokens_details": {
+                              "cached_tokens": 0,
+                              "cache_creation_tokens": 3478
+                            },
+                            "cache_creation_input_tokens": 3478,
+                            "cache_read_input_tokens": 0
                           }
                         }
                       }
                     },
                     {
-                      "response": {
-                        "usage": {
-                          "completion_tokens": 473,
-                          "prompt_tokens": 14581,
-                          "total_tokens": 15054,
-                          "prompt_tokens_details": {
-                            "cached_tokens": 14163,
-                            "cache_creation_tokens": 417
+                      "role": "tool",
+                      "content": "output",
+                      "extra": { "returncode": 0 }
+                    },
+                    {
+                      "role": "assistant",
+                      "content": "",
+                      "extra": {
+                        "cost": 0.01,
+                        "response": {
+                          "id": "r2",
+                          "usage": {
+                            "completion_tokens": 473,
+                            "prompt_tokens": 14581,
+                            "total_tokens": 15054,
+                            "prompt_tokens_details": {
+                              "cached_tokens": 14163,
+                              "cache_creation_tokens": 417
+                            },
+                            "cache_creation_input_tokens": 417,
+                            "cache_read_input_tokens": 14163
                           }
                         }
                       }
                     }
-                  ]
+                  ],
+                  "trajectory_format": "mini-swe-agent-1.1"
                 }
                 """);
 
@@ -804,7 +982,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [MakeToolConfig()]);
+            [MakeToolConfig()], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(MakeContext(runId, workItemId, candidateId), default);
 
@@ -820,9 +998,43 @@ public sealed class AgentToolEvaluationLaneTests
             attempt.StdErrLogPath);
         Assert.Equal(attempt.StdOutLogPath, attempt.JsonlLogPath);
         Assert.True(attempt.UsageAvailable);
+        Assert.Equal(TokenUsageVocabulary.CompleteReported, attempt.UsageStatus);
+        Assert.Equal(TokenUsageVocabulary.PolicyV1, attempt.UsagePolicyVersion);
         Assert.Equal("codex.events.jsonl:turn.completed", attempt.UsageSource);
         Assert.Equal(100, attempt.InputTokens);
         Assert.Equal(25, attempt.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ExecuteAsync_PartialUsage_PreservesComponentWithoutAvailability()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var (runId, workItemId, candidateId) = await SeedGraphAsync(db);
+        var runner = new TestAgentToolRunner
+        {
+            ChangedFiles = ["SomeTests.cs"],
+            JsonlFileName = "codex.events.jsonl",
+            JsonlContent = "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100}}"
+        };
+        var lane = new AgentToolEvaluationLane(
+            runner,
+            new AgentToolEnvironmentResolver(),
+            new ToolAttemptRepository(db),
+            [MakeToolConfig()],
+            TestBaseCommit);
+
+        var result = await lane.ExecuteAsync(MakeContext(runId, workItemId, candidateId), default);
+
+        Assert.True(result.Success);
+        db.ChangeTracker.Clear();
+        var attempt = await db.ToolAttempts.SingleAsync();
+        Assert.False(attempt.UsageAvailable);
+        Assert.Equal(TokenUsageVocabulary.Partial, attempt.UsageStatus);
+        Assert.Equal(100, attempt.InputTokens);
+        Assert.Null(attempt.OutputTokens);
     }
 
     [Fact]
@@ -842,7 +1054,7 @@ public sealed class AgentToolEvaluationLaneTests
         };
         var repo = new ToolAttemptRepository(db);
         var lane = new AgentToolEvaluationLane(runner, new AgentToolEnvironmentResolver(), repo,
-            [new ExperimentToolConfig { Id = "openhands", TimeoutMinutes = 45 }]);
+            [new ExperimentToolConfig { Id = "openhands", TimeoutMinutes = 45 }], TestBaseCommit);
 
         var result = await lane.ExecuteAsync(MakeContext(runId, workItemId, candidateId), default);
 

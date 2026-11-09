@@ -22,6 +22,16 @@ public class ProjectEntityConfiguration : IEntityTypeConfiguration<ProjectEntity
         builder.Property(x => x.Branch).HasColumnName("branch");
         builder.Property(x => x.LastAnalyzedCommit).HasColumnName("last_analyzed_commit");
         builder.Property(x => x.ContentHash).HasColumnName("content_hash");
+        builder.Property(x => x.TargetId).HasColumnName("target_id");
+        builder.Property(x => x.RepositoryIdentity).HasColumnName("repository_identity");
+        builder.Property(x => x.RequestedCommit).HasColumnName("requested_commit");
+        builder.Property(x => x.ResolvedCommit).HasColumnName("resolved_commit");
+        builder.Property(x => x.TargetManifestSha256).HasColumnName("target_manifest_sha256");
+        builder.Property(x => x.TargetSourceSha256).HasColumnName("target_source_sha256");
+        builder.Property(x => x.ProvenancePolicyVersion).HasColumnName("provenance_policy_version");
+        builder.Property(x => x.MaterializedAtUtc).HasColumnName("materialized_at_utc");
+        builder.HasIndex(x => x.TargetId).IsUnique();
+        builder.HasIndex(x => new { x.RepositoryIdentity, x.ResolvedCommit });
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
         builder.Property(x => x.UpdatedAt).HasColumnName("updated_at");
     }

@@ -19,6 +19,7 @@ from analysis.schema import LANE_AGENTIC, LANE_LLM
 OUTCOME_CATEGORIES = [
     "ValidatedEvidencePositive",
     "ValidatedLowImpact",
+    "ValidatedImpactUnknown",
     "FailedEvidencePositive",
     "ValidationFailed",
     "NoChange",
@@ -39,7 +40,9 @@ OUTCOME_CATEGORIES = [
 def compute_scope_counts(df: pd.DataFrame) -> dict:
     """Repositories, projects, candidates, attempts evaluated."""
     return {
-        "repositories_evaluated": int(df["repository_key"].nunique()) if "repository_key" in df.columns else None,
+        "repository_revisions_evaluated": int(df["repository_revision_key"].nunique()) if "repository_revision_key" in df.columns else None,
+        "repository_families_evaluated": int(df["repository_family_key"].nunique()) if "repository_family_key" in df.columns else None,
+        "projects_evaluated": int(df["repository_revision_key"].nunique()) if "repository_revision_key" in df.columns else None,
         "candidates_evaluated": int(df["candidate_key"].nunique()) if "candidate_key" in df.columns else None,
         "total_attempts": len(df),
         "llm_attempts": int((df["lane"] == LANE_LLM).sum()) if "lane" in df.columns else None,
@@ -82,6 +85,13 @@ def compute_outcome_counts(df: pd.DataFrame) -> dict:
         "validated_low_impact_attempts": int(df["validated_low_impact"].fillna(False).sum()) if "validated_low_impact" in df.columns else None,
     }
 
+    if "infrastructure_failure" in df.columns:
+        infra = df["infrastructure_failure"].astype("boolean").fillna(False).astype(bool)
+        counts["infrastructure_failure_attempts"] = int(infra.sum())
+        if "lane" in df.columns:
+            for lane in (LANE_LLM, LANE_AGENTIC):
+                counts[f"infrastructure_failure_{lane}"] = int((infra & (df["lane"] == lane)).sum())
+
     if "outcome_classification" not in df.columns:
         return counts
 
@@ -122,10 +132,22 @@ def compute_metric_movement(df: pd.DataFrame) -> dict:
 
 def compute_cost_summary(df: pd.DataFrame) -> dict:
     """Runtime and token totals."""
+    def _token_total(column: str) -> int | None:
+        if column not in df.columns:
+            return None
+        values = pd.to_numeric(df[column], errors="coerce")
+        return int(values.sum()) if values.notna().any() else None
+
     return {
         "total_duration_seconds": float(df["duration_seconds"].sum()) if "duration_seconds" in df.columns else None,
         "median_duration_seconds": float(df["duration_seconds"].median()) if "duration_seconds" in df.columns else None,
-        "total_tokens": int(df["total_tokens"].sum()) if "total_tokens" in df.columns else None,
+        "input_tokens": _token_total("input_tokens"),
+        "output_tokens": _token_total("output_tokens"),
+        "total_tokens": _token_total("total_tokens"),
+        "usage_status_counts": (
+            df["usage_status"].dropna().astype(str).value_counts().sort_index().to_dict()
+            if "usage_status" in df.columns else {}
+        ),
     }
 
 
@@ -140,6 +162,8 @@ def compute_data_completeness(df: pd.DataFrame) -> dict:
         "missing_mutation_before": _missing("mutation_score_before"),
         "missing_mutation_after": _missing("mutation_score_after"),
         "missing_tokens": _missing("total_tokens"),
+        "missing_input_tokens": _missing("input_tokens"),
+        "missing_output_tokens": _missing("output_tokens"),
         "missing_outcome_classification": _missing("outcome_classification"),
         "missing_tool_attempt_id": _missing("tool_attempt_id"),
     }

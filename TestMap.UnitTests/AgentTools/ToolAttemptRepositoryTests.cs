@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.AgentTools;
+using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Entities.Experiment;
 using TestMap.Persistence.Ef.Repositories.AgentTools;
@@ -63,6 +64,33 @@ public sealed class ToolAttemptRepositoryTests
         Assert.Equal("codex", retrieved.ToolId);
         Assert.Equal(ToolRunStatus.Planned, retrieved.RunStatus);
         Assert.Equal(candidateId, retrieved.CandidateMethodId);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task InsertAndRead_PreservesUsageClassificationAndDerivedTotal()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var repo = new ToolAttemptRepository(db);
+        var (runId, candidateId) = await SeedExperimentGraphAsync(db);
+        var attempt = MakeAttempt(runId, candidateId);
+        attempt.InputTokens = 400;
+        attempt.OutputTokens = 100;
+        attempt.UsageAvailable = true;
+        attempt.UsageStatus = TokenUsageVocabulary.CompleteReported;
+        attempt.UsageSource = "codex.events.jsonl";
+        attempt.UsagePolicyVersion = TokenUsageVocabulary.PolicyV1;
+
+        var id = await repo.InsertAsync(attempt);
+        var restored = await repo.GetByIdAsync(id);
+
+        Assert.NotNull(restored);
+        Assert.Equal(TokenUsageVocabulary.CompleteReported, restored!.UsageStatus);
+        Assert.Equal(TokenUsageVocabulary.PolicyV1, restored.UsagePolicyVersion);
+        Assert.Equal(500, restored.TotalTokens);
+        Assert.True(restored.UsageAvailable);
     }
 
     /// <summary>

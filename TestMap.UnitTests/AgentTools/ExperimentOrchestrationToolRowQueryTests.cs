@@ -66,7 +66,10 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             LineRate = 0.82,
             BranchRate = 0.7,
             Complexity = 1.0,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            MeasurementPolicyVersion = "coverage-integrity-v1",
+            HasUsableCoverage = true,
+            CollectionStatus = "Mapped"
         });
         db.MutationTestingReports.Add(new MutationTestingReportEntity
         {
@@ -136,7 +139,10 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             LineRate = 0.90,
             BranchRate = 0.7,
             Complexity = 1.0,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            MeasurementPolicyVersion = "coverage-integrity-v1",
+            HasUsableCoverage = true,
+            CollectionStatus = "Mapped"
         };
         db.CoverageReports.Add(report);
         await db.SaveChangesAsync();
@@ -146,6 +152,7 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             {
                 CoverageReportId = report.Id,
                 MemberId = 42,
+                AttributionStatus = "Mapped",
                 LineRate = 0.65,
                 BranchRate = 0.5,
                 LinesCovered = 13,
@@ -155,6 +162,7 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             {
                 CoverageReportId = report.Id,
                 MemberId = 43,
+                AttributionStatus = "Mapped",
                 LineRate = 1.0,
                 BranchRate = 1.0,
                 LinesCovered = 4,
@@ -360,27 +368,41 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
 
     [Fact]
     [Trait("Category", "Unit")]
-    public void SelectGeneratedPostAttemptTestResults_FiltersToLinkedGeneratedTests()
+    public void ResolvePostAttemptResultMemberId_SameNamedBaselineTest_IsNotLinked()
     {
-        var results = new List<(string TestName, string Outcome)>
-        {
-            ("TestMap_Example.Tests.StudentTest.TestStudentConstructor", "Passed"),
-            ("ProgramTest.TestStartAddStudent", "Passed"),
-            ("ProgramTest.TestStartInvalidChoice(value: 9)", "Failed")
-        };
+        // The tool wrote ProgramTest.TestRemoveStudent (member 44); the baseline suite already
+        // has StudentListTest.TestRemoveStudent (member 24). Both names end in ".TestRemoveStudent".
+        var linkedMembers = new List<(int MemberId, string Name)> { (44, "TestRemoveStudent") };
+
+        var baseline = ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            24,
+            "TestMap_Example.Tests.StudentListTest.TestRemoveStudent",
+            linkedMembers);
+        var generated = ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            44,
+            "TestRemoveStudent",
+            linkedMembers);
+
+        Assert.Null(baseline);
+        Assert.Equal(44, generated);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ResolvePostAttemptResultMemberId_UnresolvedMethodId_FallsBackToName()
+    {
         var linkedMembers = new List<(int MemberId, string Name)>
         {
             (10, "TestStartAddStudent"),
             (11, "TestStartInvalidChoice")
         };
 
-        var selected = ExperimentOrchestrationService.SelectGeneratedPostAttemptTestResults(
-            results,
-            linkedMembers);
-
-        Assert.Equal(2, selected.Count);
-        Assert.Equal("ProgramTest.TestStartAddStudent", selected[0].TestName);
-        Assert.Equal("ProgramTest.TestStartInvalidChoice(value: 9)", selected[1].TestName);
+        Assert.Null(ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            0, "TestMap_Example.Tests.StudentTest.TestStudentConstructor", linkedMembers));
+        Assert.Equal(10, ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            0, "ProgramTest.TestStartAddStudent", linkedMembers));
+        Assert.Equal(11, ExperimentOrchestrationService.ResolvePostAttemptResultMemberId(
+            0, "ProgramTest.TestStartInvalidChoice(value: 9)", linkedMembers));
     }
 
     // ─── GetLinkedTestMemberNamesAsync ────────────────────────────────────────
@@ -520,6 +542,7 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             experimentRunRepo: null!,
             workItemRepo: null!,
             candidateMethodRepo: null!,
+            candidateCohortService: null!,
             attemptRepo: null!,
             stepRepo: null!,
             executionRepo: null!,
@@ -544,5 +567,6 @@ public sealed class ExperimentOrchestrationToolRowQueryTests
             toolAttemptGeneratedTestService: null!,
             toolPostAttemptMeasurementService: null!,
             generationApproaches: [],
-            workspace: null!);
+            workspace: null!,
+            workspaceIntegrity: null!);
 }

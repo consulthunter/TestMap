@@ -4,6 +4,7 @@ using TestMap.Persistence.Ef.Entities.AgentTools;
 using TestMap.Persistence.Ef.Entities.Code;
 using TestMap.Persistence.Ef.Entities.Coverage;
 using TestMap.Persistence.Ef.Entities.Experiment;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 using TestMap.Persistence.Ef.Entities.FlakyTestDetection;
 using TestMap.Persistence.Ef.Entities.MutationTesting;
 using TestMap.Persistence.Ef.Entities.RiskScoring;
@@ -43,6 +44,8 @@ public class TestMapDbContext : DbContext
     public DbSet<TestRunEntity> TestRuns => Set<TestRunEntity>();
     public DbSet<TestSmellEntity> TestSmells => Set<TestSmellEntity>();
     public DbSet<ExperimentRunEntity> ExperimentRuns => Set<ExperimentRunEntity>();
+    public DbSet<CandidateCohortEntity> CandidateCohorts => Set<CandidateCohortEntity>();
+    public DbSet<CandidateCohortMemberEntity> CandidateCohortMembers => Set<CandidateCohortMemberEntity>();
     public DbSet<ExperimentMatrixWorkItemEntity> ExperimentMatrixWorkItems => Set<ExperimentMatrixWorkItemEntity>();
     public DbSet<CandidateInventoryEntity> CandidateInventory => Set<CandidateInventoryEntity>();
     public DbSet<SourceTestMappingEntity> SourceTestMappings => Set<SourceTestMappingEntity>();
@@ -55,6 +58,14 @@ public class TestMapDbContext : DbContext
     public DbSet<RuleDecisionEntity> RuleDecisions => Set<RuleDecisionEntity>();
     public DbSet<ToolAttemptEntity> ToolAttempts => Set<ToolAttemptEntity>();
     public DbSet<ToolAttemptGeneratedTestEntity> ToolAttemptGeneratedTests => Set<ToolAttemptGeneratedTestEntity>();
+    public DbSet<WorkspaceIntegrityObservationEntity> WorkspaceIntegrityObservations => Set<WorkspaceIntegrityObservationEntity>();
+    public DbSet<CandidateBaselineEntity> CandidateBaselines => Set<CandidateBaselineEntity>();
+    public DbSet<AssertionLineageMeasurementEntity> AssertionLineageMeasurements =>
+        Set<AssertionLineageMeasurementEntity>();
+    public DbSet<GeneratedTestAssertionSummaryEntity> GeneratedTestAssertionSummaries =>
+        Set<GeneratedTestAssertionSummaryEntity>();
+    public DbSet<AssertionObservationEntity> AssertionObservations => Set<AssertionObservationEntity>();
+    public DbSet<AssertionLineageStepEntity> AssertionLineageSteps => Set<AssertionLineageStepEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

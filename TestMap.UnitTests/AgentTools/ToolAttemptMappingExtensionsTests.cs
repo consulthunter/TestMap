@@ -1,4 +1,5 @@
 using TestMap.Models.AgentTools;
+using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef.Entities.AgentTools;
 using TestMap.Persistence.Ef.Mapping.AgentTools;
 
@@ -57,8 +58,11 @@ public sealed class ToolAttemptMappingExtensionsTests
         Assert.Equal(attempt.JsonlLogAvailable, roundTripped.JsonlLogAvailable);
         Assert.Equal(attempt.UsageAvailable, roundTripped.UsageAvailable);
         Assert.Equal(attempt.UsageSource, roundTripped.UsageSource);
+        Assert.Equal(attempt.UsageStatus, roundTripped.UsageStatus);
+        Assert.Equal(attempt.UsagePolicyVersion, roundTripped.UsagePolicyVersion);
         Assert.Equal(attempt.InputTokens, roundTripped.InputTokens);
         Assert.Equal(attempt.OutputTokens, roundTripped.OutputTokens);
+        Assert.Equal(7000, roundTripped.TotalTokens);
         Assert.Equal(attempt.EstimatedPromptTokens, roundTripped.EstimatedPromptTokens);
         Assert.Equal(attempt.ChangedFilesCount, roundTripped.ChangedFilesCount);
         Assert.Equal(attempt.ProductionFilesChanged, roundTripped.ProductionFilesChanged);
@@ -204,6 +208,8 @@ public sealed class ToolAttemptMappingExtensionsTests
         JsonlLogAvailable = true,
         UsageAvailable = true,
         UsageSource = "tool-jsonl",
+        UsageStatus = TokenUsageVocabulary.CompleteReported,
+        UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
         InputTokens = 5000,
         OutputTokens = 2000,
         EstimatedPromptTokens = 4800,

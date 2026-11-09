@@ -5,24 +5,30 @@ the standardized tables that notebooks consume.
 
 Key design constraints
 ----------------------
-- The raw CSV has **one row per generated test** for the agentic lane and
-  **one row per attempt** (= one generated test) for the LLM lane.
+- Result schema v3 separates row grains and requires pinned target provenance.
 - ``normalize_attempts`` handles the full pipeline and returns a DataFrame
   with one row per *attempt* for both lanes.
-- ``build_generated_tests_dataset`` returns the un-collapsed per-test grain.
+- ``build_generated_tests_dataset`` normalizes the generated-test grain without
+  attributing attempt-level deltas to individual tests.
 """
 
 from __future__ import annotations
 
 import json
+import re
 
 import pandas as pd
 
 from analysis.schema import (
     AGENTIC_ATTEMPT_KEY_FIELDS,
+    ASSERTION_RESULT_FIELDS,
+    ASSERTION_RESULTS_SCHEMA_VERSION,
+    ASSERTION_SIDECAR_REQUIRED_FIELDS,
+    ASSERTION_SIDECAR_SCHEMA_VERSION,
     CANDIDATE_KEY_FIELDS,
     LANE_AGENTIC,
     LANE_LLM,
+    LEGACY_RESULTS_SCHEMA_VERSION,
     RAW_COLUMN_RENAMES,
     REPOSITORY_KEY_FIELDS,
     WINNER_LABELS,
@@ -61,6 +67,28 @@ def rename_raw_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=rename_map) if rename_map else df.copy()
 
 
+def _result_schema_version(df: pd.DataFrame) -> str:
+    if "results_schema_version" not in df.columns:
+        return ""
+    values = df["results_schema_version"].dropna().astype(str).str.strip().unique()
+    return values[0] if len(values) == 1 else ""
+
+
+def _apply_assertion_result_semantics(df: pd.DataFrame) -> None:
+    """Derive honest legacy missingness without fabricating schema-4 evidence."""
+    schema_version = _result_schema_version(df)
+    for column in ASSERTION_RESULT_FIELDS:
+        if column not in df.columns:
+            df[column] = pd.NA
+    if schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        df["assertion_measurement_status"] = "NotMeasured"
+        df["assertion_measurement_reason"] = "HistoricalNotMeasured"
+    elif schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
+        # Strict audits report missing schema-4 values. Normalization must not
+        # invent a policy, category count, or observed zero.
+        return
+
+
 # ---------------------------------------------------------------------------
 # Key construction
 # ---------------------------------------------------------------------------
@@ -77,66 +105,68 @@ def make_repository_key(row: pd.Series) -> str:
     return "|".join(parts)
 
 
-def _assign_attempt_ids(df: pd.DataFrame) -> None:
-    """Assign canonical attempt IDs in-place.
+def make_repository_family_key(row: pd.Series) -> str:
+    """Build the cross-revision repository identity key."""
+    return str(row.get("repository_identity", "")).strip().lower()
 
-    LLM rows use ``generation_attempt_id``. Agentic rows require
-    ``tool_attempt_id``; no legacy fallback is supported.
-    """
+
+def _validate_pinned_provenance(df: pd.DataFrame) -> None:
+    required = {
+        "results_schema_version", "target_id", "repository_identity",
+        "requested_commit", "resolved_commit", "target_manifest_sha256",
+        "target_source_sha256", "provenance_policy_version",
+        "workspace_integrity_status",
+    }
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Result rows are missing pinned provenance fields: {sorted(missing)}.")
+    versions = df["results_schema_version"].astype(str).str.strip()
+    supported = {LEGACY_RESULTS_SCHEMA_VERSION, ASSERTION_RESULTS_SCHEMA_VERSION}
+    if not versions.isin(supported).all() or versions.nunique() != 1:
+        raise ValueError(
+            "Normalization requires one supported results schema version (3.0 or 4.0)."
+        )
+    schema_version = versions.iloc[0]
+    blank_fields = required - {"results_schema_version"}
+    for column in sorted(blank_fields):
+        blank = df[column].isna() | df[column].astype(str).str.strip().eq("")
+        if blank.any():
+            raise ValueError(f"Schema {schema_version} rows require non-empty {column}.")
+    requested = df["requested_commit"].astype(str).str.strip().str.lower()
+    resolved = df["resolved_commit"].astype(str).str.strip().str.lower()
+    full_sha = requested.str.fullmatch(r"[0-9a-f]{40}") & resolved.str.fullmatch(r"[0-9a-f]{40}")
+    if not full_sha.all() or not requested.eq(resolved).all():
+        raise ValueError(
+            f"Schema {schema_version} rows require equal full requested and resolved commits."
+        )
+    if "commit_hash" in df.columns:
+        alias = df["commit_hash"].astype(str).str.strip().str.lower()
+        if not alias.eq(resolved).all():
+            raise ValueError(
+                f"commit_hash must equal resolved_commit in schema {schema_version}."
+            )
+
+
+def _assign_attempt_ids(df: pd.DataFrame) -> None:
+    """Validate canonical attempt IDs emitted by current result schemas."""
     if "attempt_id" not in df.columns:
-        df["attempt_id"] = pd.NA
+        raise ValueError("Current result rows require attempt_id.")
+    missing = df["attempt_id"].isna() | df["attempt_id"].astype(str).str.strip().eq("")
+    if missing.any():
+        raise ValueError("Current result rows require non-empty attempt_id values.")
+    df["attempt_id"] = df["attempt_id"].astype(str).str.strip()
 
     lane = df.get("lane", pd.Series("", index=df.index, dtype=str))
-    llm_mask = lane == LANE_LLM
     agentic_mask = lane == LANE_AGENTIC
-
-    if llm_mask.any():
-        if "generation_attempt_id" not in df.columns:
-            raise ValueError("LLM rows require generation_attempt_id.")
-        gaid = df.loc[llm_mask, "generation_attempt_id"].astype(str).str.strip()
-        # generation_attempt_id is only unique within a repository, so qualify the LLM
-        # attempt_id with owner|repo to make it globally unique (avoids cross-repo collisions
-        # on any attempt_id join). owner/repo match the DB ``projects`` table used by the
-        # DB-side builders (build_assertion_counts / build_metric_diffs).
-        if "repo_owner" in df.columns and "repo_name" in df.columns:
-            repo_qual = (df.loc[llm_mask, "repo_owner"].astype(str).str.strip() + "|"
-                         + df.loc[llm_mask, "repo_name"].astype(str).str.strip())
-            df.loc[llm_mask, "attempt_id"] = "llm:" + repo_qual + ":" + gaid
-        else:
-            df.loc[llm_mask, "attempt_id"] = "llm:" + gaid
-
     if agentic_mask.any():
-        # Derive tool_attempt_id from tool_artifact_path when the column is absent.
-        # tool_artifact_path is unique per attempt in the current CSV format.
         if "tool_attempt_id" not in df.columns:
-            if "tool_artifact_path" in df.columns:
-                df["tool_attempt_id"] = df["tool_artifact_path"].astype(str).str.strip()
-            else:
-                raise ValueError(
-                    "Agentic rows require tool_attempt_id (or tool_artifact_path as fallback)."
-                )
-        missing = df.loc[agentic_mask, "tool_attempt_id"].isna() | (
-            df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip() == ""
+            raise ValueError("Agentic rows require tool_attempt_id.")
+        missing_tool_id = (
+            df.loc[agentic_mask, "tool_attempt_id"].isna()
+            | df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip().eq("")
         )
-        if missing.any():
-            # Fill remaining blanks from tool_artifact_path if available
-            if "tool_artifact_path" in df.columns:
-                fill = df.loc[agentic_mask & missing, "tool_artifact_path"].astype(str).str.strip()
-                df.loc[agentic_mask & missing, "tool_attempt_id"] = fill
-                missing = df.loc[agentic_mask, "tool_attempt_id"].isna() | (
-                    df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip() == ""
-                )
-            if missing.any():
-                raise ValueError("Agentic rows require non-empty tool_attempt_id values.")
-        # Build attempt_id from the globally-unique tool_artifact_path; the numeric
-        # tool_attempt_id is only unique within a repo (and is float-formatted in the CSV).
-        # This matches the artifact-path key used by the DB-side builders
-        # (build_assertion_counts / build_metric_diffs).
-        ag_attempt = df.loc[agentic_mask, "tool_attempt_id"].astype(str).str.strip()
-        if "tool_artifact_path" in df.columns:
-            path = df.loc[agentic_mask, "tool_artifact_path"].astype(str).str.strip()
-            ag_attempt = path.where(path != "", ag_attempt)
-        df.loc[agentic_mask, "attempt_id"] = "agentic:" + ag_attempt
+        if missing_tool_id.any():
+            raise ValueError("Agentic rows require non-empty tool_attempt_id values.")
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +175,7 @@ def _assign_attempt_ids(df: pd.DataFrame) -> None:
 
 OUTCOME_VALIDATED_EVIDENCE_POSITIVE = "ValidatedEvidencePositive"
 OUTCOME_VALIDATED_LOW_IMPACT = "ValidatedLowImpact"
+OUTCOME_VALIDATED_IMPACT_UNKNOWN = "ValidatedImpactUnknown"
 OUTCOME_FAILED_EVIDENCE_POSITIVE = "FailedEvidencePositive"
 OUTCOME_VALIDATION_FAILED = "ValidationFailed"
 OUTCOME_NO_CHANGE = "NoChange"
@@ -159,6 +190,7 @@ OUTCOME_NOT_EVALUATED = "NotEvaluated"
 VALIDATED_OUTCOMES = {
     OUTCOME_VALIDATED_EVIDENCE_POSITIVE,
     OUTCOME_VALIDATED_LOW_IMPACT,
+    OUTCOME_VALIDATED_IMPACT_UNKNOWN,
 }
 
 # positive_impact is VEP only: test passed AND metrics improved above the noise floor.
@@ -202,6 +234,9 @@ def _compute_metric_improved(df: pd.DataFrame) -> pd.Series:
 
 
 def _classify_row(row: pd.Series) -> object:
+    exported = _string_or_empty(row.get("outcome_classification"))
+    if exported:
+        return exported
     observed = _string_or_empty(row.get("tool_observed_outcome"))
     if observed:
         return observed
@@ -289,6 +324,7 @@ def _compute_positive_impact(df: pd.DataFrame) -> pd.Series:
     else:
         oc = df["outcome_classification"]
     result = oc.isin(POSITIVE_IMPACT_OUTCOMES)
+    result = result.mask(oc.eq(OUTCOME_VALIDATED_IMPACT_UNKNOWN), pd.NA)
     return result.where(oc.notna(), other=pd.NA).astype("boolean")
 
 
@@ -300,6 +336,128 @@ def _add_outcome_flags(df: pd.DataFrame) -> None:
     df["validated_low_impact"] = oc.eq(OUTCOME_VALIDATED_LOW_IMPACT).astype("boolean")
     df["validated_success"] = _compute_validated_success(df)
     df["positive_impact"] = _compute_positive_impact(df)
+
+
+def _is_true(series: pd.Series) -> pd.Series:
+    """Boolean mask that treats missing values as False."""
+    return series.eq(True).fillna(False).astype(bool)
+
+
+# ---------------------------------------------------------------------------
+# Producer and infrastructure failures
+# ---------------------------------------------------------------------------
+
+# A failure caused by the environment (provider credentials, provider HTTP errors,
+# container start-up, workspace locks) says nothing about the model or tool. Such
+# attempts are missing data, not failures. The first matching pattern names the reason.
+INFRASTRUCTURE_FAILURE_PATTERNS: list[tuple[str, str]] = [
+    ("provider_auth", r"security token|invalid api key|unauthori[sz]ed|\b401\b|\b403\b"),
+    ("provider_http_error", r"service request failed|status:\s*[45]\d\d\b|rate limit|\b429\b"),
+    ("provider_timeout", r"retry failed after|exceeded the configured timeout"),
+    ("repair_input_missing", r"no previous attempt available for repair"),
+    ("container_start_failed", r"exited with code 125\b"),
+    ("workspace_file_lock", r"process cannot access the file"),
+]
+
+
+def _compute_infrastructure_failure_reason(df: pd.DataFrame) -> pd.Series:
+    """Return the infrastructure failure reason per row, or NA for other rows.
+
+    Only attempts that did not validate can be infrastructure failures. The reason is
+    read from ``failure_summary``.
+    """
+    reason = pd.Series(pd.NA, index=df.index, dtype="object")
+    if "failure_summary" not in df.columns:
+        return reason
+    summary = df["failure_summary"].fillna("").astype(str)
+    failed = (
+        ~_is_true(df["validated_success"])
+        if "validated_success" in df.columns
+        else pd.Series(True, index=df.index)
+    )
+    for name, pattern in INFRASTRUCTURE_FAILURE_PATTERNS:
+        match = failed & reason.isna() & summary.str.contains(pattern, case=False, regex=True)
+        reason[match] = name
+    return reason
+
+
+def _compute_producer(df: pd.DataFrame) -> pd.Series:
+    """The model (LLM lane) or tool (agentic lane) that produced each attempt."""
+    def _column(name: str) -> pd.Series:
+        if name not in df.columns:
+            return pd.Series(pd.NA, index=df.index, dtype="object")
+        values = df[name].astype("object")
+        return values.where(values.notna() & values.astype(str).str.strip().ne(""), pd.NA)
+
+    model = _column("model")
+    tool = _column("tool_id")
+    lane = df.get("lane", pd.Series("", index=df.index))
+    return tool.where(lane.eq(LANE_AGENTIC) & tool.notna(), model)
+
+
+TOOL_BACKBONE_SUFFIX = re.compile(
+    r"-(custom-[a-z0-9.]+|openai|anthropic|gemini|glm|kimi|gpt|claude)$", re.IGNORECASE
+)
+LLM_TOOL_FAMILY = "llm (direct)"
+
+
+def compute_tool_family(df: pd.DataFrame) -> pd.Series:
+    """The tool family behind each attempt, with the backbone suffix removed.
+
+    ``openhands-custom-gpt`` and ``openhands-gemini`` are one family (``openhands``)
+    running on different backbones; the backbone itself is the ``model`` column, which
+    both lanes carry. Splitting the two lets tool and model effects be seen separately
+    (and their interaction seen at all); ``producer`` keeps them fused.
+    Native single-model tools (``codex``, ``claude``, ``gemini``) are their own family.
+    """
+    lane = df.get("lane", pd.Series("", index=df.index))
+    tool = (df["tool_id"].astype("object") if "tool_id" in df.columns
+            else pd.Series(pd.NA, index=df.index, dtype="object"))
+    family = tool.map(
+        lambda value: TOOL_BACKBONE_SUFFIX.sub("", str(value)) if pd.notna(value) and str(value).strip() else pd.NA
+    )
+    return family.where(lane.eq(LANE_AGENTIC) & family.notna(), LLM_TOOL_FAMILY)
+
+
+# Provider prefixes, deployment/version suffixes and reasoning-effort suffixes that name
+# the same underlying model differently in the two lanes.
+MODEL_PREFIXES = re.compile(r"^(us|eu|apac)\.(anthropic|amazon|meta)\.", re.IGNORECASE)
+MODEL_VERSION_SUFFIX = re.compile(r"-v\d+(?::\d+)?$", re.IGNORECASE)
+MODEL_REASONING_SUFFIX = re.compile(r"-(thinking(-high|-low|-medium)?|high|low|medium)$", re.IGNORECASE)
+MODEL_DATED_VERSION = re.compile(r"(\d)-(\d)-\d{6,8}")
+
+
+def compute_model_family(df: pd.DataFrame) -> pd.Series:
+    """The backbone model behind each attempt, normalized so lanes line up.
+
+    The same backbone is written differently per lane: the LLM arm may run
+    ``GLM-5.3-thinking-high`` while a tool runs ``GLM-5.3``, and Bedrock ids carry a
+    provider prefix and deployment suffix. Dropping the reasoning-effort suffix makes
+    the two comparable, but it also hides a real difference, so compare the raw
+    ``model`` column before reading a tool-vs-LLM contrast as like-for-like.
+    """
+    if "model" not in df.columns:
+        return pd.Series(pd.NA, index=df.index, dtype="object")
+
+    def _normalize(value: object) -> object:
+        if pd.isna(value) or not str(value).strip():
+            return pd.NA
+        text = str(value).strip()
+        text = MODEL_PREFIXES.sub("", text)
+        text = MODEL_VERSION_SUFFIX.sub("", text)
+        text = MODEL_REASONING_SUFFIX.sub("", text)
+        text = MODEL_DATED_VERSION.sub(lambda m: f"{m.group(1)}.{m.group(2)}", text)
+        return text.lower()
+
+    return df["model"].map(_normalize)
+
+
+def _add_producer_and_infrastructure(df: pd.DataFrame) -> None:
+    df["producer"] = _compute_producer(df)
+    df["tool_family"] = compute_tool_family(df)
+    df["model_family"] = compute_model_family(df)
+    df["infrastructure_failure_reason"] = _compute_infrastructure_failure_reason(df)
+    df["infrastructure_failure"] = df["infrastructure_failure_reason"].notna()
 
 
 def _parse_smell_string(s: object) -> tuple[int, str]:
@@ -392,21 +550,9 @@ def collapse_agentic_to_attempts(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.copy()
 
-    # Derive tool_attempt_id from tool_artifact_path when the column is absent.
-    if "tool_attempt_id" not in df.columns:
-        if "tool_artifact_path" in df.columns:
-            df = df.copy()
-            df["tool_attempt_id"] = df["tool_artifact_path"].astype(str).str.strip()
-        else:
-            raise ValueError(
-                "Agentic rows require tool_attempt_id (or tool_artifact_path as fallback)."
-            )
-
     key_cols = [c for c in AGENTIC_ATTEMPT_KEY_FIELDS if c in df.columns]
-    if "tool_attempt_id" not in key_cols:
-        raise ValueError("Agentic rows require tool_attempt_id for attempt-level collapse.")
-    if df["tool_attempt_id"].isna().any() or df["tool_attempt_id"].astype(str).str.strip().eq("").any():
-        raise ValueError("Agentic rows require non-empty tool_attempt_id values.")
+    if "attempt_id" not in key_cols:
+        raise ValueError("Agentic rows require attempt_id for attempt-level collapse.")
 
     first_rows = df.groupby(key_cols, sort=False).first().reset_index()
 
@@ -432,27 +578,26 @@ def collapse_agentic_to_attempts(df: pd.DataFrame) -> pd.DataFrame:
 def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
     """Full normalization pipeline producing one row per attempt.
 
-    Handles both lanes:
-    - **LLM** rows are already one-row-per-attempt; ``generated_test_count``
-      is set to 1.
-    - **Agentic** rows are collapsed from per-generated-test to per-attempt
-      via :func:`collapse_agentic_to_attempts`.
+    Input must contain current-format ``row_kind='attempt'`` rows only.
 
     Steps applied in order:
 
     1. Rename raw CSV column names (``producer_lane`` → ``lane``, etc.).
     2. Normalize lane values to canonical ``llm`` / ``agentic``.
     3. Compute ``validated_success`` and ``produced_change``.
-    4. Stamp ``generated_test_count = 1`` for LLM rows.
-    5. Collapse agentic rows to attempt level.
-    6. Concatenate LLM + collapsed agentic.
-    7. Add ``candidate_key`` and ``repository_key``.
-    8. Coerce numeric and boolean columns.
+    4. Validate one globally unique row per ``attempt_id``.
+    5. Add ``candidate_key`` and ``repository_key``.
+    6. Coerce numeric and boolean columns.
     """
     if df.empty:
         return df.copy()
 
+    if "row_kind" not in df.columns or not df["row_kind"].eq("attempt").all():
+        raise ValueError("normalize_attempts requires only row_kind='attempt' rows.")
+
     out = rename_raw_columns(df)
+    _apply_assertion_result_semantics(out)
+    _validate_pinned_provenance(out)
 
     # 2. Normalize lane
     if "lane" in out.columns:
@@ -462,32 +607,21 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
 
     # 3. Computed columns (must run before split so lane is available)
     _add_outcome_flags(out)
+    _add_producer_and_infrastructure(out)
     out["produced_change"] = _compute_produced_change(out)
     out["impact_attribution"] = "attempt_level"
 
-    # 4. LLM: one generated test per attempt
-    llm_mask = out["lane"] == LANE_LLM
-    agentic_mask = out["lane"] == LANE_AGENTIC
-
     if "generated_test_count" not in out.columns:
-        out["generated_test_count"] = pd.NA
-    out.loc[llm_mask, "generated_test_count"] = 1
-
-    # 5 & 6. Collapse agentic, then concat
-    llm_df = out[llm_mask].copy()
-    agentic_df = out[agentic_mask].copy()
-
-    if not agentic_df.empty:
-        agentic_df = collapse_agentic_to_attempts(agentic_df)
-
-    out = pd.concat([llm_df, agentic_df], ignore_index=True)
-
-    # Collapse preserves first row values; re-apply flags to keep types stable.
-    _add_outcome_flags(out)
+        out["generated_test_count"] = 0
+    if out["attempt_id"].duplicated().any():
+        duplicates = sorted(out.loc[out["attempt_id"].duplicated(False), "attempt_id"].unique())
+        raise ValueError(f"Attempt CSV contains duplicate attempt_id values: {duplicates[:5]}.")
 
     # 7. Keys
     out["candidate_key"] = out.apply(make_candidate_key, axis=1)
     out["repository_key"] = out.apply(make_repository_key, axis=1)
+    out["repository_revision_key"] = out["repository_key"]
+    out["repository_family_key"] = out.apply(make_repository_family_key, axis=1)
 
     # 8. Coerce types
     _coerce_numeric(out)
@@ -499,6 +633,9 @@ def normalize_attempts(df: pd.DataFrame) -> pd.DataFrame:
     _expand_smell_columns(out, "generated_test_smells", "generated_test_smell_count", "generated_test_smell_types")
 
     # 10. Lane-fair token cost
+    out["token_usage_valid"] = _validate_token_rows(out)
+    out["effective_input_tokens"] = _compute_effective_component(out, "input_tokens")
+    out["effective_output_tokens"] = _compute_effective_component(out, "output_tokens")
     out["effective_tokens"] = _compute_effective_tokens(out)
 
     return out
@@ -533,10 +670,62 @@ def _compute_effective_tokens(df: pd.DataFrame) -> pd.Series:
     return eff
 
 
+def _compute_effective_component(df: pd.DataFrame, component: str) -> pd.Series:
+    """Return the lane-fair per-attempt value for one input/output component."""
+    index = df.index
+    value = (
+        pd.to_numeric(df[component], errors="coerce")
+        if component in df.columns
+        else pd.Series(pd.NA, index=index, dtype="Float64")
+    )
+    effective = value.astype("Float64").copy()
+    cumulative = f"cumulative_{component}"
+    if cumulative in df.columns and "lane" in df.columns:
+        running = pd.to_numeric(df[cumulative], errors="coerce")
+        use_running = df["lane"].eq(LANE_LLM) & running.notna()
+        effective[use_running] = running[use_running].astype("Float64")
+    return effective
+
+
+def _validate_token_rows(df: pd.DataFrame) -> pd.Series:
+    """Flag rows whose status/components/derived total follow the token contract."""
+    def _numbers(column: str) -> pd.Series:
+        return (
+            pd.to_numeric(df[column], errors="coerce")
+            if column in df.columns
+            else pd.Series(pd.NA, index=df.index, dtype="Float64")
+        )
+
+    status = df.get("usage_status", pd.Series("", index=df.index)).fillna("")
+    input_tokens = _numbers("input_tokens")
+    output_tokens = _numbers("output_tokens")
+    total_tokens = _numbers("total_tokens")
+    complete = status.isin({"complete-reported", "complete-estimated"})
+    partial = status.eq("partial")
+    empty = status.isin({"missing", "not-applicable"})
+    valid = pd.Series(False, index=df.index)
+    valid.loc[complete] = (
+        input_tokens.loc[complete].notna()
+        & output_tokens.loc[complete].notna()
+        & total_tokens.loc[complete].eq(
+            input_tokens.loc[complete] + output_tokens.loc[complete]
+        )
+    )
+    valid.loc[partial] = (
+        input_tokens.loc[partial].notna() | output_tokens.loc[partial].notna()
+    ) & total_tokens.loc[partial].isna()
+    valid.loc[empty] = (
+        input_tokens.loc[empty].isna()
+        & output_tokens.loc[empty].isna()
+        & total_tokens.loc[empty].isna()
+    )
+    return valid
+
+
 def _candidate_effective_tokens(group: pd.DataFrame) -> float:
     """Total tokens to produce a candidate's result for one lane (chain-aware).
 
-    LLM -> max ``cumulative_tokens`` over the repair chain (the terminal total);
+    LLM -> terminal non-missing ``cumulative_tokens`` over the ordered repair chain;
     agentic -> sum of ``total_tokens`` across the candidate's attempts.
     """
     lane = str(group["lane"].iloc[0]) if "lane" in group.columns and len(group) else ""
@@ -547,9 +736,24 @@ def _candidate_effective_tokens(group: pd.DataFrame) -> float:
     )
     if lane == LANE_LLM and "cumulative_tokens" in group.columns:
         cum = pd.to_numeric(group["cumulative_tokens"], errors="coerce")
-        if cum.notna().any() and cum.max() > 0:
-            return float(cum.max())
+        if cum.notna().any():
+            return float(cum.dropna().iloc[-1])
     return float(total.sum()) if total.notna().any() else float("nan")
+
+
+def _candidate_effective_component(group: pd.DataFrame, component: str) -> float:
+    lane = str(group["lane"].iloc[0]) if "lane" in group.columns and len(group) else ""
+    values = (
+        pd.to_numeric(group[component], errors="coerce")
+        if component in group.columns
+        else pd.Series(pd.NA, index=group.index, dtype="Float64")
+    )
+    cumulative = f"cumulative_{component}"
+    if lane == LANE_LLM and cumulative in group.columns:
+        running = pd.to_numeric(group[cumulative], errors="coerce")
+        if running.notna().any():
+            return float(running.dropna().iloc[-1])
+    return float(values.sum()) if values.notna().any() else float("nan")
 
 
 def _invalidate_inconsistent_measurements(df: pd.DataFrame) -> None:
@@ -592,7 +796,9 @@ def _coerce_numeric(df: pd.DataFrame) -> None:
     numeric_cols = [
         "coverage_before", "coverage_after", "coverage_delta",
         "mutation_score_before", "mutation_score_after", "mutation_score_delta",
-        "duration_seconds", "total_tokens", "generated_test_count",
+        "duration_seconds", "input_tokens", "output_tokens", "estimated_prompt_tokens",
+        "total_tokens", "cumulative_input_tokens", "cumulative_output_tokens",
+        "cumulative_tokens", "generated_test_count",
         "changed_files_count", "tool_attempt_id", "source_member_id",
         "test_files_changed", "production_files_changed", "project_files_changed",
         "deleted_files_count", "tool_post_attempt_test_run_id",
@@ -611,6 +817,16 @@ def _coerce_numeric(df: pd.DataFrame) -> None:
         # Generated test code metrics
         "generated_test_mi", "generated_test_cc", "generated_test_coupling",
         "generated_test_dit", "generated_test_sloc", "generated_test_eloc",
+        # Assertion-lineage schema 4.0 / sidecar 1.0
+        "assertion_max_depth", "recognized_assertion_count",
+        "unrecognized_assertion_count", "traced_assertion_count",
+        "trivial_assertion_count", "unresolved_assertion_count",
+        "assertion_analysis_duration_ms", "assertion_ordinal",
+        "start_line", "start_column", "end_line", "end_column",
+        "depth_reached", "generated_test_assertion_summary_id",
+        "observation_id", "experiment_run_id", "candidate_method_id",
+        "intended_source_member_id", "generated_test_execution_id",
+        "tool_attempt_generated_test_id", "test_member_id",
     ]
     for col in numeric_cols:
         if col in df.columns:
@@ -634,6 +850,7 @@ def _coerce_bool(df: pd.DataFrame) -> None:
         "generated_test_compiled", "generated_test_executed", "generated_test_passed",
         "roslyn_validation_succeeded", "roslyn_validation_skipped",
         "mutant_killed",
+        "no_recognized_assertions",
     ]
     for col in bool_cols:
         if col in df.columns:
@@ -641,15 +858,13 @@ def _coerce_bool(df: pd.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Generated-test-level dataset (pre-collapse grain)
+# Generated-test-level dataset
 # ---------------------------------------------------------------------------
 
 def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     """Return a per-generated-test dataset from the raw CSV DataFrame.
 
-    This preserves the full row-per-test grain for both lanes:
-    - LLM: each row is already one test.
-    - Agentic: each row is already one test (no collapsing).
+    This preserves the canonical row-per-generated-test grain for both lanes.
 
     Applies column renames, lane normalization, and key columns, but does
     **not** collapse agentic rows.
@@ -657,15 +872,23 @@ def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     if raw_df.empty:
         return raw_df.copy()
 
+    if "row_kind" not in raw_df.columns or not raw_df["row_kind"].eq("generated_test").all():
+        raise ValueError("Generated-test normalization requires row_kind='generated_test' rows.")
+
     out = rename_raw_columns(raw_df)
+    _apply_assertion_result_semantics(out)
+    _validate_pinned_provenance(out)
 
     if "lane" in out.columns:
         out["lane"] = out["lane"].fillna("").apply(normalize_lane)
 
     out["candidate_key"] = out.apply(make_candidate_key, axis=1)
     out["repository_key"] = out.apply(make_repository_key, axis=1)
+    out["repository_revision_key"] = out["repository_key"]
+    out["repository_family_key"] = out.apply(make_repository_family_key, axis=1)
     _assign_attempt_ids(out)
     _add_outcome_flags(out)
+    out["producer"] = _compute_producer(out)
     out["impact_attribution"] = "attempt_level"
     out["produced_change"] = _compute_produced_change(out)
 
@@ -678,72 +901,263 @@ def build_generated_tests_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def normalize_assertion_observations(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize schema-1 assertion rows while preserving one row per occurrence."""
+    if raw_df.empty:
+        return raw_df.copy()
+
+    missing = ASSERTION_SIDECAR_REQUIRED_FIELDS - set(raw_df.columns)
+    if missing:
+        raise ValueError(
+            f"Assertion observation rows are missing required fields: {sorted(missing)}."
+        )
+    versions = raw_df["assertion_schema_version"].dropna().astype(str).str.strip()
+    if versions.empty or not versions.eq(ASSERTION_SIDECAR_SCHEMA_VERSION).all():
+        raise ValueError("Assertion observations require assertion_schema_version='1.0'.")
+
+    out = rename_raw_columns(raw_df).rename(columns={
+        "policy_version": "assertion_policy_version",
+        "max_depth": "assertion_max_depth",
+        "ordered_lineage_paths_json": "lineage_paths_json",
+    })
+    if "lane" in out.columns:
+        out["lane"] = out["lane"].fillna("").apply(normalize_lane)
+
+    if "source_member_id" not in out.columns:
+        out["source_member_id"] = out["intended_source_member_id"]
+    out["candidate_key"] = out.apply(make_candidate_key, axis=1)
+    out["repository_key"] = out.apply(make_repository_key, axis=1)
+    out["repository_revision_key"] = out["repository_key"]
+    out["repository_family_key"] = out.apply(make_repository_family_key, axis=1)
+
+    _coerce_numeric(out)
+    out["is_traced"] = out["category"].eq("Traced")
+    return out
+
+
+def build_traced_assertions_dataset(assertions_df: pd.DataFrame) -> pd.DataFrame:
+    """Derive the traced-only view while leaving the canonical raw rows intact."""
+    if assertions_df.empty:
+        return assertions_df.copy()
+    if "category" not in assertions_df.columns:
+        raise ValueError("Assertion observations require a category column.")
+    return assertions_df.loc[
+        assertions_df["category"].eq("Traced")
+    ].copy().reset_index(drop=True)
+
+
+def normalize_assertion_measurements(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize additive SQLite measurement rows for downstream joins."""
+    if raw_df.empty:
+        return raw_df.copy()
+    rename = {
+        "status": "assertion_measurement_status",
+        "failure_code": "assertion_measurement_reason",
+        "policy_version": "assertion_policy_version",
+        "max_depth": "assertion_max_depth",
+        "analysis_duration_ms": "assertion_analysis_duration_ms",
+    }
+    out = raw_df.rename(
+        columns={key: value for key, value in rename.items() if key in raw_df.columns}
+    ).copy()
+    _coerce_numeric(out)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Candidate-level aggregation
 # ---------------------------------------------------------------------------
 
-def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
-    """Collapse attempt rows to one row per (candidate_key, lane).
+def _first_attempt(group: pd.DataFrame) -> pd.Series:
+    """The attempt with the lowest ``attempt_number`` (the first row when absent)."""
+    if "attempt_number" not in group.columns:
+        return group.iloc[0]
+    order = pd.to_numeric(group["attempt_number"], errors="coerce").fillna(float("inf"))
+    return group.loc[order.sort_values(kind="stable").index[0]]
 
-    Best attempt selection:
-    1. Any attempt where ``validated_success`` is True.
+
+CHAIN_KEY_FIELDS = ["candidate_key", "lane", "producer", "budget_mode"]
+
+
+def chain_key_columns(df: pd.DataFrame) -> list[str]:
+    """Identify independent runs/work items, with a legacy configuration fallback."""
+    keys = [c for c in CHAIN_KEY_FIELDS if c in df.columns]
+    for aliases in (("experiment_run_uid", "experiment_run_id"),
+                    ("resume_stable_key", "matrix_work_item_key")):
+        for column in aliases:
+            if column in df and df[column].astype("string").str.strip().ne("").fillna(False).any():
+                keys.append(column)
+                break
+    return keys
+
+
+CHAIN_DURATION_COLUMNS = ("duration_seconds", "generation_duration_seconds", "validation_duration_seconds")
+
+
+def final_chain_outcomes(attempts_df: pd.DataFrame) -> pd.DataFrame:
+    """One row per chain: its final evaluable attempt.
+
+    A repair chain counts once, at the outcome it ended on, instead of once per repair
+    step. Counting steps penalises the lane that retries: a chain that fails four times
+    and then succeeds would add four failures and one success. Single-attempt chains
+    (pass@1, agentic runs) are unchanged.
+
+    Infrastructure failures are dropped first, so a chain whose last step hit an
+    infrastructure failure ends at its last evaluable step; a chain with no evaluable
+    step is missing and has no row. ``chain_attempts`` counts the evaluable steps.
+
+    Cost belongs to the whole chain, not its final step: each ``chain_<column>`` sums
+    one of CHAIN_DURATION_COLUMNS over the evaluable steps. Tokens need no summing here,
+    since ``effective_tokens`` on the final step is already the chain total (terminal
+    cumulative tokens for LLM repair chains, the run total for agentic runs).
+
+    Already-collapsed input (it carries ``chain_attempts``) is returned unchanged, so
+    collapsing twice cannot overwrite chain totals with a single step's values.
+    """
+    if attempts_df.empty or "chain_attempts" in attempts_df.columns:
+        return attempts_df.copy()
+    df = (attempts_df if "producer" in attempts_df.columns
+          else attempts_df.assign(producer=_compute_producer(attempts_df)))
+    if "infrastructure_failure" in df.columns:
+        df = df[~_is_true(df["infrastructure_failure"])]
+    if df.empty:
+        return df.copy()
+
+    keys = chain_key_columns(df)
+    order = (pd.to_numeric(df["attempt_number"], errors="coerce").fillna(0)
+             if "attempt_number" in df.columns else pd.Series(0, index=df.index))
+    ordered = df.assign(_order=order).sort_values("_order", kind="stable")
+    grouped = ordered.groupby(keys, dropna=False, sort=False)
+    final = grouped.tail(1).copy()
+    extra = {"chain_attempts": grouped["_order"].transform("size").loc[final.index]}
+    for column in CHAIN_DURATION_COLUMNS:
+        if column in ordered.columns:
+            seconds = pd.to_numeric(ordered[column], errors="coerce")
+            extra[f"chain_{column}"] = (
+                seconds.groupby([ordered[k] for k in keys], dropna=False, sort=False)
+                .transform(lambda s: s.sum(min_count=1)).loc[final.index])
+    return final.assign(**extra).drop(columns="_order")
+
+
+def _order_chain(group: pd.DataFrame) -> pd.DataFrame:
+    """Order measured repair steps; reject ambiguous sequence numbers."""
+    if "attempt_number" not in group or group["attempt_number"].isna().all():
+        if len(group) > 1 and any(
+            c in group and group[c].notna().any()
+            for c in ("cumulative_tokens", "cumulative_input_tokens", "cumulative_output_tokens")
+        ):
+            raise ValueError("Cumulative chain costs require attempt_number.")
+        return group
+    order = pd.to_numeric(group["attempt_number"], errors="coerce")
+    if order.isna().any() or order.duplicated().any():
+        raise ValueError("Each chain requires unique, non-missing attempt_number values; "
+                         "check run/work-item identity before aggregating repetitions.")
+    return group.loc[order.sort_values(kind="stable").index]
+
+
+def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse attempt rows to one row per independently executed repair chain.
+
+    A producer is one LLM model or one agentic tool, and ``budget_mode`` is the
+    experiment arm (for example ``PassAt1`` versus ``PassAt1RepairAt5``, which run
+    as separate chains for the same model). Both are part of the grain: pooling a
+    lane's producers would credit the lane with a success whenever any one of its
+    models or tools succeeded, and pooling arms would merge two first attempts.
+    Run and stable work-item identities also distinguish independent repetitions
+    when present; see :func:`chain_key_columns`. Steps are ordered by numeric
+    ``attempt_number`` before selecting cumulative costs.
+
+    Infrastructure failures (``infrastructure_failure``) are missing data. Outcomes are
+    computed over the remaining, evaluable attempts; a producer with none has NA
+    outcomes.
+
+    Best attempt selection, among evaluable attempts:
+    1. A validated success with positive impact, else any validated success.
     2. Otherwise the attempt with the highest ``coverage_delta``.
     3. Otherwise the first attempt.
 
     Adds summary columns:
-    - ``attempt_count``
-    - ``any_validated_success``
-    - ``best_coverage_delta``
-    - ``best_mutation_delta``
+    - ``attempt_count``, ``evaluable_attempt_count``, ``infrastructure_failure_count``
+    - ``first_attempt_success``, ``first_attempt_positive_impact``: pass@1, the outcome
+      of the lowest ``attempt_number``; NA when that attempt failed on infrastructure
+    - ``any_validated_success``, ``any_positive_impact`` and the outcome counts
+    - ``best_coverage_delta``, ``best_mutation_delta``
     - ``total_generated_tests``
-    - ``effective_tokens`` (lane-fair token cost: LLM max cumulative chain, agentic total)
+    - ``effective_tokens`` (LLM terminal cumulative chain; agentic run total)
     """
     if attempts_df.empty:
         return pd.DataFrame()
 
-    group_cols = ["candidate_key", "lane"]
-    if not all(c in attempts_df.columns for c in group_cols):
+    if not all(c in attempts_df.columns for c in ("candidate_key", "lane")):
         return pd.DataFrame()
+
+    df = (attempts_df if "producer" in attempts_df.columns
+          else attempts_df.assign(producer=_compute_producer(attempts_df)))
+    infra_all = (
+        _is_true(df["infrastructure_failure"])
+        if "infrastructure_failure" in df.columns
+        else pd.Series(False, index=df.index)
+    )
 
     records: list[dict] = []
 
-    for (candidate_key, lane), group in attempts_df.groupby(group_cols, sort=False):
+    for _, group in df.groupby(chain_key_columns(df), sort=False, dropna=False):
+        group = _order_chain(group)
+        infra = infra_all.loc[group.index]
+        evaluable = group[~infra]
+        pool = evaluable if not evaluable.empty else group
+
         # Best attempt selection
-        successes = group[group["validated_success"] == True]  # noqa: E712
+        succeeded = (_is_true(pool["validated_success"]) if "validated_success" in pool.columns
+                     else pd.Series(False, index=pool.index))
+        successes = pool[succeeded]
         if not successes.empty:
             positive_successes = (
-                successes[successes["positive_impact"] == True]  # noqa: E712
+                successes[_is_true(successes["positive_impact"])]
                 if "positive_impact" in successes.columns
-                else pd.DataFrame()
+                else successes.iloc[0:0]
             )
             best = positive_successes.iloc[0] if not positive_successes.empty else successes.iloc[0]
-        elif "coverage_delta" in group.columns:
-            best = group.loc[group["coverage_delta"].fillna(-999).idxmax()]
+        elif "coverage_delta" in pool.columns:
+            best = pool.loc[pd.to_numeric(pool["coverage_delta"], errors="coerce").fillna(-999).idxmax()]
         else:
-            best = group.iloc[0]
+            best = pool.iloc[0]
+
+        def _any(column: str) -> object:
+            if evaluable.empty or column not in evaluable:
+                return pd.NA
+            values = evaluable[column]
+            if _is_true(values).any():
+                return True
+            # An unknown observation can still have positive impact. Only an
+            # entirely measured negative chain is a known negative.
+            return pd.NA if values.isna().any() else False
+
+        def _count(column: str) -> int:
+            return int(_is_true(evaluable[column]).sum()) if column in group.columns else 0
 
         row = best.to_dict()
         row["attempt_count"] = len(group)
-        row["any_validated_success"] = bool(
-            (group["validated_success"] == True).any()  # noqa: E712
-        ) if "validated_success" in group.columns else False
-        row["any_positive_impact"] = bool(
-            (group["positive_impact"] == True).any()  # noqa: E712
-        ) if "positive_impact" in group.columns else False
-        row["validated_evidence_positive_count"] = int(
-            (group["validated_evidence_positive"] == True).sum()  # noqa: E712
-        ) if "validated_evidence_positive" in group.columns else 0
-        row["validated_low_impact_count"] = int(
-            (group["validated_low_impact"] == True).sum()  # noqa: E712
-        ) if "validated_low_impact" in group.columns else 0
-        row["positive_impact_count"] = int(
-            (group["positive_impact"] == True).sum()  # noqa: E712
-        ) if "positive_impact" in group.columns else 0
+        row["evaluable_attempt_count"] = len(evaluable)
+        row["infrastructure_failure_count"] = int(infra.sum())
+        row["any_validated_success"] = _any("validated_success")
+        row["any_positive_impact"] = _any("positive_impact")
+        row["validated_evidence_positive_count"] = _count("validated_evidence_positive")
+        row["validated_low_impact_count"] = _count("validated_low_impact")
+        row["positive_impact_count"] = _count("positive_impact")
+
+        first = _first_attempt(group)
+        first_is_infra = bool(infra.loc[first.name])
+        for out_col, source_col in (("first_attempt_success", "validated_success"),
+                                    ("first_attempt_positive_impact", "positive_impact")):
+            value = first.get(source_col, pd.NA)
+            row[out_col] = pd.NA if first_is_infra or pd.isna(value) else bool(value)
+
         row["best_coverage_delta"] = (
-            group["coverage_delta"].max() if "coverage_delta" in group.columns else None
+            evaluable["coverage_delta"].max() if "coverage_delta" in group.columns else None
         )
         row["best_mutation_delta"] = (
-            group["mutation_score_delta"].max()
+            evaluable["mutation_score_delta"].max()
             if "mutation_score_delta" in group.columns
             else None
         )
@@ -753,6 +1167,8 @@ def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
             else None
         )
         row["effective_tokens"] = _candidate_effective_tokens(group)
+        row["effective_input_tokens"] = _candidate_effective_component(group, "input_tokens")
+        row["effective_output_tokens"] = _candidate_effective_component(group, "output_tokens")
         records.append(row)
 
     return pd.DataFrame(records)
@@ -762,8 +1178,19 @@ def build_candidate_summary(attempts_df: pd.DataFrame) -> pd.DataFrame:
 # Repository-level aggregation
 # ---------------------------------------------------------------------------
 
+def _known_rate(series: pd.Series) -> float | None:
+    """Share of True among non-missing values; None when every value is missing."""
+    known = series.dropna()
+    return float(_is_true(known).mean()) if len(known) else None
+
+
 def build_repository_summary(candidates_df: pd.DataFrame) -> pd.DataFrame:
-    """Collapse candidate rows to one row per (repository_key, lane) slice."""
+    """Collapse candidate rows to one row per (repository_key, lane) slice.
+
+    Candidate rows are per producer, so ``candidate_count`` counts distinct
+    candidates and ``producer_result_count`` counts the (candidate, producer) rows.
+    Rates are over producer rows with an evaluable outcome.
+    """
     if candidates_df.empty:
         return pd.DataFrame()
 
@@ -774,22 +1201,31 @@ def build_repository_summary(candidates_df: pd.DataFrame) -> pd.DataFrame:
     ):
         row: dict = {
             "repository_key": repo_key,
+            "repository_revision_key": group["repository_revision_key"].iloc[0] if "repository_revision_key" in group.columns else repo_key,
+            "repository_family_key": group["repository_family_key"].iloc[0] if "repository_family_key" in group.columns else "",
+            "repository_identity": group["repository_identity"].iloc[0] if "repository_identity" in group.columns else "",
+            "resolved_commit": group["resolved_commit"].iloc[0] if "resolved_commit" in group.columns else "",
+            "target_id": group["target_id"].iloc[0] if "target_id" in group.columns else "",
             "lane": lane,
             "repo_owner": group["repo_owner"].iloc[0] if "repo_owner" in group.columns else "",
             "repo_name": group["repo_name"].iloc[0] if "repo_name" in group.columns else "",
             "commit_hash": group["commit_hash"].iloc[0] if "commit_hash" in group.columns else "",
-            "candidate_count": len(group),
+            "candidate_count": (
+                int(group["candidate_key"].nunique()) if "candidate_key" in group.columns
+                else len(group)
+            ),
+            "producer_result_count": len(group),
             "validated_success_count": int(
-                (group["any_validated_success"] == True).sum()  # noqa: E712
+                _is_true(group["any_validated_success"]).sum()
             ) if "any_validated_success" in group.columns else 0,
             "validated_success_rate": (
-                (group["any_validated_success"] == True).mean()  # noqa: E712
+                _known_rate(group["any_validated_success"])
             ) if "any_validated_success" in group.columns else None,
             "positive_impact_count": int(
-                (group["any_positive_impact"] == True).sum()  # noqa: E712
+                _is_true(group["any_positive_impact"]).sum()
             ) if "any_positive_impact" in group.columns else 0,
             "positive_impact_rate": (
-                (group["any_positive_impact"] == True).mean()  # noqa: E712
+                _known_rate(group["any_positive_impact"])
             ) if "any_positive_impact" in group.columns else None,
             "mean_coverage_delta": (
                 group["best_coverage_delta"].mean()
@@ -812,12 +1248,46 @@ def build_repository_summary(candidates_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def build_repository_family_summary(repositories_df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate revision-level rows without conflating distinct commits."""
+    if repositories_df.empty or "repository_family_key" not in repositories_df.columns:
+        return pd.DataFrame()
+    records: list[dict] = []
+    for (family, lane), group in repositories_df.groupby(["repository_family_key", "lane"], sort=False):
+        records.append({
+            "repository_family_key": family,
+            "repository_identity": group["repository_identity"].iloc[0] if "repository_identity" in group.columns else family,
+            "lane": lane,
+            "revision_count": int(group["repository_revision_key"].nunique()),
+            "candidate_count": int(group["candidate_count"].sum()),
+            "validated_success_count": int(group["validated_success_count"].sum()),
+            "positive_impact_count": int(group["positive_impact_count"].sum()),
+            "total_generated_tests": int(group["total_generated_tests"].fillna(0).sum()),
+        })
+    return pd.DataFrame(records)
+
+
 # ---------------------------------------------------------------------------
 # Paired comparison builder
 # ---------------------------------------------------------------------------
 
-def build_paired_comparison(candidates_df: pd.DataFrame) -> pd.DataFrame:
+def build_paired_comparison(
+    candidates_df: pd.DataFrame,
+    llm_producer: str | None = None,
+    agentic_producer: str | None = None,
+    outcome_col: str = "any_validated_success",
+    llm_budget_mode: str | None = None,
+) -> pd.DataFrame:
     """Build a paired table with one row per candidate, comparing LLM vs agentic.
+
+    Candidate rows are per chain, so each lane holds one row per model or tool and
+    budget arm. Name ``llm_producer`` and ``agentic_producer`` to pair one model with
+    one tool, and ``llm_budget_mode`` when the model ran several arms; otherwise
+    each lane must already hold at most one row per candidate.
+
+    *outcome_col* is the binary outcome compared, for example
+    ``first_attempt_positive_impact`` for pass@1 VEP. A missing outcome (an
+    infrastructure failure) counts as that side being absent.
 
     Winner labels (``schema.WINNER_LABELS``):
       ``llm_won``, ``agentic_won``, ``tie_success``, ``tie_failure``,
@@ -828,6 +1298,19 @@ def build_paired_comparison(candidates_df: pd.DataFrame) -> pd.DataFrame:
 
     llm = candidates_df[candidates_df["lane"] == LANE_LLM].copy()
     agentic = candidates_df[candidates_df["lane"] == LANE_AGENTIC].copy()
+    if llm_producer is not None:
+        llm = llm[llm["producer"] == llm_producer]
+    if llm_budget_mode is not None:
+        llm = llm[llm["budget_mode"] == llm_budget_mode]
+    if agentic_producer is not None:
+        agentic = agentic[agentic["producer"] == agentic_producer]
+    for label, side in (("LLM", llm), ("agentic", agentic)):
+        if side["candidate_key"].duplicated().any():
+            raise ValueError(
+                f"The {label} lane has several rows per candidate; "
+                f"name the {label} producer (and budget mode), then select one "
+                "run/work item per candidate before pairing."
+            )
 
     llm = llm.set_index("candidate_key")
     agentic = agentic.set_index("candidate_key")
@@ -835,17 +1318,22 @@ def build_paired_comparison(candidates_df: pd.DataFrame) -> pd.DataFrame:
     all_keys = llm.index.union(agentic.index)
     records: list[dict] = []
 
+    def _outcome(r: pd.Series | None) -> bool | None:
+        if r is None:
+            return None
+        value = r.get(outcome_col, pd.NA)
+        return None if pd.isna(value) else bool(value)
+
     for key in all_keys:
-        has_llm = key in llm.index
-        has_agentic = key in agentic.index
-        llm_row = llm.loc[key] if has_llm else None
-        ag_row = agentic.loc[key] if has_agentic else None
+        llm_row = llm.loc[key] if key in llm.index else None
+        ag_row = agentic.loc[key] if key in agentic.index else None
 
-        def _success(r: pd.Series | None) -> bool:
-            return bool(r is not None and r.get("any_validated_success", False))
-
-        llm_success = _success(llm_row)
-        ag_success = _success(ag_row)
+        llm_outcome = _outcome(llm_row)
+        ag_outcome = _outcome(ag_row)
+        has_llm = llm_outcome is not None
+        has_agentic = ag_outcome is not None
+        llm_success = bool(llm_outcome)
+        ag_success = bool(ag_outcome)
 
         if has_llm and has_agentic:
             if llm_success and ag_success:
@@ -866,16 +1354,19 @@ def build_paired_comparison(candidates_df: pd.DataFrame) -> pd.DataFrame:
         record: dict = {
             "candidate_key": key,
             "winner": winner,
-            "llm_validated_success": llm_success,
-            "agentic_validated_success": ag_success,
+            "outcome": outcome_col,
+            "llm_producer": llm_row.get("producer") if llm_row is not None else None,
+            "agentic_producer": ag_row.get("producer") if ag_row is not None else None,
+            "llm_success": llm_outcome,
+            "agentic_success": ag_outcome,
             "llm_attempt_count": (
                 int(llm_row["attempt_count"])
-                if llm_row is not None and "attempt_count" in llm_row
+                if llm_row is not None and pd.notna(llm_row.get("attempt_count"))
                 else None
             ),
             "agentic_attempt_count": (
                 int(ag_row["attempt_count"])
-                if ag_row is not None and "attempt_count" in ag_row
+                if ag_row is not None and pd.notna(ag_row.get("attempt_count"))
                 else None
             ),
             "llm_best_coverage_delta": (

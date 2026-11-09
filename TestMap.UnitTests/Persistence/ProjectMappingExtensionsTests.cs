@@ -10,6 +10,35 @@ namespace TestMap.UnitTests.Persistence;
 /// </summary>
 public sealed class ProjectMappingExtensionsTests
 {
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ToEntity_ReadableLogPathDoesNotAlterPersistedProjectIdentity()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "testmap-mapping-logs-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var model = new ProjectModel(
+                gitHubUrl: "https://github.com/owner/repository",
+                owner: "owner",
+                repoName: "repository",
+                logsDirPath: root,
+                outputDirPath: Path.Combine(root, "output"),
+                runStartedAtUtc: new DateTimeOffset(2026, 7, 16, 14, 5, 9, TimeSpan.Zero));
+            var projectId = model.ProjectId;
+            model.EnsureProjectLogDir();
+
+            var entity = model.ToEntity();
+
+            Assert.Equal(projectId, model.ProjectId);
+            Assert.Equal("owner", entity.Owner);
+            Assert.Equal("repository", entity.RepoName);
+            Assert.DoesNotContain("14-05-09", entity.DirectoryPath, StringComparison.Ordinal);
+            (model.Logger as IDisposable)?.Dispose();
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     /// <summary>
     /// ToDomain maps all entity fields to the corresponding domain model properties,
     /// including the database PK (DbId), owner, repo name, paths, branch, and commit.

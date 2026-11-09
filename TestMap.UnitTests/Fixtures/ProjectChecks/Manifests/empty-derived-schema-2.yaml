@@ -1,0 +1,14 @@
+schema_version: 2
+generated_at_utc: 2026-07-16T00:00:00.0000000+00:00
+source:
+  file: source-schema-1.yaml
+  sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+derivation:
+  kind: project_test_presence
+  category: no_tests_detected
+  policy_name: project-test-presence
+  policy_version: "1"
+  report:
+    file: project-check-report.yaml
+    sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+targets: []

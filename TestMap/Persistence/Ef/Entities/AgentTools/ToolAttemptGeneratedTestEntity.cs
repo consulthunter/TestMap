@@ -1,4 +1,5 @@
 using TestMap.Persistence.Ef.Entities.AgentTools;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 
 namespace TestMap.Persistence.Ef.Entities.AgentTools;
 
@@ -15,4 +16,6 @@ public class ToolAttemptGeneratedTestEntity
     public int? MappingId { get; set; }
 
     public virtual ToolAttemptEntity? ToolAttempt { get; set; }
+    public virtual ICollection<GeneratedTestAssertionSummaryEntity> AssertionLineageSummaries { get; set; } =
+        new List<GeneratedTestAssertionSummaryEntity>();
 }

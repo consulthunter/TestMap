@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Cryptography;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
@@ -102,13 +103,35 @@ public class MethodSelectionService : IMethodSelectionService
                 enrichedCandidate.Candidate.CandidateInventoryId = inventoryId;
 
         var selectionLimit = ResolveFinalSelectionLimit(config);
-        return enrichedCandidates
-            .Where(x => !requirePassingExistingTest || x.InventoryItem.IsExperimentEligible)
-            .OrderBy(x => GetContextSelectionPriority(x.ContextEvidenceKind, x.HasGroundedTestContext))
-            .ThenBy(x => x.StrategyRank)
+        var eligibleCandidates = enrichedCandidates
+            .Where(x => !requirePassingExistingTest || x.InventoryItem.IsExperimentEligible);
+        var orderedCandidates = ShouldRandomizeCohort(config)
+            ? eligibleCandidates
+                .OrderBy(x => BuildRandomOrderKey(config, x.Candidate))
+                .ThenBy(x => x.Candidate.MemberId)
+            : eligibleCandidates
+                .OrderBy(x => GetContextSelectionPriority(x.ContextEvidenceKind, x.HasGroundedTestContext))
+                .ThenBy(x => x.StrategyRank);
+
+        return orderedCandidates
             .Take(selectionLimit)
             .Select(x => x.Candidate)
             .ToList();
+    }
+
+    internal static string BuildRandomOrderKey(ExperimentConfig config, CandidateMethod candidate)
+    {
+        var seed = config.CandidateCohort.RandomSeed ??
+                   throw new InvalidOperationException(
+                       "A random seed must be prepared before creating a randomized candidate cohort.");
+        var input = $"{seed}|{candidate.MemberId}|{candidate.Signature}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
+    }
+
+    private static bool ShouldRandomizeCohort(ExperimentConfig config)
+    {
+        return config.CandidateCohort.Mode == TestMap.Models.Configuration.Experiment.CandidateCohortMode.Create &&
+               config.CandidateCohort.Randomize;
     }
 
     private static int ResolveFinalSelectionLimit(ExperimentConfig config)
@@ -395,7 +418,12 @@ public class MethodSelectionService : IMethodSelectionService
         }
 
         var coverageEntity = await _dbContext.MemberCoverages
-            .Where(x => x.MemberId == memberId)
+            .Where(x => x.MemberId == memberId &&
+                        x.AttributionStatus == "Mapped" &&
+                        _dbContext.CoverageReports.Any(report =>
+                            report.Id == x.CoverageReportId &&
+                            report.MeasurementPolicyVersion == "coverage-integrity-v1" &&
+                            report.HasUsableCoverage))
             .OrderByDescending(x => x.CoverageReportId)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -415,7 +443,7 @@ public class MethodSelectionService : IMethodSelectionService
         var solution = solutionEntity.ToDomain();
         var methodSignature = ExtractMethodSignature(member.FullString, member.Name);
 
-        var memberVisibility = ResolveMemberVisibility(memberEntity);
+        var memberVisibility = ResolveMemberVisibility(memberEntity, sourceObjectEntity.Kind);
         var testContext = await FindBestTestContextAsync(
             member.Id,
             member.Name,
@@ -483,6 +511,7 @@ public class MethodSelectionService : IMethodSelectionService
             SourceTestMappingId = testContext?.SourceTestMappingId,
             MethodSignature = methodSignature,
             ContainingClass = sourceObject.FullString,
+            ContainingType = ContainingTypeIdentity.Resolve(sourceObject, sourceFile.FilePath),
             TestNamespace = ResolveTestNamespace(testContext, sourceObject.Namespace, project),
             TestClassName = ResolveTestClassName(testContext, sourceObject.Name),
             TestFilePath = ResolveTestFilePath(testContext, sourceFile.FilePath, sourceObject.Name, project),
@@ -976,7 +1005,8 @@ public class MethodSelectionService : IMethodSelectionService
         if (bestCandidate == null) return null;
 
         var testMembers = await _dbContext.Members
-            .Where(x => x.ObjectEntityId == bestCandidate.TestClass.Id)
+            .Where(x => x.ObjectEntityId == bestCandidate.TestClass.Id &&
+                        x.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline)
             .ToListAsync(cancellationToken);
 
         var exampleCandidates = testMembers
@@ -1025,6 +1055,10 @@ public class MethodSelectionService : IMethodSelectionService
             .AsNoTracking()
             .Include(x => x.TraceSteps)
             .Where(x => x.SourceMemberId == sourceMemberId && x.ProjectId == _context.Project.DbId && x.IsGrounded)
+            // Attempt-time mappings persist alongside the baseline ones. Context comes only from
+            // the repository's own tests, never from a test an earlier attempt generated.
+            .Where(x => _dbContext.Members.Any(member =>
+                member.Id == x.TestMemberId && member.OriginKind == MemberOrigin.Baseline))
             .OrderBy(x => x.PathLength)
             .ThenByDescending(x => x.Confidence)
             .ThenBy(x => x.TestMemberId)
@@ -1186,6 +1220,7 @@ public class MethodSelectionService : IMethodSelectionService
                     TestFile = testFile,
                     TestProject = testProject,
                     Entrypoint = entrypointMember,
+                    EntrypointObjectKind = entrypointObject.Kind,
                     EntrypointProject = entrypointProject
                 })
             .ToListAsync(cancellationToken);
@@ -1198,6 +1233,7 @@ public class MethodSelectionService : IMethodSelectionService
                 row.TestFile,
                 row.TestProject,
                 row.Entrypoint,
+                row.EntrypointObjectKind,
                 row.EntrypointProject,
                 Path = pathsByEntrypoint[row.Entrypoint.Id]
             })
@@ -1211,6 +1247,7 @@ public class MethodSelectionService : IMethodSelectionService
 
         if (selected == null) return null;
 
+        var entrypointVisibility = ResolveMemberVisibility(selected.Entrypoint, selected.EntrypointObjectKind);
         var pathText = string.Join(" -> ", selected.Path);
         return await BuildGroundedTestContextAsync(
             new TestContextEvidenceRow(
@@ -1226,8 +1263,8 @@ public class MethodSelectionService : IMethodSelectionService
                     TargetMemberId = sourceMemberId,
                     EntrypointMemberId = selected.Entrypoint.Id,
                     PathMemberIds = selected.Path,
-                    Strategy = ResolveCallerPathStrategy(ResolveMemberVisibility(selected.Entrypoint)),
-                    IsLegalFromTest = ResolveMemberVisibility(selected.Entrypoint) is MemberVisibility.Public or MemberVisibility.Internal,
+                    Strategy = ResolveCallerPathStrategy(entrypointVisibility),
+                    IsLegalFromTest = entrypointVisibility is MemberVisibility.Public or MemberVisibility.Internal,
                     RequiresReflection = false
                 },
                 selected.Path),
@@ -1262,11 +1299,14 @@ public class MethodSelectionService : IMethodSelectionService
                 join testFile in _dbContext.Files.AsNoTracking() on testObject.FileId equals testFile.Id
                 join testProject in _dbContext.CSharpProjects.AsNoTracking() on testFile.CSharpProjectId equals testProject.Id
                 join entrypointMember in _dbContext.Members.AsNoTracking() on helperInvocation.InvokedMemberId equals entrypointMember.Id
+                join entrypointObject in _dbContext.Objects.AsNoTracking() on entrypointMember.ObjectEntityId equals entrypointObject.Id
                 where helperInvocation.InvokedMemberId.HasValue
                       && entrypointIds.Contains(helperInvocation.InvokedMemberId.GetValueOrDefault())
                       && helperMember.ObjectEntityId == testObject.Id
                       && !helperMember.IsTestMember
                       && !helperMember.IsGenerated
+                      && helperMember.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline
+                      && testMember.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline
                       && testMember.IsTestMember
                       && testMember.Kind == "method"
                       && testObject.IsTestObject
@@ -1278,7 +1318,8 @@ public class MethodSelectionService : IMethodSelectionService
                     TestFile = testFile,
                     TestProject = testProject,
                     HelperMember = helperMember,
-                    Entrypoint = entrypointMember
+                    Entrypoint = entrypointMember,
+                    EntrypointObjectKind = entrypointObject.Kind
                 })
             .ToListAsync(cancellationToken);
 
@@ -1296,6 +1337,7 @@ public class MethodSelectionService : IMethodSelectionService
                     row.TestProject,
                     row.HelperMember,
                     row.Entrypoint,
+                    row.EntrypointObjectKind,
                     Path = fullPath
                 };
             })
@@ -1307,7 +1349,7 @@ public class MethodSelectionService : IMethodSelectionService
 
         if (selected == null) return null;
 
-        var entrypointVisibility = ResolveMemberVisibility(selected.Entrypoint);
+        var entrypointVisibility = ResolveMemberVisibility(selected.Entrypoint, selected.EntrypointObjectKind);
         var pathText = string.Join(" -> ", selected.Path);
         return await BuildGroundedTestContextAsync(
             new TestContextEvidenceRow(
@@ -1941,6 +1983,7 @@ using System;"
     {
         var helperMembers = members
             .Where(x => !x.IsGenerated)
+            .Where(x => x.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline)
             .Where(x => x.Id != selectedExample?.Id)
             .Where(x =>
                 !x.IsTestMember ||
@@ -2123,6 +2166,7 @@ using System;"
         var bindings = new List<ContextBinding>();
         foreach (var member in testMembers
                      .Where(x => !x.IsGenerated)
+                     .Where(x => x.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline)
                      .Where(x => x.Id != selectedExample?.Id)
                      .OrderByDescending(x => IsPreferredSupportMember(x, sourceObjectName))
                      .ThenBy(x => GetSupportBindingRank(x))
@@ -2395,28 +2439,14 @@ using System;"
             $"evidence={evidence}. {testMapping}";
     }
 
-    private static MemberVisibility ResolveMemberVisibility(Persistence.Ef.Entities.Code.MemberEntity member)
+    private static MemberVisibility ResolveMemberVisibility(
+        Persistence.Ef.Entities.Code.MemberEntity member,
+        string objectKind)
     {
-        if (member.Modifiers.Any(x => x.Equals("public", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("public ", StringComparison.Ordinal))
-            return MemberVisibility.Public;
-        if (member.Modifiers.Any(x => x.Equals("private", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("private ", StringComparison.Ordinal))
-            return MemberVisibility.Private;
-        if (member.Modifiers.Any(x => x.Equals("protected", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("protected ", StringComparison.Ordinal))
-            return MemberVisibility.Protected;
-        if (member.Modifiers.Any(x => x.Equals("internal", StringComparison.OrdinalIgnoreCase)) ||
-            member.FullString.Contains("internal ", StringComparison.Ordinal))
-            return MemberVisibility.Internal;
-        if (member.FullString.Contains('.', StringComparison.Ordinal) &&
-            member.FullString.Contains("=>", StringComparison.Ordinal))
-            return MemberVisibility.ExplicitInterface;
-
-        return MemberVisibility.Unknown;
+        return MemberVisibilityResolver.Resolve(member.Modifiers, member.FullString, objectKind);
     }
 
-    private static TestAccessStrategy ResolveDirectAccessStrategy(MemberVisibility visibility)
+    internal static TestAccessStrategy ResolveDirectAccessStrategy(MemberVisibility visibility)
     {
         return visibility switch
         {

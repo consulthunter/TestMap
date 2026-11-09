@@ -30,6 +30,8 @@ public class TestRunEntityConfiguration : IEntityTypeConfiguration<TestRunEntity
                     ? null
                     : JsonSerializer.Deserialize<FailureAnalysisModel>(v, (JsonSerializerOptions?)null));
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
+        builder.Property(x => x.ReportRole).HasColumnName("report_role")
+            .HasDefaultValue(TestReportRole.AttemptMeasurement).IsRequired();
 
         builder.HasIndex(x => x.RunId).IsUnique();
     }

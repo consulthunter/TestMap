@@ -10,6 +10,7 @@ using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
 using TestMap.Models.Generation;
+using TestMap.Services.Configuration;
 using TestMap.Services.TestGeneration.Context;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 
@@ -48,7 +49,11 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         TestGenerationRequest request,
         CancellationToken cancellationToken = default)
     {
-        var provider = await GetProviderAsync(request.Provider, cancellationToken);
+        var provider = await GetProviderAsync(
+            request.Provider,
+            request.ModelName,
+            request.Endpoint,
+            cancellationToken);
         var steps = new List<GenerationStepMetadata>();
         var conversation = GenerationConversationState.Create(ShouldUseConversationHistory(request));
         var overallStopwatch = Stopwatch.StartNew();
@@ -298,7 +303,6 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                 TestMethodName = extractedMethodName,
                 Steps = steps,
                 TotalDurationSeconds = overallStopwatch.Elapsed.TotalSeconds,
-                TotalTokens = steps.Sum(s => s.TokenCount),
                 ConversationTranscript = conversation.Export()
             };
         }
@@ -359,7 +363,6 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             TestMethodName = extractedMethodName,
             Steps = steps,
             TotalDurationSeconds = overallStopwatch.Elapsed.TotalSeconds,
-            TotalTokens = steps.Sum(s => s.TokenCount),
             ConversationTranscript = conversation.Export()
         };
     }
@@ -373,7 +376,11 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         TestRepairRequest request,
         CancellationToken cancellationToken = default)
     {
-        var provider = await GetProviderAsync(request.Provider, cancellationToken);
+        var provider = await GetProviderAsync(
+            request.Provider,
+            request.ModelName,
+            request.Endpoint,
+            cancellationToken);
         var steps = new List<GenerationStepMetadata>();
         var conversation = GenerationConversationState.Create(
             ShouldUseConversationHistory(request),
@@ -417,7 +424,6 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                 TestMethodName = testMethodName,
                 Steps = steps,
                 TotalDurationSeconds = overallStopwatch.Elapsed.TotalSeconds,
-                TotalTokens = steps.Sum(s => s.TokenCount),
                 ConversationTranscript = conversation.Export()
             };
         }
@@ -429,8 +435,15 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         }
     }
 
+    /// <summary>
+    /// Resolves and initializes the provider for an attempt. The arm's model and endpoint are
+    /// applied to a copy of the provider config — never to the shared instance, which every later
+    /// attempt in the run reads through.
+    /// </summary>
     private async Task<IAiGenerationProvider> GetProviderAsync(
         AiProvider providerType,
+        string modelName,
+        string? endpoint,
         CancellationToken cancellationToken)
     {
         if (!_providers.TryGetValue(providerType, out var provider))
@@ -438,6 +451,8 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
 
         var providerConfig = _config.AiProviderConfig.GetProviderConfig(providerType)
                              ?? throw new InvalidOperationException($"Provider config not found for {providerType}.");
+
+        providerConfig = AiProviderConfigOverrides.Apply(providerConfig, modelName, endpoint);
 
         var generationConfig = _config.TestingConfig.GenerationConfig;
         await provider.CreateAsync(providerConfig, generationConfig.Mode, cancellationToken);
@@ -455,10 +470,15 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
         CancellationToken cancellationToken)
     {
         var maxAttempts = Math.Max(1, stepErrorRetries + 1);
-        var tokenCount = _encoding.Encode(prompt).Count;
+        var inputTokens = 0;
+        var outputTokens = 0;
+        var outputComplete = true;
+        var hasObservedOutput = false;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
+            inputTokens = checked(inputTokens + provider.GetTokenizableInputSegments(prompt)
+                .Sum(segment => _encoding.Encode(segment).Count));
             var startedAt = DateTime.UtcNow;
             var stopwatch = Stopwatch.StartNew();
 
@@ -474,10 +494,53 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                         maxAttempts);
 
                 var response = await provider.GenerateAsync(prompt, temperature, cancellationToken);
+                outputTokens = checked(outputTokens + _encoding.Encode(response).Count);
+                hasObservedOutput = true;
                 stopwatch.Stop();
 
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    var errorMessage = $"Provider returned an empty response for step {stepType}.";
+                    if (attempt < maxAttempts)
+                    {
+                        _context.Project.Logger?.Warning(
+                            "{ErrorMessage} Retrying step ({Attempt}/{MaxAttempts}).",
+                            errorMessage,
+                            attempt + 1,
+                            maxAttempts);
+
+                        if (stepRetryDelayMs > 0) await Task.Delay(stepRetryDelayMs, cancellationToken);
+                        continue;
+                    }
+
+                    _context.Project.Logger?.Warning(errorMessage);
+                    return new GenerationStepMetadata
+                    {
+                        StepType = stepType,
+                        Prompt = prompt,
+                        Response = string.Empty,
+                        ResponseFormat = GetResponseFormat(stepType),
+                        PromptVersion = PromptVersion,
+                        ValidationStatus = "empty",
+                        InputTokens = inputTokens,
+                        OutputTokens = outputTokens,
+                        TokenCount = outputComplete ? checked(inputTokens + outputTokens) : null,
+                        UsageStatus = outputComplete
+                            ? TokenUsageVocabulary.CompleteEstimated
+                            : TokenUsageVocabulary.Partial,
+                        UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+                        UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
+                        DurationSeconds = stopwatch.Elapsed.TotalSeconds,
+                        StartedAt = startedAt,
+                        CompletedAt = DateTime.UtcNow,
+                        Success = false,
+                        ErrorMessage = errorMessage
+                    };
+                }
+
                 _context.Project.Logger?.Information(
-                    $"Step {stepType} completed in {stopwatch.Elapsed.TotalSeconds:F2}s, {tokenCount} tokens");
+                    $"Step {stepType} completed in {stopwatch.Elapsed.TotalSeconds:F2}s, " +
+                    $"{(outputComplete ? inputTokens + outputTokens : null)} tokens");
 
                 return new GenerationStepMetadata
                 {
@@ -486,17 +549,25 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                     Response = response,
                     ResponseFormat = GetResponseFormat(stepType),
                     PromptVersion = PromptVersion,
-                    ValidationStatus = GetValidationStatus(stepType, !string.IsNullOrWhiteSpace(response)),
-                    TokenCount = tokenCount,
+                    ValidationStatus = GetValidationStatus(stepType, true),
+                    InputTokens = inputTokens,
+                    OutputTokens = outputTokens,
+                    TokenCount = outputComplete ? checked(inputTokens + outputTokens) : null,
+                    UsageStatus = outputComplete
+                        ? TokenUsageVocabulary.CompleteEstimated
+                        : TokenUsageVocabulary.Partial,
+                    UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+                    UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
                     DurationSeconds = stopwatch.Elapsed.TotalSeconds,
                     StartedAt = startedAt,
                     CompletedAt = DateTime.UtcNow,
-                    Success = !string.IsNullOrWhiteSpace(response)
+                    Success = true
                 };
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
+                outputComplete = false;
 
                 if (attempt < maxAttempts)
                 {
@@ -522,7 +593,12 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
                     ResponseFormat = GetResponseFormat(stepType),
                     PromptVersion = PromptVersion,
                     ValidationStatus = "failed",
-                    TokenCount = tokenCount,
+                    InputTokens = inputTokens,
+                    OutputTokens = hasObservedOutput ? outputTokens : null,
+                    TokenCount = null,
+                    UsageStatus = TokenUsageVocabulary.Partial,
+                    UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+                    UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
                     DurationSeconds = stopwatch.Elapsed.TotalSeconds,
                     StartedAt = startedAt,
                     CompletedAt = DateTime.UtcNow,
@@ -540,7 +616,14 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             ResponseFormat = GetResponseFormat(stepType),
             PromptVersion = PromptVersion,
             ValidationStatus = "failed",
-            TokenCount = tokenCount,
+            InputTokens = inputTokens,
+            OutputTokens = hasObservedOutput ? outputTokens : null,
+            TokenCount = null,
+            UsageStatus = inputTokens > 0 || hasObservedOutput
+                ? TokenUsageVocabulary.Partial
+                : TokenUsageVocabulary.Missing,
+            UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+            UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
             DurationSeconds = 0,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow,
@@ -583,6 +666,11 @@ public class TestGenerationPipelineService : ITestGenerationPipelineService
             Status = metadata.Status,
             SkipReason = metadata.SkipReason,
             TokenCount = metadata.TokenCount,
+            InputTokens = metadata.InputTokens,
+            OutputTokens = metadata.OutputTokens,
+            UsageStatus = metadata.UsageStatus,
+            UsageSource = metadata.UsageSource,
+            UsagePolicyVersion = metadata.UsagePolicyVersion,
             DurationSeconds = metadata.DurationSeconds,
             StartedAt = metadata.StartedAt,
             CompletedAt = metadata.CompletedAt,
@@ -668,6 +756,7 @@ Instruction:
             ResponseFormat = "text/plain",
             PromptVersion = PromptVersion,
             ValidationStatus = "fallback",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -688,6 +777,7 @@ Instruction:
             ResponseFormat = GetResponseFormat(stepType),
             PromptVersion = PromptVersion,
             ValidationStatus = "skipped",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -713,6 +803,7 @@ Instruction:
                 StructuredResponseJson = json,
                 PromptVersion = PromptVersion,
                 ValidationStatus = "fallback",
+                UsageStatus = TokenUsageVocabulary.NotApplicable,
                 Success = true,
                 StartedAt = DateTime.UtcNow,
                 CompletedAt = DateTime.UtcNow
@@ -733,6 +824,7 @@ Instruction:
             StructuredResponseJson = json,
             PromptVersion = PromptVersion,
             ValidationStatus = "built",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -753,6 +845,7 @@ Instruction:
             StructuredResponseJson = json,
             PromptVersion = PromptVersion,
             ValidationStatus = "resolved",
+            UsageStatus = TokenUsageVocabulary.NotApplicable,
             Success = true,
             StartedAt = DateTime.UtcNow,
             CompletedAt = DateTime.UtcNow
@@ -1704,7 +1797,6 @@ Rules:
             Success = false,
             Steps = steps,
             TotalDurationSeconds = stopwatch.Elapsed.TotalSeconds,
-            TotalTokens = steps.Sum(s => s.TokenCount),
             ErrorMessage = errorMessage
         };
     }

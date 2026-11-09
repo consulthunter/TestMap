@@ -1,0 +1,16 @@
+schema_version: 3
+generated_at_utc: 2026-07-16T18:15:08.2703159+00:00
+source:
+  sha256: 270e11edb005f004985ca71a389e65afc5f87b08382b02bcb3b646eeed8e360c
+  kind: github_repository_url
+  url: https://github.com/consulthunter/TestMap-Example
+resolution:
+  file: example-resolution-a1316ad231fd.yaml
+  sha256: a1316ad231fde9050ed9c9872c3f87a2b9c9fb9f625cf7114f7c890cd5db5846
+targets:
+- target_id: 1122595d8c0c0f50460242a569a00627c074244c50f1d8c9667461d155ab1877
+  repository: consulthunter/testmap-example
+  url: https://github.com/consulthunter/testmap-example.git
+  commit: 867ab17d3141bc0e6d696486bd8edb67546c00d1
+  source_rows:
+  - 1

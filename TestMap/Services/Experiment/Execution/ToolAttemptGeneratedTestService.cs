@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TestMap.Models.AgentTools;
+using TestMap.Models.Code;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Repositories.AgentTools;
 
@@ -18,10 +19,18 @@ public interface IToolAttemptGeneratedTestService
     /// <paramref name="attempt"/>. Changed files should be relative paths from the
     /// workspace root (as written by the agent tool to <c>changed-files.txt</c>).
     /// </summary>
+    /// <param name="observedMemberIds">
+    /// Ids the post-attempt analysis observed in the workspace. Member rows are upserted and
+    /// never removed, so the database retains members from earlier attempts whose recorded
+    /// start lines can still fall inside this attempt's added-line ranges. Restricting to
+    /// observed ids keeps those stale rows from being attributed to this attempt. Pass null
+    /// to skip the restriction.
+    /// </param>
     Task<ToolAttemptGeneratedTestLinkResult> LinkAsync(
         ToolAttempt attempt,
         IReadOnlyList<string> changedFiles,
         int projectId,
+        IReadOnlySet<int>? observedMemberIds = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -46,6 +55,7 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
         ToolAttempt attempt,
         IReadOnlyList<string> changedFiles,
         int projectId,
+        IReadOnlySet<int>? observedMemberIds = null,
         CancellationToken cancellationToken = default)
     {
         if (changedFiles.Count == 0 || string.IsNullOrWhiteSpace(attempt.WorkspacePath))
@@ -63,6 +73,9 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
         // Find test members whose declaration starts on a line added by the tool.
         // Merely belonging to a changed file is insufficient because that file can
         // contain pre-existing tests that must not be attributed to the attempt.
+        // Only rows versioned by this attempt's analysis qualify: an unchanged pre-existing test
+        // reuses its baseline row, whose location is still the baseline one, so after an insertion
+        // above it that stale start line can fall inside the added-line set.
         // Join path: MemberEntity → ObjectEntity → FileEntity
         var candidateMembers = await (
             from member in _dbContext.Members.AsNoTracking()
@@ -70,6 +83,8 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
             join file in _dbContext.Files on obj.FileId equals file.Id
             where member.IsTestMember
                   && member.Kind == "method"
+                  && member.OriginKind == MemberOrigin.ToolAttempt
+                  && member.OriginAttemptId == attempt.Id
                   && absolutePaths.Contains(file.FilePath)
             select new
             {
@@ -78,24 +93,44 @@ public sealed class ToolAttemptGeneratedTestService : IToolAttemptGeneratedTestS
                 file.FilePath
             }
         ).ToListAsync(cancellationToken);
+        // An added-line match alone is not enough. Agents append whole blocks of tests, so the
+        // added-line set spans most of the file, and a stale member row from an earlier attempt
+        // whose recorded start line falls anywhere in that span would match too. Requiring the
+        // member to have been observed by this attempt's analysis pass keeps attribution to
+        // tests that exist in the workspace this attempt produced.
         var memberIds = candidateMembers
             .Where(x =>
                 addedLinesByPath.TryGetValue(Path.GetFullPath(x.FilePath), out var addedLines)
-                && addedLines.Contains(x.Location.StartLineNumber))
+                && addedLines.Contains(x.Location.StartLineNumber)
+                && (observedMemberIds == null || observedMemberIds.Contains(x.Id)))
             .Select(x => x.Id)
+            .Distinct()
             .ToList();
 
         if (memberIds.Count == 0)
             return new ToolAttemptGeneratedTestLinkResult();
 
+        var linkedMembers = await _dbContext.Members
+            .Where(x => memberIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        foreach (var member in linkedMembers)
+        {
+            member.IsGenerated = true;
+        }
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
         // Look up existing source-test mappings for these test members so we can
         // optionally record which candidate they map to.
-        var mappingByMemberId = await (
+        var mappingRows = await (
             from mapping in _dbContext.SourceTestMappings
-            where memberIds.Contains(mapping.TestMemberId)
-            orderby mapping.Confidence descending
+            where mapping.ProjectId == projectId
+                  && memberIds.Contains(mapping.TestMemberId)
+            orderby mapping.Confidence descending, mapping.Id descending
             select new { mapping.TestMemberId, MappingId = mapping.Id }
-        ).ToDictionaryAsync(x => x.TestMemberId, x => x.MappingId, cancellationToken);
+        ).ToListAsync(cancellationToken);
+        var mappingByMemberId = mappingRows
+            .GroupBy(x => x.TestMemberId)
+            .ToDictionary(x => x.Key, x => x.First().MappingId);
 
         var rows = memberIds.Select(memberId => new ToolAttemptGeneratedTest
         {

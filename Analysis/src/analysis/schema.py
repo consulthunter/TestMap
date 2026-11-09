@@ -14,6 +14,111 @@ LANE_LLM = "llm"
 LANE_AGENTIC = "agentic"
 LANE_VALUES = [LANE_LLM, LANE_AGENTIC]
 
+TOKEN_USAGE_STATUSES = frozenset({
+    "complete-reported",
+    "complete-estimated",
+    "partial",
+    "missing",
+    "not-applicable",
+})
+
+# ---------------------------------------------------------------------------
+# Assertion-lineage contract versions and vocabularies
+# ---------------------------------------------------------------------------
+
+LEGACY_RESULTS_SCHEMA_VERSION = "3.0"
+ASSERTION_RESULTS_SCHEMA_VERSION = "4.0"
+ASSERTION_SIDECAR_SCHEMA_VERSION = "1.0"
+ASSERTION_POLICY_VERSION = "assertion-lineage-v1"
+ASSERTION_CATALOG_VERSION = "assertion-catalog-v1"
+
+ASSERTION_CATEGORIES = frozenset({"Traced", "Trivial", "Unresolved"})
+ASSERTION_MEASUREMENT_STATUSES = frozenset(
+    {"Complete", "Partial", "Unavailable", "NotApplicable", "NotMeasured"}
+)
+ASSERTION_SUMMARY_STATUSES = frozenset(
+    {"Classified", "NoRecognizedAssertions", "Unavailable"}
+)
+ASSERTION_RECOGNITION_KINDS = frozenset({"Semantic", "SyntacticFallback"})
+
+ASSERTION_UNRESOLVED_REASONS = frozenset({
+    "DepthExceeded",
+    "CycleDetected",
+    "AmbiguousDefinitions",
+    "AmbiguousDispatch",
+    "DynamicInvocation",
+    "Reflection",
+    "UnknownDelegateTarget",
+    "UnsupportedAssertionShape",
+    "UnsupportedWrite",
+    "UnsupportedAlias",
+    "UnsupportedFieldFlow",
+    "MissingDefinition",
+    "MissingSource",
+    "SemanticModelUnavailable",
+    "ProjectLoadFailure",
+    "PathCapExceeded",
+})
+
+ASSERTION_UNAVAILABLE_REASONS = frozenset({
+    "NoAppliedTestArtifact",
+    "GeneratedTestMemberUnresolved",
+    "PostAttemptAnalysisSkipped",
+    "SemanticProjectUnavailable",
+    "SourceUnavailable",
+    "AnalysisDisabled",
+    "AnalysisFailure",
+    "HistoricalNotMeasured",
+})
+
+ASSERTION_RESULT_FIELDS: list[str] = [
+    "assertion_measurement_status",
+    "assertion_measurement_reason",
+    "assertion_policy_version",
+    "assertion_catalog_version",
+    "assertion_max_depth",
+    "recognized_assertion_count",
+    "unrecognized_assertion_count",
+    "traced_assertion_count",
+    "trivial_assertion_count",
+    "unresolved_assertion_count",
+    "no_recognized_assertions",
+    "assertion_analysis_duration_ms",
+    "assertion_attribution",
+]
+
+ASSERTION_SIDECAR_REQUIRED_FIELDS = frozenset({
+    "assertion_schema_version",
+    "observation_id",
+    "attempt_id",
+    "repository_identity",
+    "resolved_commit",
+    "intended_source_member_id",
+    "generated_test_assertion_summary_id",
+    "test_member_name",
+    "test_file_path",
+    "test_member_content_hash",
+    "assertion_ordinal",
+    "start_line",
+    "start_column",
+    "end_line",
+    "end_column",
+    "framework",
+    "assertion_method",
+    "recognition_kind",
+    "expression_hash",
+    "category",
+    "resolution_code",
+    "target_relation",
+    "depth_reached",
+    "resolved_production_member_ids",
+    "policy_version",
+    "assertion_catalog_version",
+    "max_depth",
+    "trace_summary",
+    "ordered_lineage_paths_json",
+})
+
 # ---------------------------------------------------------------------------
 # Raw CSV column → canonical column renames
 # Applied once at load time before any other normalization.
@@ -33,12 +138,11 @@ RAW_COLUMN_RENAMES: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Agentic attempt key fields
-# The raw CSV has one row per generated test for agentic attempts.
-# These fields identify one logical tool invocation (one attempt).
+# These fields identify one logical tool invocation across result files.
 # ---------------------------------------------------------------------------
 
 AGENTIC_ATTEMPT_KEY_FIELDS: list[str] = [
-    "tool_attempt_id",
+    "attempt_id",
 ]
 
 # ---------------------------------------------------------------------------
@@ -51,6 +155,16 @@ SHARED_ATTEMPT_FIELDS: list[str] = [
     "repo_name",
     "repo_url",
     "commit_hash",
+    "target_id",
+    "repository_identity",
+    "requested_commit",
+    "resolved_commit",
+    "target_manifest_sha256",
+    "target_source_sha256",
+    "provenance_policy_version",
+    "workspace_integrity_status",
+    "repository_family_key",
+    "repository_revision_key",
     "source_member_id",
     "source_method_name",
     "source_method_signature",
@@ -122,8 +236,20 @@ SHARED_ATTEMPT_FIELDS: list[str] = [
     "duration_seconds",
     "generation_duration_seconds",
     "validation_duration_seconds",
+    "usage_available",
+    "usage_status",
+    "usage_source",
+    "usage_policy_version",
+    "input_tokens",
+    "output_tokens",
+    "estimated_prompt_tokens",
     "total_tokens",
+    "cumulative_input_tokens",
+    "cumulative_output_tokens",
     "cumulative_tokens",
+    "effective_input_tokens",
+    "effective_output_tokens",
+    "effective_tokens",
     "changed_files_count",
     "test_files_changed",
     "production_files_changed",
@@ -131,21 +257,21 @@ SHARED_ATTEMPT_FIELDS: list[str] = [
     "deleted_files_count",
     "baseline_test_execution_time_ms",
     "generated_test_execution_time_ms",
+    *ASSERTION_RESULT_FIELDS,
 ]
 
 # Fields that uniquely identify a candidate across lanes
 CANDIDATE_KEY_FIELDS: list[str] = [
-    "repo_owner",
-    "repo_name",
-    "commit_hash",
+    "repository_identity",
+    "resolved_commit",
+    "target_id",
     "source_member_id",
 ]
 
 # Fields that uniquely identify a repository slice
 REPOSITORY_KEY_FIELDS: list[str] = [
-    "repo_owner",
-    "repo_name",
-    "commit_hash",
+    "repository_identity",
+    "resolved_commit",
 ]
 
 # ---------------------------------------------------------------------------
@@ -193,6 +319,8 @@ AGENTIC_SPECIFIC_FIELDS: list[str] = [
 # ---------------------------------------------------------------------------
 
 PRELIMINARY_FAILURE_LABELS: list[str] = [
+    "infrastructure",
+    "generation_failed",
     "no_change",
     "timeout",
     "tool_crash",

@@ -14,8 +14,23 @@ from analysis.schema import (
     PRELIMINARY_FAILURE_LABELS,
     RAW_COLUMN_RENAMES,
     REPOSITORY_KEY_FIELDS,
+    SHARED_ATTEMPT_FIELDS,
+    TOKEN_USAGE_STATUSES,
     WINNER_LABELS,
 )
+
+
+def test_shared_attempt_schema_includes_split_and_cumulative_token_contract():
+    required = {
+        "usage_available", "usage_status", "usage_source", "usage_policy_version",
+        "input_tokens", "output_tokens", "total_tokens",
+        "cumulative_input_tokens", "cumulative_output_tokens", "cumulative_tokens",
+        "effective_input_tokens", "effective_output_tokens", "effective_tokens",
+    }
+    assert required <= set(SHARED_ATTEMPT_FIELDS)
+    assert TOKEN_USAGE_STATUSES == frozenset({
+        "complete-reported", "complete-estimated", "partial", "missing", "not-applicable"
+    })
 
 
 class TestLaneConstants:
@@ -60,8 +75,8 @@ class TestRawColumnRenames:
 
 
 class TestAgenticAttemptKeyFields:
-    def test_uses_tool_attempt_id_only(self):
-        assert AGENTIC_ATTEMPT_KEY_FIELDS == ["tool_attempt_id"]
+    def test_uses_canonical_attempt_id_only(self):
+        assert AGENTIC_ATTEMPT_KEY_FIELDS == ["attempt_id"]
 
     def test_no_duplicates(self):
         assert len(AGENTIC_ATTEMPT_KEY_FIELDS) == len(set(AGENTIC_ATTEMPT_KEY_FIELDS))
@@ -72,8 +87,9 @@ class TestCandidateAndRepositoryKeyFields:
         assert "source_member_id" in CANDIDATE_KEY_FIELDS
 
     def test_candidate_key_includes_repo_fields(self):
-        assert "repo_owner" in CANDIDATE_KEY_FIELDS
-        assert "repo_name" in CANDIDATE_KEY_FIELDS
+        assert "repository_identity" in CANDIDATE_KEY_FIELDS
+        assert "resolved_commit" in CANDIDATE_KEY_FIELDS
+        assert "target_id" in CANDIDATE_KEY_FIELDS
 
     def test_repository_key_fields_subset_of_candidate(self):
         for field in REPOSITORY_KEY_FIELDS:

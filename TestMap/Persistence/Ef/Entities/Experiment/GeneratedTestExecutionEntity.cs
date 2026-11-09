@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 using TestMap.Persistence.Ef.Entities.Rules;
 
 namespace TestMap.Persistence.Ef.Entities.Experiment;
@@ -18,10 +19,11 @@ public class GeneratedTestExecutionEntity
     public string RuntimeErrors { get; set; } = string.Empty;
     public string AssertionErrors { get; set; } = string.Empty;
     public long ExecutionTimeMs { get; set; }
-    public double FinalCoverage { get; set; }
+    public double? CoverageBefore { get; set; }
+    public double? FinalCoverage { get; set; }
     public int FinalCoveredLines { get; set; }
     public int FinalTotalLines { get; set; }
-    public double CoverageDelta { get; set; }
+    public double? CoverageDelta { get; set; }
     public double? BaselineMutationScore { get; set; }
     public double? MutationScoreAfter { get; set; }
     public double? MutationScoreDelta { get; set; }
@@ -36,6 +38,8 @@ public class GeneratedTestExecutionEntity
     public string StructuredErrors { get; set; } = string.Empty;
 
     public virtual GenerationAttemptEntity? GenerationAttempt { get; set; }
+    public virtual ICollection<GeneratedTestAssertionSummaryEntity> AssertionLineageSummaries { get; set; } =
+        new List<GeneratedTestAssertionSummaryEntity>();
     public virtual ICollection<RuleDecisionEntity> RuleDecisions { get; set; } =
         new List<RuleDecisionEntity>();
 }

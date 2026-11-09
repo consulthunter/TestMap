@@ -17,12 +17,23 @@ from pathlib import Path
 
 import pandas as pd
 
-from analysis.files import ensure_output_dir, read_results_csvs
+from analysis.files import (
+    ensure_output_dir,
+    read_result_grains,
+    read_schema4_result_bundle,
+)
 from analysis.normalize import (
+    build_traced_assertions_dataset,
     build_candidate_summary,
     build_generated_tests_dataset,
     build_repository_summary,
+    build_repository_family_summary,
+    normalize_assertion_observations,
     normalize_attempts,
+)
+from analysis.schema import (
+    ASSERTION_RESULTS_SCHEMA_VERSION,
+    LEGACY_RESULTS_SCHEMA_VERSION,
 )
 from analysis.summaries import build_overview
 
@@ -36,17 +47,76 @@ def load_raw_attempts(
     SQLite join queries are deferred to a future pass when the column
     mapping between CSVs and the DB schema is finalized.
     """
-    df = read_results_csvs(list(results))
+    df, _, _ = read_result_grains(list(results))
     if df.empty:
         print("[warn] No result CSVs found.")
     return df
 
 
-def build_attempts_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
+def build_attempts_dataset(
+    raw_df: pd.DataFrame,
+    generated_test_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Normalize raw attempt rows into the shared attempt-level schema."""
     if raw_df.empty:
         return pd.DataFrame()
-    return normalize_attempts(raw_df)
+    attempts = normalize_attempts(raw_df)
+    if generated_test_df is None or generated_test_df.empty:
+        attempts["generated_test_count"] = 0
+        return attempts
+
+    if "attempt_id" not in generated_test_df.columns:
+        raise ValueError("Generated-test rows require attempt_id for parent aggregation.")
+    counts = generated_test_df.groupby("attempt_id").size().rename("generated_test_count")
+    attempts = attempts.drop(columns=["generated_test_count"], errors="ignore")
+    attempts = attempts.merge(counts, on="attempt_id", how="left").assign(
+        generated_test_count=lambda x: x["generated_test_count"].fillna(0).astype("Int64")
+    )
+    return roll_up_generated_tests(attempts, build_generated_tests_dataset(generated_test_df))
+
+
+GENERATED_TEST_METRIC_COLUMNS = [
+    "generated_test_cc", "generated_test_mi", "generated_test_sloc",
+    "generated_test_eloc", "generated_test_coupling", "generated_test_dit",
+]
+
+
+def roll_up_generated_tests(attempts: pd.DataFrame, children: pd.DataFrame) -> pd.DataFrame:
+    """Set attempt-level generated-test metrics from the attempt's child test rows.
+
+    Agentic attempts write their tests only as child rows, so the attempt row carries
+    no smell string or structural metrics of its own. Where an attempt has children,
+    its smell count is their sum, its smell types their union, and each structural
+    metric their mean. Attempts without children keep their own values.
+    """
+    if children.empty or "attempt_id" not in children.columns:
+        return attempts
+    grouped = children.groupby("attempt_id")
+    rolled = pd.DataFrame(index=grouped.size().index)
+    if "generated_test_smell_count" in children.columns:
+        rolled["generated_test_smell_count"] = grouped["generated_test_smell_count"].sum()
+    if "generated_test_smell_types" in children.columns:
+        rolled["generated_test_smell_types"] = grouped["generated_test_smell_types"].agg(
+            lambda values: json.dumps(sorted({
+                name for value in values.dropna() for name in json.loads(value)
+            }))
+        )
+    for column in GENERATED_TEST_METRIC_COLUMNS:
+        if column in children.columns:
+            rolled[column] = grouped[column].mean()
+
+    out = attempts.copy()
+    has_children = out["attempt_id"].isin(rolled.index)
+    for column in rolled.columns:
+        mapped = out["attempt_id"].map(rolled[column])
+        current = out[column] if column in out.columns else pd.Series(pd.NA, index=out.index)
+        combined = mapped.where(has_children, current)
+        if column == "generated_test_smell_count":
+            combined = pd.to_numeric(combined, errors="coerce").astype("Int64")
+        elif column != "generated_test_smell_types":
+            combined = pd.to_numeric(combined, errors="coerce")
+        out[column] = combined
+    return out
 
 
 def build_generated_tests_dataset_from_raw(
@@ -55,16 +125,13 @@ def build_generated_tests_dataset_from_raw(
 ) -> pd.DataFrame:
     """Build a per-generated-test dataset.
 
-    The primary source is the raw CSV rows (both lanes are at per-test grain
-    before the agentic collapse step).  SQLite databases are an optional
+    The primary source is the canonical generated-test CSV. SQLite databases are an optional
     secondary source for additional metadata; they are queried when provided.
 
     Parameters
     ----------
     raw_df:
-        The raw DataFrame as loaded from result CSVs, *before*
-        ``normalize_attempts`` is called (so agentic rows have not been
-        collapsed yet).
+        The raw ``row_kind='generated_test'`` DataFrame.
     db_paths:
         Optional glob patterns for SQLite databases.
     """
@@ -115,25 +182,10 @@ def _count_assertions(code: object) -> int:
     return len(_ASSERT_RE.findall(code))
 
 
-def _repo_qualifier(projects: pd.DataFrame) -> str:
-    """``owner|repo_name`` for a single-repo analysis DB.
-
-    Used to make LLM attempt ids globally unique (``generation_attempt_id`` is only
-    unique within a repo). Matches the ``repo_owner|repo_name`` qualifier that
-    ``normalize._assign_attempt_ids`` builds from the result CSV.
-    """
-    if projects is None or projects.empty:
-        return ""
-    row = projects.iloc[0]
-    owner = str(row.get("owner", "") or "").strip()
-    repo = str(row.get("repo_name", "") or "").strip()
-    return f"{owner}|{repo}" if (owner or repo) else ""
-
-
 def build_assertion_counts(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """Per-attempt assertion counts of the generated tests (RQ3 guard + density).
+    """Legacy per-attempt assertion inventory (never classified lineage).
 
     A generated test is persisted as a member and parsed into the ``invocations``
     table (with ``is_assertion``) only when it *validates*. The agentic lane links
@@ -143,6 +195,7 @@ def build_assertion_counts(
     members, so it falls back to a heuristic regex over the stored
     ``generated_test_code``. ``assertion_source`` records which method was used.
 
+    Results from this function cannot populate Traced, Trivial, or Unresolved.
     Returns one row per ``attempt_id`` with ``assertion_count``, ``invocation_count``
     (NA for the regex lane), ``generated_test_n``, and ``assertion_source``.
     """
@@ -151,11 +204,10 @@ def build_assertion_counts(
 
     from analysis.db import (
         connect,
+        get_canonical_attempt_identities,
         get_generated_test_executions,
         get_invocations,
-        get_projects,
         get_tool_attempt_generated_tests,
-        get_tool_attempts,
     )
     from analysis.files import find_databases
 
@@ -164,9 +216,17 @@ def build_assertion_counts(
         with connect(db_path) as conn:
             execs = get_generated_test_executions(conn)
             links = get_tool_attempt_generated_tests(conn)
-            tool_attempts = get_tool_attempts(conn)
             invocations = get_invocations(conn)
-            repo_qual = _repo_qualifier(get_projects(conn))
+            identities = get_canonical_attempt_identities(conn)
+
+        llm_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "llm"].itertuples()
+        }
+        agentic_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "agentic"].itertuples()
+        }
 
         # Per-member assertion/invocation counts (real Roslyn detection).
         per_member = pd.DataFrame()
@@ -181,7 +241,9 @@ def build_assertion_counts(
         if not execs.empty and "generation_attempt_id" in execs.columns:
             has_member = "member_id" in execs.columns
             for gaid, grp in execs.groupby("generation_attempt_id"):
-                aid = f"llm:{repo_qual}:{int(gaid)}" if repo_qual else f"llm:{int(gaid)}"
+                aid = llm_keys.get(int(gaid))
+                if aid is None:
+                    continue
                 mids = ([int(m) for m in grp["member_id"].dropna()]
                         if has_member and not per_member.empty else [])
                 mids = [m for m in mids if m in per_member.index]
@@ -201,17 +263,15 @@ def build_assertion_counts(
 
         # Agentic: real assertion detection from invocations on the test members.
         if (not links.empty and "tool_attempt_id" in links.columns and not per_member.empty):
-            artifact = (tool_attempts.set_index("id")["artifact_path"]
-                        if (not tool_attempts.empty and "artifact_path" in tool_attempts.columns)
-                        else pd.Series(dtype=str))
             links = links.drop_duplicates(["tool_attempt_id", "member_id"])
             for taid, grp in links.groupby("tool_attempt_id"):
+                aid = agentic_keys.get(int(taid))
+                if aid is None:
+                    continue
                 mids = [m for m in grp["member_id"] if m in per_member.index]
                 asserts = int(per_member.loc[mids, "assertions"].sum()) if mids else 0
                 ninv = int(per_member.loc[mids, "invs"].sum()) if mids else 0
-                key = artifact.get(taid)
-                key = str(taid) if key is None or pd.isna(key) or key == "" else str(key)
-                rows.append({"attempt_id": f"agentic:{key}",
+                rows.append({"attempt_id": aid,
                              "assertion_count": asserts,
                              "invocation_count": ninv,
                              "generated_test_n": len(grp),
@@ -229,40 +289,84 @@ def build_assertion_counts(
                  assertion_source=("assertion_source", "first")))
 
 
+def _baseline_mutants(mutants: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFrame:
+    """Restrict mutants to the repository's baseline mutation report.
+
+    Every attempt writes its own mutation report into the same database, and the
+    tool lane also records per-attempt targeted baselines (``SourceProject`` scope,
+    ``is_baseline`` = 1). The repository baseline is the solution-scope baseline
+    report. Databases that predate those columns hold one report and pass through; a
+    database that has them but no solution baseline has no baseline profile at all,
+    and pooling its attempt reports in place of one would misstate it.
+    """
+    if (reports.empty or not {"is_baseline", "scope_kind"} <= set(reports.columns)
+            or "mutation_testing_report_id" not in mutants.columns):
+        return mutants
+    baseline = reports[(reports["is_baseline"] == 1) & (reports["scope_kind"] == "Solution")]
+    return mutants[mutants["mutation_testing_report_id"].isin(baseline["id"])]
+
+
 def build_mutation_operators(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """Mutation-operator survival profile per repository (RQ6 depth).
+    """Mutation-operator survival profile per repository revision and baseline report.
 
     Aggregates ``mutants`` by ``mutator_name`` x ``status``. ``survival_rate`` =
     Survived / (Survived + Killed) over covered, non-timeout mutants — higher
     means the test suite misses that operator class more often. This is the
     baseline survival profile; before/after "newly killed" attribution is
-    deferred (it requires pairing mutation reports across attempts).
+    computed separately by ``build_metric_diffs``.
     """
     if not db_paths:
         return pd.DataFrame()
 
-    from analysis.db import connect, get_mutants
+    from analysis.db import connect, get_mutants, get_mutation_reports, get_projects
     from analysis.files import find_databases
 
     frames: list[pd.DataFrame] = []
     for db_path in find_databases(list(db_paths)):
-        repo_name = Path(db_path).parent.name
         with connect(db_path) as conn:
             mut = get_mutants(conn)
+            reports = get_mutation_reports(conn)
+            projects = get_projects(conn)
         if mut.empty or "mutator_name" not in mut.columns or "status" not in mut.columns:
             continue
-        counts = (mut.groupby(["mutator_name", "status"]).size()
+        mut = _baseline_mutants(mut, reports)
+        if mut.empty:
+            continue
+        # Preserve the report grain, even when a database contains more than one
+        # solution baseline. Consumers can select/aggregate baselines explicitly.
+        if "mutation_testing_report_id" not in mut:
+            mut = mut.assign(mutation_testing_report_id=pd.NA)
+        counts = (mut.groupby(["mutation_testing_report_id", "mutator_name", "status"], dropna=False).size()
                   .unstack(fill_value=0).reset_index())
-        counts.insert(0, "repo_name", repo_name)
+        if not reports.empty and "project_id" in reports:
+            counts = counts.merge(reports[["id", "project_id"]].rename(
+                columns={"id": "mutation_testing_report_id"}),
+                on="mutation_testing_report_id", how="left", validate="many_to_one")
+        elif len(projects) == 1:
+            counts["project_id"] = projects["id"].iloc[0]
+        else:
+            raise ValueError(f"Cannot resolve mutation report repository in {db_path}")
+        counts = counts.merge(projects.rename(columns={"id": "project_id", "owner": "repo_owner"}),
+                              on="project_id", how="left", validate="many_to_one")
+        counts["repository_identity"] = counts["repository_identity"].astype("string").str.strip().replace("", pd.NA).fillna(
+            counts["repo_owner"] + "/" + counts["repo_name"]).str.strip().str.lower()
+        counts["resolved_commit"] = counts["resolved_commit"].astype("string").str.strip().replace("", pd.NA).fillna(
+            counts["last_analyzed_commit"]).str.strip().str.lower()
+        counts["repository_key"] = (counts["repository_identity"] + "|"
+                                    + counts["resolved_commit"].fillna("").str.lower())
+        counts["repository_revision_key"] = counts["repository_key"]
+        counts["_source_db"] = str(Path(db_path).resolve())
         frames.append(counts)
 
     if not frames:
         return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True).fillna(0)
-    killed = df["Killed"] if "Killed" in df.columns else 0
-    survived = df["Survived"] if "Survived" in df.columns else 0
+    df = pd.concat(frames, ignore_index=True)
+    for status in ("Killed", "Survived", "Timeout", "NoCoverage", "CompileError", "Ignored"):
+        df[status] = df[status].fillna(0) if status in df else 0
+    killed = df["Killed"]
+    survived = df["Survived"]
     total = killed + survived
     if hasattr(total, "where"):
         # survival_rate = Survived / (Survived + Killed); NaN where no killable mutants.
@@ -272,14 +376,76 @@ def build_mutation_operators(
     return df
 
 
+# Stryker counts a timed-out mutant as detected.
+DETECTED_MUTANT_STATUSES = frozenset({"Killed", "Timeout"})
+# Stryker's undetected mutants; with the detected ones they form the score's valid mutants.
+UNDETECTED_MUTANT_STATUSES = frozenset({"Survived", "NoCoverage"})
+
+
+def before_after_diff(
+    before: int,
+    after: int,
+    member: int,
+    gap_set: dict,
+    covered: set,
+    surv_set: dict,
+    detected_set: dict,
+    mutated: set,
+) -> tuple[int | None, int | None]:
+    """Lines closed and mutants newly killed for one member between two test runs.
+
+    Sets are keyed by (test_run_id, member_id). A metric is None when either run did
+    not measure the member -- no coverage record for lines, no mutants for mutation --
+    because every gap or survivor missing from an unmeasured run would otherwise count
+    as closed or killed. A newly killed mutant survived the baseline and was detected
+    (killed or timed out) in the post-attempt run.
+    """
+    b, a = (before, member), (after, member)
+    lines_closed = (
+        len(gap_set.get(b, set()) - gap_set.get(a, set()))
+        if b in covered and a in covered else None
+    )
+    newly_killed = (
+        len(surv_set.get(b, set()) & detected_set.get(a, set()))
+        if b in mutated and a in mutated else None
+    )
+    return lines_closed, newly_killed
+
+
+def method_mutation_score(
+    run: int,
+    member: int,
+    detected_set: dict,
+    undetected_set: dict,
+    mutated: set,
+) -> tuple[float | None, int | None]:
+    """Mutation score (percentage points) and valid-mutant count for one member in one run.
+
+    Uses Stryker's definition restricted to the member's mutants: detected / (detected +
+    undetected). Ignored, compile-error and static mutants are excluded. Both values are
+    None when the run did not mutate the member; the score alone is None when the member
+    has no valid mutants.
+    """
+    k = (run, member)
+    if k not in mutated:
+        return None, None
+    detected = len(detected_set.get(k, set()))
+    valid = detected + len(undetected_set.get(k, set()))
+    return (100 * detected / valid if valid else None), valid
+
+
 def build_metric_diffs(
     db_paths: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
-    """Per-attempt before/after metric diffs: coverage lines closed + mutants newly killed.
+    """Per-attempt before/after metric diffs against the targeted source member.
 
-    Computes set differences against the targeted source member:
+    Set differences (see :func:`before_after_diff`):
     - ``lines_closed``        = baseline coverage gaps minus post-attempt gaps
-    - ``mutants_newly_killed``= mutants that survived the baseline but not the post-attempt run
+    - ``mutants_newly_killed``= baseline survivors detected in the post-attempt run
+
+    Method-local mutation score (see :func:`method_mutation_score`):
+    - ``method_mutation_score_before/after/delta`` in percentage points
+    - ``method_mutants_before/after`` = valid mutants behind each score
 
     Tool lane uses ``tool_attempts.targeted_baseline_id`` (before) +
     ``post_attempt_test_run_id`` (after) — available now. LLM lane uses
@@ -292,15 +458,17 @@ def build_metric_diffs(
 
     from analysis.db import (
         connect,
+        get_canonical_attempt_identities,
         get_candidate_methods,
         get_coverage_gaps,
         get_coverage_reports,
         get_generated_test_executions,
         get_generation_attempts,
+        get_member_coverages,
         get_mutants,
         get_mutation_reports,
-        get_projects,
         get_tool_attempts,
+        usable_member_line_coverage,
     )
     from analysis.files import find_databases
 
@@ -309,54 +477,105 @@ def build_metric_diffs(
         with connect(db_path) as conn:
             cov_reports = get_coverage_reports(conn)
             gaps = get_coverage_gaps(conn)
+            member_covs = get_member_coverages(conn)
             mut_reports = get_mutation_reports(conn)
             mutants = get_mutants(conn)
             tool_attempts = get_tool_attempts(conn)
             cand_methods = get_candidate_methods(conn)
             execs = get_generated_test_executions(conn)
             gen_attempts = get_generation_attempts(conn)
-            repo_qual = _repo_qualifier(get_projects(conn))
+            identities = get_canonical_attempt_identities(conn)
 
-        # Gap-line sets keyed by (test_run_id, source member_id).
+        llm_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "llm"].itertuples()
+        }
+        agentic_keys = {
+            int(row.local_attempt_id): row.attempt_id
+            for row in identities[identities["lane"] == "agentic"].itertuples()
+        }
+
+        # Only candidate source members are diffed.
+        targets = (set(cand_methods["source_member_id"].dropna().astype(int))
+                   if not cand_methods.empty else set())
+
+        # Keyed by (test_run_id, source member_id): gap lines, and whether the run's
+        # coverage recorded the member at all.
         gap_set: dict = {}
-        if not gaps.empty and not cov_reports.empty:
-            g = gaps.merge(
-                cov_reports[["id", "test_run_id"]].rename(columns={"id": "coverage_report_id"}),
-                on="coverage_report_id", how="inner")
-            for (tr, mid), grp in g.dropna(subset=["test_run_id", "member_id"]).groupby(["test_run_id", "member_id"]):
-                gap_set[(int(tr), int(mid))] = set(grp["line_number"])
+        covered: set = set()
+        if not cov_reports.empty:
+            usable_covs = usable_member_line_coverage(member_covs, cov_reports)
+            run_of_report = cov_reports[["id", "test_run_id"]].rename(columns={"id": "coverage_report_id"})
+            if not gaps.empty and not usable_covs.empty:
+                g = (gaps[gaps["member_id"].isin(targets)]
+                     .merge(usable_covs[["coverage_report_id", "member_id"]].drop_duplicates(),
+                            on=["coverage_report_id", "member_id"], how="inner", validate="many_to_one")
+                     .merge(run_of_report, on="coverage_report_id", how="inner")
+                     .dropna(subset=["test_run_id", "member_id"]))
+                for (tr, mid), grp in g.groupby(["test_run_id", "member_id"]):
+                    gap_set[(int(tr), int(mid))] = set(grp["line_number"])
+            if not member_covs.empty:
+                mc = (usable_covs[usable_covs["member_id"].isin(targets)]
+                      .merge(run_of_report, on="coverage_report_id", how="inner")
+                      .dropna(subset=["test_run_id", "member_id"]))
+                covered = {(int(tr), int(mid)) for tr, mid in zip(mc["test_run_id"], mc["member_id"])}
 
-        # Survived-mutant sets keyed by (test_run_id, source member_id).
+        # Keyed the same way: surviving, detected and undetected mutant ids, and whether
+        # the run mutated the member at all.
         surv_set: dict = {}
+        detected_set: dict = {}
+        undetected_set: dict = {}
+        mutated: set = set()
         if not mutants.empty and not mut_reports.empty and "status" in mutants.columns:
-            s = mutants[mutants["status"] == "Survived"].merge(
-                mut_reports[["id", "test_run_id"]].rename(columns={"id": "mutation_testing_report_id"}),
-                on="mutation_testing_report_id", how="inner")
+            s = (mutants[mutants["member_id"].isin(targets)]
+                 .merge(mut_reports[["id", "test_run_id"]].rename(columns={"id": "mutation_testing_report_id"}),
+                        on="mutation_testing_report_id", how="inner")
+                 .dropna(subset=["test_run_id", "member_id"]))
+            if "is_static" in s.columns:
+                s = s[~s["is_static"].fillna(False).astype(bool)]
             key_col = "stryker_mutant_id" if "stryker_mutant_id" in s.columns else "id"
-            for (tr, mid), grp in s.dropna(subset=["test_run_id", "member_id"]).groupby(["test_run_id", "member_id"]):
-                surv_set[(int(tr), int(mid))] = set(grp[key_col])
+            for (tr, mid), grp in s.groupby(["test_run_id", "member_id"]):
+                k = (int(tr), int(mid))
+                mutated.add(k)
+                surv_set[k] = set(grp.loc[grp["status"] == "Survived", key_col])
+                detected_set[k] = set(grp.loc[grp["status"].isin(DETECTED_MUTANT_STATUSES), key_col])
+                undetected_set[k] = set(grp.loc[grp["status"].isin(UNDETECTED_MUTANT_STATUSES), key_col])
 
         def diff(before_run, after_run, member_id):
             if pd.isna(before_run) or pd.isna(after_run) or pd.isna(member_id):
                 return None
             b, a, m = int(before_run), int(after_run), int(member_id)
-            lines_closed = len(gap_set.get((b, m), set()) - gap_set.get((a, m), set()))
-            mutants_killed = len(surv_set.get((b, m), set()) - surv_set.get((a, m), set()))
-            return lines_closed, mutants_killed
+            lines_closed, newly_killed = before_after_diff(
+                b, a, m, gap_set, covered, surv_set, detected_set, mutated)
+            score_before, n_before = method_mutation_score(b, m, detected_set, undetected_set, mutated)
+            score_after, n_after = method_mutation_score(a, m, detected_set, undetected_set, mutated)
+            return {
+                "lines_closed": lines_closed,
+                "mutants_newly_killed": newly_killed,
+                "method_mutation_score_before": score_before,
+                "method_mutation_score_after": score_after,
+                "method_mutation_score_delta": (score_after - score_before
+                                                if score_before is not None and score_after is not None
+                                                else None),
+                "method_mutants_before": n_before,
+                "method_mutants_after": n_after,
+            }
 
         cm_member = (cand_methods.set_index("id")["source_member_id"]
                      if not cand_methods.empty else pd.Series(dtype="float64"))
 
         # Tool lane.
-        if not tool_attempts.empty and "artifact_path" in tool_attempts.columns:
+        if not tool_attempts.empty:
             for ta in tool_attempts.itertuples():
                 member = cm_member.get(getattr(ta, "candidate_method_id", None))
                 d = diff(getattr(ta, "targeted_baseline_id", None),
                          getattr(ta, "post_attempt_test_run_id", None), member)
                 if d is None:
                     continue
-                rows.append({"attempt_id": f"agentic:{ta.artifact_path}", "lane": "agentic",
-                             "lines_closed": d[0], "mutants_newly_killed": d[1]})
+                aid = agentic_keys.get(int(ta.id))
+                if aid is None:
+                    continue
+                rows.append({"attempt_id": aid, "lane": "agentic", **d})
 
         # LLM lane (auto-activates once baseline_test_run_id/test_run_id are populated).
         if (not execs.empty
@@ -371,17 +590,17 @@ def build_metric_diffs(
                 if d is None:
                     continue
                 gaid = int(ex.generation_attempt_id)
-                aid = f"llm:{repo_qual}:{gaid}" if repo_qual else f"llm:{gaid}"
-                rows.append({"attempt_id": aid, "lane": "llm",
-                             "lines_closed": d[0], "mutants_newly_killed": d[1]})
+                aid = llm_keys.get(gaid)
+                if aid is None:
+                    continue
+                rows.append({"attempt_id": aid, "lane": "llm", **d})
 
     if not rows:
         return pd.DataFrame()
+    metric_cols = [c for c in rows[0] if c not in ("attempt_id", "lane")]
     return (pd.DataFrame(rows)
             .groupby("attempt_id", as_index=False)
-            .agg(lane=("lane", "first"),
-                 lines_closed=("lines_closed", "max"),
-                 mutants_newly_killed=("mutants_newly_killed", "max")))
+            .agg(lane=("lane", "first"), **{c: (c, "max") for c in metric_cols}))
 
 
 def save_datasets(
@@ -393,17 +612,30 @@ def save_datasets(
     output_dir: Path,
     tool_generated_test_links: pd.DataFrame | None = None,
     mutation_operators: pd.DataFrame | None = None,
+    assertion_observations: pd.DataFrame | None = None,
+    traced_assertions: pd.DataFrame | None = None,
+    repository_families: pd.DataFrame | None = None,
 ) -> None:
     """Write all datasets to *output_dir*."""
     attempts.to_csv(output_dir / "evaluation_attempts.csv", index=False)
     candidates.to_csv(output_dir / "evaluation_candidates.csv", index=False)
     repositories.to_csv(output_dir / "evaluation_repositories.csv", index=False)
-    if not generated_tests.empty:
-        generated_tests.to_csv(output_dir / "generated_tests.csv", index=False)
-    if tool_generated_test_links is not None and not tool_generated_test_links.empty:
-        tool_generated_test_links.to_csv(output_dir / "tool_generated_test_links.csv", index=False)
-    if mutation_operators is not None and not mutation_operators.empty:
-        mutation_operators.to_csv(output_dir / "mutation_operators.csv", index=False)
+    optional = {
+        "generated_tests.csv": generated_tests,
+        "tool_generated_test_links.csv": tool_generated_test_links,
+        "mutation_operators.csv": mutation_operators,
+        "assertion_observations.csv": assertion_observations,
+        "traced_assertions.csv": traced_assertions,
+        "evaluation_repository_families.csv": repository_families,
+    }
+    for filename, frame in optional.items():
+        path = output_dir / filename
+        if frame is not None and len(frame.columns):
+            frame.to_csv(path, index=False)
+        else:
+            # Fixed filenames owned by this exporter; never leave a previous
+            # cohort's optional data behind when this build did not produce it.
+            path.unlink(missing_ok=True)
 
     with open(output_dir / "evaluation_overview.json", "w", encoding="utf-8") as f:
         json.dump(overview, f, indent=2, default=str)
@@ -421,24 +653,45 @@ def run(
     db_paths: list[str] | tuple[str, ...],
     artifacts_root: str | None,
     output_dir: str,
+    results_schema_version: str = ASSERTION_RESULTS_SCHEMA_VERSION,
 ) -> None:
-    """Entry point for the ``build-datasets`` CLI command."""
+    """Build datasets for schema 4, or the explicit legacy schema-3 path."""
     out = ensure_output_dir(output_dir)
 
     print("Loading raw attempts...")
-    raw = load_raw_attempts(results, db_paths)
+    if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION:
+        raw, raw_generated_tests, _, raw_assertions = read_schema4_result_bundle(
+            list(results), require_assertion_sidecar=True
+        )
+    elif results_schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        raw, raw_generated_tests, _ = read_result_grains(
+            list(results),
+            expected_schema_version=LEGACY_RESULTS_SCHEMA_VERSION,
+        )
+        raw_assertions = pd.DataFrame()
+    else:
+        raise ValueError(
+            f"Unsupported results_schema_version: {results_schema_version}."
+        )
     print(f"  {len(raw)} raw rows loaded.")
 
-    # Build generated-test dataset BEFORE agentic rows are collapsed
-    generated_tests = build_generated_tests_dataset_from_raw(raw, db_paths)
+    # Normalize child rows separately so attempt counts cannot be inflated.
+    generated_tests = build_generated_tests_dataset_from_raw(raw_generated_tests, db_paths)
     tool_generated_test_links = build_tool_generated_test_links(db_paths)
 
-    attempts = build_attempts_dataset(raw)
+    attempts = build_attempts_dataset(raw, raw_generated_tests)
 
-    # RQ3 assertion guard: attach generated-test assertion counts from the DB.
-    assertion_counts = build_assertion_counts(db_paths)
-    if not assertion_counts.empty and "attempt_id" in attempts.columns:
-        attempts = attempts.merge(assertion_counts, on="attempt_id", how="left")
+    assertions = normalize_assertion_observations(raw_assertions)
+    traced_assertions = build_traced_assertions_dataset(assertions)
+
+    # Schema 3 retains its explicitly labelled inventory-only fallback. Schema 4
+    # uses persisted/exported semantic evidence and never derives categories from
+    # regexes or invocation counts.
+    assertion_counts = pd.DataFrame()
+    if results_schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        assertion_counts = build_assertion_counts(db_paths)
+        if not assertion_counts.empty and "attempt_id" in attempts.columns:
+            attempts = attempts.merge(assertion_counts, on="attempt_id", how="left")
 
     # RQ6 before/after diffs: coverage lines closed + mutants newly killed.
     metric_diffs = build_metric_diffs(db_paths)
@@ -448,10 +701,14 @@ def run(
 
     candidates = build_candidate_summary(attempts)
     repositories = build_repository_summary(candidates)
+    repository_families = build_repository_family_summary(repositories)
     overview = build_overview(attempts)
 
     # RQ6 depth: mutation-operator survival profile.
     mutation_operators = build_mutation_operators(db_paths)
+    if not mutation_operators.empty:
+        mutation_operators = mutation_operators[
+            mutation_operators["repository_key"].isin(attempts.get("repository_key", []))]
 
     save_datasets(
         attempts,
@@ -462,13 +719,19 @@ def run(
         out,
         tool_generated_test_links=tool_generated_test_links,
         mutation_operators=mutation_operators,
+        assertion_observations=assertions if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION else None,
+        traced_assertions=traced_assertions if results_schema_version == ASSERTION_RESULTS_SCHEMA_VERSION else None,
+        repository_families=repository_families,
     )
 
     print(f"Datasets written to {out}")
     print(f"  attempts:     {len(attempts):,}")
     print(f"  candidates:   {len(candidates):,}")
     print(f"  repositories: {len(repositories):,}")
+    print(f"  repo families: {len(repository_families):,}")
     print(f"  gen. tests:   {len(generated_tests):,}")
     print(f"  tool links:   {len(tool_generated_test_links):,}")
-    print(f"  assertion rows: {len(assertion_counts):,}")
+    print(f"  assertion observations: {len(assertions):,}")
+    if results_schema_version == LEGACY_RESULTS_SCHEMA_VERSION:
+        print(f"  legacy assertion inventory rows: {len(assertion_counts):,}")
     print(f"  mutation ops:   {len(mutation_operators):,}")

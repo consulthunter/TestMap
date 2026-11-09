@@ -43,6 +43,11 @@ public static class GenerationAttemptMappingExtensions
             StartedAt = entity.StartTime,
             CompletedAt = entity.EndTime,
             TotalTokensUsed = entity.TotalTokensUsed,
+            InputTokens = entity.InputTokens,
+            OutputTokens = entity.OutputTokens,
+            UsageStatus = entity.UsageStatus,
+            UsageSource = EmptyToNull(entity.UsageSource),
+            UsagePolicyVersion = EmptyToNull(entity.UsagePolicyVersion),
             GenerationDurationSeconds = entity.GenerationDurationSeconds,
             ValidationDurationSeconds = entity.ValidationDurationSeconds,
             TotalDurationSeconds = entity.TotalAttemptDurationSeconds > 0
@@ -66,7 +71,9 @@ public static class GenerationAttemptMappingExtensions
             AppliedHelperCount = entity.AppliedHelperCount,
             ModifiedFilePath = entity.ModifiedFilePath,
             ModifiedFileContents = entity.ModifiedFileContents,
-            ModifiedFileSha256 = entity.ModifiedFileSha256
+            ModifiedFileSha256 = entity.ModifiedFileSha256,
+            BaseCommit = entity.BaseCommit,
+            WorkspaceIntegrityStatus = entity.WorkspaceIntegrityStatus
         };
     }
 
@@ -98,6 +105,11 @@ public static class GenerationAttemptMappingExtensions
             StartTime = attempt.StartedAt == default ? DateTime.UtcNow : attempt.StartedAt,
             EndTime = attempt.CompletedAt,
             TotalTokensUsed = attempt.TotalTokensUsed,
+            InputTokens = attempt.InputTokens,
+            OutputTokens = attempt.OutputTokens,
+            UsageStatus = attempt.UsageStatus,
+            UsageSource = attempt.UsageSource,
+            UsagePolicyVersion = attempt.UsagePolicyVersion,
             GenerationDurationSeconds = attempt.GenerationDurationSeconds,
             ValidationDurationSeconds = attempt.ValidationDurationSeconds,
             TotalAttemptDurationSeconds = attempt.TotalDurationSeconds,
@@ -114,7 +126,9 @@ public static class GenerationAttemptMappingExtensions
             AppliedHelperCount = attempt.AppliedHelperCount,
             ModifiedFilePath = attempt.ModifiedFilePath,
             ModifiedFileContents = attempt.ModifiedFileContents,
-            ModifiedFileSha256 = attempt.ModifiedFileSha256
+            ModifiedFileSha256 = attempt.ModifiedFileSha256,
+            BaseCommit = attempt.BaseCommit,
+            WorkspaceIntegrityStatus = attempt.WorkspaceIntegrityStatus
         };
     }
 

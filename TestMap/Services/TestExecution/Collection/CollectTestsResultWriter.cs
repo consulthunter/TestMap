@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using TestMap.App;
 using TestMap.Models.Code;
 using TestMap.Models.Configuration;
 using TestMap.Models.Results;
 using TestMap.Persistence.Ef;
+using TestMap.Persistence.Ef.Entities.Coverage;
 using TestMap.Persistence.Ef.Repositories.Experiment;
 using TestMap.Services.TestGeneration.TargetSelection;
 
@@ -11,6 +13,12 @@ namespace TestMap.Services.TestExecution.Collection;
 
 public class CollectTestsResultWriter
 {
+    internal const string CsvHeader =
+        "URL,Owner,Repo,Restores,Builds,TestsRun,TestsPass,HasCoverage,HasMutationScore,HasCandidateMethods,CandidateCount,ExperimentEligibleCandidateCount,DockerContext,DockerOs,ExecutionSupport,UnsupportedProjectCount,UnsupportedProjects,BaselineRunId,FailureCategory,FailureSummary,CoverageStatus,CoverageReason,CoveragePolicyVersion,RawCoverageObjectCount,MappedCoverageObjectCount,RawCoverageMemberCount,MappedCoverageMemberCount,MutationStatus,MutationReason";
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> CsvLocks =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly ProjectContext _context;
     private readonly TestMapDbContext _dbContext;
     private readonly TestMapConfig _config;
@@ -48,10 +56,31 @@ public class CollectTestsResultWriter
             cancellationToken);
         var executionSupportSummary = CreateExecutionSupportSummary();
         var latestRun = await _dbContext.TestRuns
-            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.ProjectId == projectId &&
+                        x.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline)
             .OrderByDescending(x => x.CreatedAt)
             .ThenByDescending(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
+        var latestCoverage = await _dbContext.CoverageReports
+            .Where(x => x.ProjectId == projectId &&
+                        x.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline)
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        var coverageSummary = CreateCoverageSummary(latestCoverage);
+        var repositoryMutationBaseline = await _dbContext.MutationTestingReports
+            .Where(x => x.ProjectId == projectId &&
+                        x.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline &&
+                        x.ScopeKind == "Solution")
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        var mutationStatus = repositoryMutationBaseline != null ? "Available" : "Missing";
+        var mutationReason = repositoryMutationBaseline != null
+            ? string.Empty
+            : latestRun?.FailureAnalysis != null
+                ? $"{latestRun.FailureAnalysis.Stage}: {latestRun.FailureAnalysis.Summary}"
+                : "No solution-scope repository baseline mutation report was persisted.";
 
         var result = new ProjectValidationResult(
             _context.Project.GitHubUrl,
@@ -61,9 +90,8 @@ public class CollectTestsResultWriter
             _buildTestService.LatestBuildSucceeded,
             _buildTestService.LatestTestsExecuted && latestRun != null,
             latestRun?.Success == true,
-            await _dbContext.CoverageReports.AnyAsync(x => x.ProjectId == projectId, cancellationToken),
-            latestRun?.MutationScore.HasValue == true ||
-            await _dbContext.MutationTestingReports.AnyAsync(x => x.ProjectId == projectId, cancellationToken),
+            coverageSummary.HasCoverage,
+            repositoryMutationBaseline != null,
             candidateCount > 0,
             candidateCount,
             eligibleCandidateCount,
@@ -74,9 +102,37 @@ public class CollectTestsResultWriter
             executionSupportSummary.UnsupportedProjects,
             latestRun?.RunId ?? string.Empty,
             latestRun?.FailureAnalysis?.Category ?? string.Empty,
-            latestRun?.FailureAnalysis?.Summary ?? string.Empty);
+            latestRun?.FailureAnalysis?.Summary ?? string.Empty,
+            coverageSummary.Status,
+            coverageSummary.Reason,
+            coverageSummary.PolicyVersion,
+            coverageSummary.RawObjectCount,
+            coverageSummary.MappedObjectCount,
+            coverageSummary.RawMemberCount,
+            coverageSummary.MappedMemberCount,
+            mutationStatus,
+            mutationReason);
 
         await WriteCsvRowAsync(result, cancellationToken);
+    }
+
+    public static async Task InitializeReportAsync(
+        TestMapConfig config,
+        ProjectContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var csvPath = ResolveCsvPath(config, context);
+        Directory.CreateDirectory(Path.GetDirectoryName(csvPath)!);
+        var gate = CsvLocks.GetOrAdd(csvPath, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await File.WriteAllTextAsync(csvPath, CsvHeader + Environment.NewLine, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private ExperimentConfig CreateSelectionConfiguration()
@@ -136,23 +192,58 @@ public class CollectTestsResultWriter
 
     private async Task WriteCsvRowAsync(ProjectValidationResult result, CancellationToken cancellationToken)
     {
-        var outputRoot = Directory.GetParent(_context.Project.OutputPath ?? string.Empty)?.FullName
-                         ?? _context.Project.OutputPath
-                         ?? _context.Project.DirectoryPath;
-        var csvPath = Path.Combine(outputRoot, "project-validation.csv");
+        var csvPath = ResolveCsvPath(_config, _context);
+        Directory.CreateDirectory(Path.GetDirectoryName(csvPath)!);
+        var gate = CsvLocks.GetOrAdd(csvPath, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var fileExists = File.Exists(csvPath);
+            await using var writer = new StreamWriter(csvPath, true);
 
-        var fileExists = File.Exists(csvPath);
-        await using var writer = new StreamWriter(csvPath, true);
+            if (!fileExists)
+                await writer.WriteLineAsync(
+                    CsvHeader.AsMemory(),
+                    cancellationToken);
 
-        if (!fileExists)
             await writer.WriteLineAsync(
-                "URL,Owner,Repo,Restores,Builds,TestsRun,TestsPass,HasCoverage,HasMutationScore,HasCandidateMethods,CandidateCount,ExperimentEligibleCandidateCount,DockerContext,DockerOs,ExecutionSupport,UnsupportedProjectCount,UnsupportedProjects,BaselineRunId,FailureCategory,FailureSummary".AsMemory(),
+                $"{Escape(result.Url)},{Escape(result.Owner)},{Escape(result.Repo)},{result.Restores},{result.Builds},{result.TestsRun},{result.TestsPass},{result.HasCoverage},{result.HasMutationScore},{result.HasCandidateMethods},{result.CandidateCount},{result.ExperimentEligibleCandidateCount},{Escape(result.DockerContext)},{Escape(result.DockerOs)},{Escape(result.ExecutionSupport)},{result.UnsupportedProjectCount},{Escape(result.UnsupportedProjects)},{Escape(result.BaselineRunId)},{Escape(result.FailureCategory)},{Escape(result.FailureSummary)},{Escape(result.CoverageStatus)},{Escape(result.CoverageReason)},{Escape(result.CoveragePolicyVersion)},{result.RawCoverageObjectCount},{result.MappedCoverageObjectCount},{result.RawCoverageMemberCount},{result.MappedCoverageMemberCount},{Escape(result.MutationStatus)},{Escape(result.MutationReason)}"
+                    .AsMemory(),
                 cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
-        await writer.WriteLineAsync(
-            $"{Escape(result.Url)},{Escape(result.Owner)},{Escape(result.Repo)},{result.Restores},{result.Builds},{result.TestsRun},{result.TestsPass},{result.HasCoverage},{result.HasMutationScore},{result.HasCandidateMethods},{result.CandidateCount},{result.ExperimentEligibleCandidateCount},{Escape(result.DockerContext)},{Escape(result.DockerOs)},{Escape(result.ExecutionSupport)},{result.UnsupportedProjectCount},{Escape(result.UnsupportedProjects)},{Escape(result.BaselineRunId)},{Escape(result.FailureCategory)},{Escape(result.FailureSummary)}"
-                .AsMemory(),
-            cancellationToken);
+    internal static string ResolveCsvPath(TestMapConfig config, ProjectContext context)
+    {
+        var configuredOutputRoot = config.RuntimeConfig.FilePaths.OutputDirPath;
+        var outputRoot = !string.IsNullOrWhiteSpace(configuredOutputRoot)
+            ? configuredOutputRoot
+            : Directory.GetParent(context.Project.OutputPath ?? string.Empty)?.FullName
+              ?? context.Project.OutputPath
+              ?? context.Project.DirectoryPath;
+        if (string.IsNullOrWhiteSpace(outputRoot))
+            throw new InvalidOperationException("Project validation output requires a configured output directory.");
+        return Path.GetFullPath(Path.Combine(outputRoot, "project-validation.csv"));
+    }
+
+    internal static CoverageValidationSummary CreateCoverageSummary(CoverageReportEntity? report)
+    {
+        if (report == null) return new CoverageValidationSummary(false, string.Empty, string.Empty, string.Empty, null, null, null, null);
+
+        var isCorrected = report.MeasurementPolicyVersion == TestMap.Models.Coverage.CoverageReportModel.CorrectedPolicyVersion;
+        return new CoverageValidationSummary(
+            isCorrected && report.HasUsableCoverage,
+            report.CollectionStatus,
+            report.CollectionReason,
+            report.MeasurementPolicyVersion,
+            isCorrected ? report.RawObjectCount : null,
+            isCorrected ? report.MappedObjectCount : null,
+            isCorrected ? report.RawMemberCount : null,
+            isCorrected ? report.MappedMemberCount : null);
     }
 
     private static string Escape(string value)
@@ -173,3 +264,13 @@ public class CollectTestsResultWriter
         ExecutionSupportType Support,
         List<string> BuildTargets);
 }
+
+internal sealed record CoverageValidationSummary(
+    bool HasCoverage,
+    string Status,
+    string Reason,
+    string PolicyVersion,
+    int? RawObjectCount,
+    int? MappedObjectCount,
+    int? RawMemberCount,
+    int? MappedMemberCount);

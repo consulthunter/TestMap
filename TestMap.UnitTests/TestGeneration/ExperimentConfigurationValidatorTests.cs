@@ -1,4 +1,5 @@
 using TestMap.Models.Configuration;
+using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Services.Experiment.Execution;
 
@@ -66,6 +67,56 @@ public sealed class ExperimentConfigurationValidatorTests
             TestGenerationObjective.TestSuiteExpansion,
             TestGenerationApproach.MetricsDriven,
             TestActionExecutorMode.BasicExtension);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ValidateMatrixSettings_CohortModeRequiresId()
+    {
+        var config = ValidExperimentConfig();
+        config.CandidateCohort.Mode = CandidateCohortMode.Create;
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => ExperimentConfigurationValidator.ValidateMatrixSettings(config));
+
+        Assert.Contains("CandidateCohort.Id", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ValidateMatrixSettings_ReuseRejectsSeedOverride()
+    {
+        var config = ValidExperimentConfig();
+        config.CandidateCohort = new CandidateCohortConfig
+        {
+            Id = "cohort-a",
+            Mode = CandidateCohortMode.Reuse,
+            RandomSeed = 42
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => ExperimentConfigurationValidator.ValidateMatrixSettings(config));
+
+        Assert.Contains("must be omitted", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(65)]
+    [Trait("Category", "Unit")]
+    public void ValidateMatrixSettings_RejectsInvalidAssertionLineageDepth(int maxDepth)
+    {
+        var config = ValidExperimentConfig();
+        config.Evaluation = new ExperimentEvaluationConfig
+        {
+            Assertions = new AssertionLineageEvaluationConfig { MaxDepth = maxDepth }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => ExperimentConfigurationValidator.ValidateMatrixSettings(config));
+
+        Assert.Contains("assertion-lineage", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsType<ArgumentOutOfRangeException>(exception.InnerException);
     }
 
     private static ExperimentConfig ValidExperimentConfig()

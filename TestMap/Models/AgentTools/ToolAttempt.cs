@@ -1,11 +1,14 @@
 namespace TestMap.Models.AgentTools;
 
+using TestMap.Models.Experiment;
+
 public sealed class ToolAttempt
 {
     public int Id { get; set; }
     public int ExperimentRunId { get; set; }
     public int? MatrixWorkItemId { get; set; }
     public int CandidateMethodId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
     public int? TargetedBaselineId { get; set; }
 
     /// <summary>
@@ -13,6 +16,17 @@ public sealed class ToolAttempt
     /// Null when measurement was not performed or was skipped.
     /// </summary>
     public int? PostAttemptTestRunId { get; set; }
+    public double? CoverageBefore { get; set; }
+    public double? CoverageAfter { get; set; }
+    public double? CoverageDelta { get; set; }
+    public string CoverageMeasurementStatus { get; set; } = "NotMeasured";
+    public double? MutationScoreBefore { get; set; }
+    public double? MutationScoreAfter { get; set; }
+    public double? MutationScoreDelta { get; set; }
+    public string MutationMeasurementStatus { get; set; } = "NotMeasured";
+    public string ImpactMeasurementStatus { get; set; } = "NotMeasured";
+    public string MeasurementFailureReason { get; set; } = string.Empty;
+    public string MeasurementPolicyVersion { get; set; } = string.Empty;
     public string EffectiveProfileHash { get; set; } = string.Empty;
     public string ToolId { get; set; } = string.Empty;
     public ToolRunStatus RunStatus { get; set; } = ToolRunStatus.Planned;
@@ -21,6 +35,7 @@ public sealed class ToolAttempt
     public string ImageName { get; set; } = string.Empty;
     public string ImageKey { get; set; } = string.Empty;
     public string BaseCommit { get; set; } = string.Empty;
+    public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
     public string WorkspacePath { get; set; } = string.Empty;
     public string ArtifactPath { get; set; } = string.Empty;
     public string StdOutLogPath { get; set; } = string.Empty;
@@ -40,8 +55,11 @@ public sealed class ToolAttempt
     public bool JsonlLogAvailable { get; set; }
     public bool UsageAvailable { get; set; }
     public string UsageSource { get; set; } = string.Empty;
+    public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    public string? UsagePolicyVersion { get; set; }
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
+    public int? TotalTokens => TokenUsageVocabulary.DeriveTotal(InputTokens, OutputTokens);
     public int? EstimatedPromptTokens { get; set; }
     public int ChangedFilesCount { get; set; }
     public int ProductionFilesChanged { get; set; }

@@ -4,6 +4,7 @@ using TestMap.Models.Rules;
 using TestMap.Models.Testing;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.Validation;
+using TestMap.Services.StaticAnalysis.Assertions;
 
 namespace TestMap.Services.TestGeneration.Execution;
 
@@ -15,6 +16,7 @@ public interface IGeneratedTestExecutionService
         string testMethodName,
         TestActionExecutorMode? mode = null,
         int? experimentRunId = null,
+        int? baselineTestRunId = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -32,9 +34,9 @@ public sealed class GeneratedTestExecutionResult
     public bool TestsExecuted { get; init; }
     public bool AllTestsPassed { get; init; }
     public int FailedTestCount { get; init; }
-    public double BaselineCoverage { get; init; }
-    public double CoverageAfter { get; init; }
-    public double CoverageImprovement { get; init; }
+    public double? BaselineCoverage { get; init; }
+    public double? CoverageAfter { get; init; }
+    public double? CoverageImprovement { get; init; }
     public double? BaselineMutationScore { get; init; }
     public double? MutationScoreAfter { get; init; }
     public double? MutationScoreImprovement { get; init; }
@@ -65,9 +67,19 @@ public sealed class GeneratedTestExecutionResult
     public int AppliedHelperCount { get; init; }
     public double? GeneratedTestExecutionTimeMs { get; init; }
     public TestRunModel? TestRun { get; init; }
-    /// <summary>The pre-attempt baseline test run (before the generated test was applied).</summary>
-    public TestRunModel? BaselineTestRun { get; init; }
+    /// <summary>
+    /// DB id of the baseline the attempt was compared against: the candidate's shared targeted
+    /// baseline in experiments, or the attempt's own pre-integration run otherwise.
+    /// </summary>
+    public int? BaselineTestRunId { get; init; }
     /// <summary>DB id of the persisted generated-test member (when it validated and was analyzed).</summary>
     public int? GeneratedTestMemberId { get; init; }
+    /// <summary>The source member this attempt was asked to exercise.</summary>
+    public int? IntendedSourceMemberId { get; init; }
+    /// <summary>
+    /// Transient assertion evidence captured while the applied test source still exists.
+    /// It is persisted only after the attempt and test-execution identifiers are allocated.
+    /// </summary>
+    public AssertionLineageAnalysisResult? AssertionLineageAnalysis { get; init; }
     public DateTime ExecutedAt { get; init; } = DateTime.UtcNow;
 }

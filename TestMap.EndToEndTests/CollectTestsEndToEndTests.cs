@@ -2,6 +2,7 @@ using Microsoft.Build.Locator;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using LibGit2Sharp;
 using TestMap.App;
 using TestMap.Execution;
 using TestMap.Execution.Steps;
@@ -30,8 +31,7 @@ public sealed class CollectTestsEndToEndTests : IDisposable
         // Arrange
         RegisterMSBuildDefaults();
 
-        var repositoryRoot = FindRepositoryRoot();
-        var fixturePath = Path.Combine(repositoryRoot, "Temp", "TestMap-Example");
+        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "CollectTestsProject");
         Assert.True(
             Directory.Exists(fixturePath),
             $"The TestMap-Example fixture repository was not found at {fixturePath}.");
@@ -48,6 +48,7 @@ public sealed class CollectTestsEndToEndTests : IDisposable
 
         var targetRepoPath = Path.Combine(tempPath, "TestMap-Example");
         CopyDirectory(fixturePath, targetRepoPath);
+        InitializeGitRepository(targetRepoPath);
 
         var targetFilePath = Path.Combine(dataPath, "targets.txt");
         await File.WriteAllTextAsync(
@@ -63,6 +64,11 @@ public sealed class CollectTestsEndToEndTests : IDisposable
 
         var project = Assert.Single(configurationService.ProjectModels);
         project.EnsureProjectLogDir();
+        Assert.Contains(
+            Path.Combine(configurationService.RunDate, $"{configurationService.RunStartedAtUtc:HH-mm-ss}_testmap-fixtures-testmap-example"),
+            project.LogsFilePath,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(project.ProjectId + ".log", Path.GetFileName(project.LogsFilePath));
         project.EnsureProjectOutputDir();
         if (project.Logger is IDisposable loggerDisposable) _disposables.Add(loggerDisposable);
         var context = new ProjectContext(project);
@@ -214,16 +220,13 @@ public sealed class CollectTestsEndToEndTests : IDisposable
         return path;
     }
 
-    private static string FindRepositoryRoot()
+    private static void InitializeGitRepository(string path)
     {
-        var current = new DirectoryInfo(AppContext.BaseDirectory);
-        while (current != null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "TestMap.slnx"))) return current.FullName;
-            current = current.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repository root from the test output directory.");
+        Repository.Init(path);
+        using var repository = new Repository(path);
+        Commands.Stage(repository, "*");
+        var signature = new Signature("TestMap", "testmap@example.invalid", DateTimeOffset.UtcNow);
+        repository.Commit("fixture", signature, signature);
     }
 
     private static void CopyDirectory(string sourceDirectory, string targetDirectory)

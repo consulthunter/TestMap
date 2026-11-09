@@ -10,6 +10,7 @@ public enum ToolObservedOutcome
     ChangedNotValidated,
     ValidatedEvidencePositive,
     ValidatedLowImpact,
+    ValidatedImpactUnknown,
     FailedEvidencePositive,
     ValidationFailed
 }

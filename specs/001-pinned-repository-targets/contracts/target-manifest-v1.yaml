@@ -1,0 +1,21 @@
+schema_version: 1
+generated_at_utc: 2026-07-16T00:00:00.0000000+00:00
+source:
+  file: pinned-targets-smoke.csv
+  sha256: 9c87055ca921cfb9da10837896c0089ddf4e14b18452bfb410329d23e43ed1c2
+rejections:
+  file: pinned-targets-smoke-rejections-d0cd99c9b196.csv
+  sha256: d0cd99c9b196132ea4a6c8eaffbfa163a9232580a4bc8fe753d6e218e305ec58
+targets:
+  - target_id: 395d32ccf9d1b31a7648092050aed86960d2331c1ffc59696c79acf62b3e46cf
+    repository: crashkonijn/goap
+    url: https://github.com/crashkonijn/goap.git
+    commit: b9409d7537cf0bba3f6075fe4cc6472f135c522a
+    source_rows:
+      - 1
+  - target_id: 151ba3e0342c65b392d57d8accaffc7aed7b527d0040832cf2bbb752b95814dc
+    repository: powershell/platyps
+    url: https://github.com/powershell/platyps.git
+    commit: 063264b97f6596469650ef6497fe83b9e51464c6
+    source_rows:
+      - 2

@@ -1,4 +1,5 @@
 using TestMap.Models.Results;
+using TestMap.Models.Testing;
 using TestMap.Persistence.Ef.Entities.Coverage;
 using TestMap.Persistence.Ef.Entities.MutationTesting;
 
@@ -16,6 +17,7 @@ public class TestRunEntity
     public string LogPath { get; set; } = string.Empty;
     public FailureAnalysisModel? FailureAnalysis { get; set; }
     public DateTime? CreatedAt { get; set; }
+    public string ReportRole { get; set; } = TestReportRole.AttemptMeasurement;
 
     public virtual ICollection<TestResultEntity> Results { get; set; } = new List<TestResultEntity>();
     public virtual ICollection<CoverageReportEntity> CoverageReports { get; set; } = new List<CoverageReportEntity>();

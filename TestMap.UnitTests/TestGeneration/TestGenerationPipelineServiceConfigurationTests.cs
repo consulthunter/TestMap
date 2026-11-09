@@ -1,3 +1,4 @@
+using SharpToken;
 using TestMap.App;
 using TestMap.Models;
 using TestMap.Models.Configuration;
@@ -11,6 +12,48 @@ namespace TestMap.UnitTests.TestGeneration;
 
 public sealed class TestGenerationPipelineServiceConfigurationTests
 {
+    private const string TestSystemPrompt = "You are an expert software tester with experience in csharp.";
+
+    [Theory]
+    [Trait("Category", "Unit")]
+    [InlineData(AiProviderMode.Chat, true)]
+    [InlineData(AiProviderMode.Inference, false)]
+    public async Task GenerateTestAsync_EstimatesActualInputAndOutputByProviderMode(
+        AiProviderMode mode,
+        bool includesSystemPrompt)
+    {
+        const string response = "```csharp\n[Fact] public void Add_ReturnsSum() { }\n```";
+        var provider = new RecordingProvider([response]);
+        var service = CreateService(provider, mode);
+        var request = CreateRequest(steps: new GenerationStepConfig
+        {
+            EnableScenario = false,
+            EnableMethodName = false,
+            EnableArrangePlan = false,
+            EnableInputPlan = false,
+            EnableActionPlan = false,
+            EnableAssertionPlan = false
+        });
+
+        var result = await service.GenerateTestAsync(request);
+
+        var step = Assert.Single(result.Steps, x => x.StepType == GenerationStepType.FinalTest);
+        var encoding = GptEncoding.GetEncoding("cl100k_base");
+        var promptTokens = encoding.Encode(step.Prompt).Count;
+        var expectedInput = promptTokens + (includesSystemPrompt
+            ? encoding.Encode(TestSystemPrompt).Count
+            : 0);
+        var expectedOutput = encoding.Encode(response).Count;
+        Assert.Equal(expectedInput, step.InputTokens);
+        Assert.Equal(expectedOutput, step.OutputTokens);
+        Assert.Equal(expectedInput + expectedOutput, step.TokenCount);
+        Assert.Equal(TokenUsageVocabulary.CompleteEstimated, step.UsageStatus);
+        Assert.Equal(TokenUsageVocabulary.Cl100kLocalEstimate, step.UsageSource);
+        Assert.Equal(TokenUsageVocabulary.PolicyV1, step.UsagePolicyVersion);
+        Assert.Equal(step.InputTokens, result.InputTokens);
+        Assert.Equal(step.OutputTokens, result.OutputTokens);
+        Assert.Equal(step.TokenCount, result.TotalTokens);
+    }
     [Fact]
     [Trait("Category", "Unit")]
     public async Task GenerateTestAsync_DisabledPlanningSteps_RecordsFallbackMetadata()
@@ -211,10 +254,64 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
         Assert.DoesNotContain("EqualityOperator", provider.Prompts[0]);
     }
 
-    private static TestGenerationPipelineService CreateService(RecordingProvider provider)
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task GenerateTestAsync_EmptyProviderResponse_RetriesWhenConfigured()
+    {
+        var provider = new RecordingProvider([
+            string.Empty,
+            "```csharp\n[Fact]\npublic void Add_GeneratedScenario_ExpectedBehavior()\n{\n}\n```"
+        ]);
+        var service = CreateService(provider);
+        var request = CreateRequest(
+            stepErrorRetries: 1,
+            steps: new GenerationStepConfig
+            {
+                EnableScenario = false,
+                EnableMethodName = false,
+                EnableArrangePlan = false,
+                EnableInputPlan = false,
+                EnableActionPlan = false,
+                EnableAssertionPlan = false
+            });
+
+        var result = await service.GenerateTestAsync(request);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, provider.Prompts.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task GenerateTestAsync_EmptyProviderResponse_ReportsSpecificFailure()
+    {
+        var provider = new RecordingProvider([string.Empty]);
+        var service = CreateService(provider);
+        var request = CreateRequest(
+            steps: new GenerationStepConfig
+            {
+                EnableScenario = false,
+                EnableMethodName = false,
+                EnableArrangePlan = false,
+                EnableInputPlan = false,
+                EnableActionPlan = false,
+                EnableAssertionPlan = false
+            });
+
+        var result = await service.GenerateTestAsync(request);
+
+        Assert.False(result.Success);
+        Assert.Equal("Provider returned an empty response for step FinalTest.", result.ErrorMessage);
+        Assert.Equal("empty", Assert.Single(result.Steps, x => x.StepType == GenerationStepType.FinalTest).ValidationStatus);
+    }
+
+    private static TestGenerationPipelineService CreateService(
+        RecordingProvider provider,
+        AiProviderMode mode = AiProviderMode.Chat)
     {
         var config = new TestMapConfig();
         config.AiProviderConfig.OpenAi.ApiKey = "test";
+        config.TestingConfig.GenerationConfig.Mode = mode;
         return new TestGenerationPipelineService(
             new ProjectContext(new ProjectModel(config: config)),
             config,
@@ -226,6 +323,7 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
         MetricsDrivenPath? metricsPath = null,
         string mutationSummary = "",
         bool useStructuredPatchOutput = false,
+        int stepErrorRetries = 0,
         GenerationStepConfig? steps = null)
     {
         return new TestGenerationRequest
@@ -248,6 +346,7 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
             UseStructuredPatchOutput = useStructuredPatchOutput,
             Provider = AiProvider.OpenAi,
             ContextMode = contextMode,
+            StepErrorRetries = stepErrorRetries,
             Steps = steps ?? new GenerationStepConfig()
         };
     }
@@ -276,14 +375,19 @@ public sealed class TestGenerationPipelineServiceConfigurationTests
 
         public AiProvider Provider => AiProvider.OpenAi;
         public List<string> Prompts { get; } = [];
+        private AiProviderMode _mode;
 
         public Task CreateAsync(
             IAiProviderConfig providerConfig,
             AiProviderMode mode,
             CancellationToken cancellationToken = default)
         {
+            _mode = mode;
             return Task.CompletedTask;
         }
+
+        public IReadOnlyList<string> GetTokenizableInputSegments(string prompt) =>
+            _mode == AiProviderMode.Chat ? [TestSystemPrompt, prompt] : [prompt];
 
         public Task<string> GenerateAsync(
             string prompt,

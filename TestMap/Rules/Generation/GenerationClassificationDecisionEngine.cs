@@ -19,8 +19,11 @@ public static class GenerationClassificationDecisionEngine
         if (validation.TestsExecuted && !validation.AllTestsPassed && validation.HasUsefulMetricSignal)
             return Create(GeneratedTestClassification.FailedEvidencePositive, GenerationClassificationRuleDefinitions.FailedEvidencePositive);
 
-        if (validation.TestsExecuted && validation.AllTestsPassed)
+        if (validation.TestsExecuted && validation.AllTestsPassed && validation.ImpactEvaluable)
             return Create(GeneratedTestClassification.ValidatedLowImpact, GenerationClassificationRuleDefinitions.ValidatedLowImpact);
+
+        if (validation.TestsExecuted && validation.AllTestsPassed)
+            return Create(GeneratedTestClassification.ValidatedImpactUnknown, GenerationClassificationRuleDefinitions.ValidatedImpactUnknown);
 
         if (validation.TestsExecuted)
             return Create(GeneratedTestClassification.ValidationFailed, GenerationClassificationRuleDefinitions.ValidationFailedAssertion);

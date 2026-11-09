@@ -79,6 +79,18 @@ public class TestGenerationRequest
     /// references for the structured patch prompt.</summary>
     public string TestProjectPath { get; init; } = string.Empty;
     public required AiProvider Provider { get; init; }
+
+    /// <summary>
+    /// Model this attempt runs against. Empty means the provider's configured model. Set from the
+    /// matrix arm so several arms can share a provider and differ only by model.
+    /// </summary>
+    public string ModelName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Endpoint override for this attempt, or null to use the provider's configured endpoint.
+    /// </summary>
+    public string? Endpoint { get; init; }
+
     public double Temperature { get; init; } = 0.0;
     public int StepErrorRetries { get; init; }
     public int StepRetryDelayMs { get; init; } = 1000;
@@ -133,6 +145,18 @@ public class TestRepairRequest
     /// </summary>
     public string? ModifiedTestFileContents { get; init; }
     public required AiProvider Provider { get; init; }
+
+    /// <summary>
+    /// Model this attempt runs against. Empty means the provider's configured model. Set from the
+    /// matrix arm so several arms can share a provider and differ only by model.
+    /// </summary>
+    public string ModelName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Endpoint override for this attempt, or null to use the provider's configured endpoint.
+    /// </summary>
+    public string? Endpoint { get; init; }
+
     public double Temperature { get; init; } = 0.0;
     public int AttemptNumber { get; init; }
     public int StepErrorRetries { get; init; }
@@ -149,9 +173,52 @@ public class TestGenerationResult
     public string? TestMethodName { get; init; }
     public List<GenerationStepMetadata> Steps { get; init; } = new();
     public double TotalDurationSeconds { get; init; }
-    public int TotalTokens { get; init; }
+    public int? InputTokens => SumKnownComponent(x => x.InputTokens);
+    public int? OutputTokens => SumKnownComponent(x => x.OutputTokens);
+    public int? TotalTokens => TokenUsageVocabulary.IsComplete(UsageStatus)
+        ? TokenUsageVocabulary.DeriveTotal(InputTokens, OutputTokens)
+        : null;
+    public string UsageStatus
+    {
+        get
+        {
+            var applicable = ApplicableSteps().ToList();
+            if (applicable.Count == 0) return TokenUsageVocabulary.NotApplicable;
+            if (applicable.All(x => x.UsageStatus == TokenUsageVocabulary.CompleteEstimated))
+                return TokenUsageVocabulary.CompleteEstimated;
+            if (applicable.All(x => x.UsageStatus == TokenUsageVocabulary.CompleteReported))
+                return TokenUsageVocabulary.CompleteReported;
+            return applicable.Any(x => x.InputTokens.HasValue || x.OutputTokens.HasValue)
+                ? TokenUsageVocabulary.Partial
+                : TokenUsageVocabulary.Missing;
+        }
+    }
+    public string? UsageSource => SingleValue(x => x.UsageSource) ??
+                                  (ApplicableSteps().Any() ? "generation_steps" : null);
+    public string? UsagePolicyVersion => SingleValue(x => x.UsagePolicyVersion);
     public string? ErrorMessage { get; init; }
     public string? ConversationTranscript { get; init; }
+
+    private IEnumerable<GenerationStepMetadata> ApplicableSteps() =>
+        Steps.Where(x => x.UsageStatus != TokenUsageVocabulary.NotApplicable);
+
+    private int? SumKnownComponent(Func<GenerationStepMetadata, int?> selector)
+    {
+        var applicable = ApplicableSteps().ToList();
+        return applicable.Count > 0 && applicable.All(x => selector(x).HasValue)
+            ? applicable.Sum(x => selector(x)!.Value)
+            : null;
+    }
+
+    private string? SingleValue(Func<GenerationStepMetadata, string?> selector)
+    {
+        var values = ApplicableSteps()
+            .Select(selector)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return values.Count == 1 ? values[0] : null;
+    }
 }
 
 /// <summary>
@@ -168,7 +235,12 @@ public class GenerationStepMetadata
     public string? StructuredResponseJson { get; init; }
     public string? PromptVersion { get; init; }
     public string? ValidationStatus { get; init; }
-    public int TokenCount { get; init; }
+    public int? InputTokens { get; init; }
+    public int? OutputTokens { get; init; }
+    public int? TokenCount { get; init; }
+    public string UsageStatus { get; init; } = TokenUsageVocabulary.Missing;
+    public string? UsageSource { get; init; }
+    public string? UsagePolicyVersion { get; init; }
     public double DurationSeconds { get; init; }
     public DateTime StartedAt { get; init; }
     public DateTime? CompletedAt { get; init; }

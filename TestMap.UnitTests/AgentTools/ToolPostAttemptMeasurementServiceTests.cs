@@ -21,7 +21,7 @@ public sealed class ToolPostAttemptMeasurementServiceTests
     // ─── Classify (static / pure) ─────────────────────────────────────────────
 
     /// <summary>
-    /// All tests pass and mutation score is positive → ValidatedEvidencePositive.
+    /// A passing run with a mutation-score improvement above the noise floor is evidence-positive.
     /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
@@ -29,14 +29,16 @@ public sealed class ToolPostAttemptMeasurementServiceTests
     {
         var run = new TestRunModel { Success = true, MutationScore = 0.12, Coverage = 0 };
 
-        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run);
+        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(
+            run,
+            Comparison(mutationDelta: 1.01));
 
         Assert.Equal(ToolValidationOutcome.Passed, validation);
         Assert.Equal(ToolObservedOutcome.ValidatedEvidencePositive, observed);
     }
 
     /// <summary>
-    /// All tests pass and coverage is positive → ValidatedEvidencePositive.
+    /// A passing run with a coverage improvement above the noise floor is evidence-positive.
     /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
@@ -44,7 +46,9 @@ public sealed class ToolPostAttemptMeasurementServiceTests
     {
         var run = new TestRunModel { Success = true, MutationScore = 0, Coverage = 80 };
 
-        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run);
+        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(
+            run,
+            Comparison(coverageDelta: 0.0101));
 
         Assert.Equal(ToolValidationOutcome.Passed, validation);
         Assert.Equal(ToolObservedOutcome.ValidatedEvidencePositive, observed);
@@ -59,10 +63,24 @@ public sealed class ToolPostAttemptMeasurementServiceTests
     {
         var run = new TestRunModel { Success = true, MutationScore = 0, Coverage = 0 };
 
-        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run);
+        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run, Comparison());
 
         Assert.Equal(ToolValidationOutcome.Passed, validation);
         Assert.Equal(ToolObservedOutcome.ValidatedLowImpact, observed);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Classify_AllTestsPassWithoutPairedMetrics_ReturnsImpactUnknown()
+    {
+        var run = new TestRunModel { Success = true };
+
+        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(
+            run,
+            Comparison(coverageDelta: null, mutationDelta: null));
+
+        Assert.Equal(ToolValidationOutcome.Passed, validation);
+        Assert.Equal(ToolObservedOutcome.ValidatedImpactUnknown, observed);
     }
 
     /// <summary>
@@ -78,7 +96,7 @@ public sealed class ToolPostAttemptMeasurementServiceTests
             Results = [new TestResultModel { Outcome = "Failed" }]
         };
 
-        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run);
+        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run, Comparison());
 
         Assert.Equal(ToolValidationOutcome.TestsFailed, validation);
         Assert.Equal(ToolObservedOutcome.ValidationFailed, observed);
@@ -93,7 +111,7 @@ public sealed class ToolPostAttemptMeasurementServiceTests
     {
         var run = new TestRunModel { Success = false, Results = [] };
 
-        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run);
+        var (validation, observed) = ToolPostAttemptMeasurementService.Classify(run, Comparison());
 
         Assert.Equal(ToolValidationOutcome.BuildFailed, validation);
         Assert.Equal(ToolObservedOutcome.ValidationFailed, observed);
@@ -111,7 +129,7 @@ public sealed class ToolPostAttemptMeasurementServiceTests
         var mock = new MockBuildTestService();
         await using var db = await CreateInMemoryDbAsync();
         var repo = new ToolAttemptRepository(db);
-        var service = new ToolPostAttemptMeasurementService(mock, repo);
+        var service = new ToolPostAttemptMeasurementService(mock, repo, new FixedMetricComparisonService());
         var attempt = new ToolAttempt { RunStatus = ToolRunStatus.TimedOut };
 
         var result = await service.MeasureAsync(
@@ -132,7 +150,10 @@ public sealed class ToolPostAttemptMeasurementServiceTests
     {
         var mock = new MockBuildTestService();
         await using var db = await CreateInMemoryDbAsync();
-        var service = new ToolPostAttemptMeasurementService(mock, new ToolAttemptRepository(db));
+        var service = new ToolPostAttemptMeasurementService(
+            mock,
+            new ToolAttemptRepository(db),
+            new FixedMetricComparisonService());
         var attempt = new ToolAttempt { RunStatus = ToolRunStatus.Completed };
 
         var result = await service.MeasureAsync(
@@ -172,7 +193,10 @@ public sealed class ToolPostAttemptMeasurementServiceTests
         attempt.Id = await repo.InsertAsync(attempt);
 
         var mock = new MockBuildTestService(new TestRunModel { DbId = 7, Success = true, MutationScore = 0.1 });
-        var service = new ToolPostAttemptMeasurementService(mock, repo);
+        var service = new ToolPostAttemptMeasurementService(
+            mock,
+            repo,
+            new FixedMetricComparisonService(Comparison(mutationDelta: 1.01)));
 
         // Act
         var result = await service.MeasureAsync(
@@ -278,5 +302,35 @@ public sealed class ToolPostAttemptMeasurementServiceTests
             CallCount++;
             return Task.FromResult(_response);
         }
+    }
+
+    private static AttemptMetricComparison Comparison(
+        double? coverageDelta = 0,
+        double? mutationDelta = 0)
+    {
+        double? coverageAfter = coverageDelta.HasValue ? 0.5 + coverageDelta.Value : null;
+        double? mutationAfter = mutationDelta.HasValue ? 50.0 + mutationDelta.Value : null;
+        return new AttemptMetricComparison(
+            coverageDelta.HasValue ? 0.5 : null,
+            coverageAfter,
+            coverageDelta,
+            coverageDelta.HasValue ? "Paired" : "MissingBoth",
+            mutationDelta.HasValue ? 50.0 : null,
+            mutationAfter,
+            mutationDelta,
+            mutationDelta.HasValue ? "Paired" : "MissingBoth",
+            coverageDelta.HasValue || mutationDelta.HasValue ? "Complete" : "Missing",
+            string.Empty);
+    }
+
+    private sealed class FixedMetricComparisonService(
+        AttemptMetricComparison? comparison = null) : IAttemptMetricComparisonService
+    {
+        public Task<AttemptMetricComparison> CompareAsync(
+            int targetMemberId,
+            int? baselineTestRunId,
+            int? postTestRunId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(comparison ?? Comparison());
     }
 }

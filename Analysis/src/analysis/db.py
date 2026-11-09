@@ -7,6 +7,7 @@ opening and closing connections.
 from __future__ import annotations
 
 import sqlite3
+import hashlib
 from pathlib import Path
 
 import pandas as pd
@@ -29,6 +30,21 @@ def _query(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> pd.DataFra
 def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(r[1] == column for r in rows)
+
+
+def _has_table(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _optional_table(conn: sqlite3.Connection, table: str) -> pd.DataFrame:
+    """Read an additive table, returning an empty frame for legacy databases."""
+    if not _has_table(conn, table):
+        return pd.DataFrame()
+    return _query(conn, f'SELECT * FROM "{table}"')
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +122,93 @@ def get_candidate_methods(conn: sqlite3.Connection) -> pd.DataFrame:
 
 def get_projects(conn: sqlite3.Connection) -> pd.DataFrame:
     """Repository/project rows (owner, repo_name) for building repo-qualified keys."""
-    return _query(conn, "SELECT id, owner, repo_name FROM projects")
+    optional = ["last_analyzed_commit", "resolved_commit", "repository_identity"]
+    columns = [c if _has_column(conn, "projects", c) else f"NULL AS {c}" for c in optional]
+    return _query(conn, "SELECT id, owner, repo_name, " + ", ".join(columns) + " FROM projects")
+
+
+def usable_member_line_coverage(members: pd.DataFrame, reports: pd.DataFrame) -> pd.DataFrame:
+    """Only observations with explicit usable line counts support gap differences.
+
+    Legacy rows without availability metadata remain unmeasured. Where corrected
+    attribution metadata exists, only mapped observations are eligible.
+    """
+    if (members.empty or reports.empty or "line_counts_available" not in members
+            or "has_usable_coverage" not in reports):
+        return members.iloc[:0].copy()
+    valid = pd.to_numeric(members["line_counts_available"], errors="coerce").eq(1)
+    if "attribution_status" in members:
+        valid &= members["attribution_status"].eq("Mapped")
+    usable = pd.to_numeric(reports["has_usable_coverage"], errors="coerce").eq(1)
+    if "line_counts_available" in reports:
+        usable &= pd.to_numeric(reports["line_counts_available"], errors="coerce").eq(1)
+    valid &= members["coverage_report_id"].isin(reports.loc[usable, "id"])
+    return members.loc[valid].copy()
+
+
+def get_canonical_attempt_identities(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Return local-to-canonical attempt IDs for both evaluation lanes."""
+    # Pinned-target databases record the resolved commit, and the producer's
+    # AttemptKeyFactory hashes it; databases without the column predate it.
+    commit = (
+        "er.resolved_commit"
+        if _has_column(conn, "experiment_runs", "resolved_commit") else "NULL"
+    )
+    rows = _query(conn, f"""
+        SELECT
+            'llm' AS lane,
+            ga.id AS local_attempt_id,
+            p.owner,
+            p.repo_name,
+            er.experiment_series_id,
+            er.run_uid,
+            {commit} AS resolved_commit,
+            w.stable_key,
+            ga.attempt_number
+        FROM generation_attempts ga
+        JOIN candidate_methods cm ON cm.id = ga.candidate_method_id
+        JOIN experiment_runs er ON er.id = cm.experiment_run_id
+        JOIN projects p ON p.id = er.project_id
+        JOIN experiment_matrix_work_items w ON w.id = ga.experiment_matrix_work_item_id
+
+        UNION ALL
+
+        SELECT
+            'agentic' AS lane,
+            ta.id AS local_attempt_id,
+            p.owner,
+            p.repo_name,
+            er.experiment_series_id,
+            er.run_uid,
+            {commit} AS resolved_commit,
+            w.stable_key,
+            ta.attempt_number
+        FROM tool_attempts ta
+        JOIN experiment_runs er ON er.id = ta.experiment_run_id
+        JOIN projects p ON p.id = er.project_id
+        JOIN experiment_matrix_work_items w ON w.id = ta.matrix_work_item_id
+    """)
+    if rows.empty:
+        rows["attempt_id"] = pd.Series(dtype=str)
+        return rows
+
+    def make_id(row: pd.Series) -> str:
+        lane = "testmap" if row["lane"] == "llm" else "agent-tool"
+        commit = row.get("resolved_commit")
+        commit = str(commit).strip().lower() if pd.notna(commit) and str(commit).strip() else ""
+        material = "|".join([
+            f"{row['owner']}/{row['repo_name']}".strip().lower(),
+            *([commit] if commit else []),
+            str(row.get("experiment_series_id", "") or "").strip(),
+            str(row["run_uid"]).strip(),
+            lane,
+            str(row["stable_key"]).strip(),
+            str(int(row["attempt_number"])),
+        ])
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    rows["attempt_id"] = rows.apply(make_id, axis=1)
+    return rows
 
 
 def get_tool_attempt_post_logs(conn: sqlite3.Connection) -> pd.DataFrame:
@@ -122,8 +224,61 @@ def get_generated_test_executions(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM generated_test_executions")
 
 
+def get_shared_baseline_bundle(
+    conn: sqlite3.Connection,
+) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
+    """Baseline ids each lane compared against, per candidate method.
+
+    Returns LLM-lane rows (candidate_method_id, baseline_test_run_id), tool-lane rows
+    (candidate_method_id, targeted_baseline_id), and whether the database comes from a
+    producer that measures one shared baseline per candidate (``candidate_baselines``).
+    """
+    llm = _query(
+        conn,
+        """
+        SELECT ga.candidate_method_id, gte.baseline_test_run_id
+        FROM generated_test_executions gte
+        JOIN generation_attempts ga ON ga.id = gte.generation_attempt_id
+        """,
+    )
+    tool = _query(conn, "SELECT candidate_method_id, targeted_baseline_id FROM tool_attempts")
+    return llm, tool, _has_table(conn, "candidate_baselines")
+
+
 def get_tool_attempt_generated_tests(conn: sqlite3.Connection) -> pd.DataFrame:
     return _query(conn, "SELECT * FROM tool_attempt_generated_tests")
+
+
+def get_assertion_lineage_measurements(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Attempt-grain assertion measurements; absent in legacy databases."""
+    return _optional_table(conn, "assertion_lineage_measurements")
+
+
+def get_generated_test_assertion_summaries(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Generated-test-grain assertion summaries; absent in legacy databases."""
+    return _optional_table(conn, "generated_test_assertion_summaries")
+
+
+def get_assertion_observations(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Recognized logical assertions at assertion grain."""
+    return _optional_table(conn, "assertion_observations")
+
+
+def get_assertion_lineage_steps(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Ordered lineage evidence steps at assertion/path/step grain."""
+    return _optional_table(conn, "assertion_lineage_steps")
+
+
+def get_assertion_lineage_bundle(
+    conn: sqlite3.Connection,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Return all four assertion evidence grains without fabricating legacy rows."""
+    return (
+        get_assertion_lineage_measurements(conn),
+        get_generated_test_assertion_summaries(conn),
+        get_assertion_observations(conn),
+        get_assertion_lineage_steps(conn),
+    )
 
 
 # ---------------------------------------------------------------------------

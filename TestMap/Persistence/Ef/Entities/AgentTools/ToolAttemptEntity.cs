@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Models.Experiment;
 using TestMap.Persistence.Ef.Entities.Experiment;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 
 namespace TestMap.Persistence.Ef.Entities.AgentTools;
 
@@ -9,8 +11,20 @@ public class ToolAttemptEntity
     public int ExperimentRunId { get; set; }
     public int? MatrixWorkItemId { get; set; }
     public int CandidateMethodId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
     public int? TargetedBaselineId { get; set; }
     public int? PostAttemptTestRunId { get; set; }
+    public double? CoverageBefore { get; set; }
+    public double? CoverageAfter { get; set; }
+    public double? CoverageDelta { get; set; }
+    [MaxLength(50)] public string CoverageMeasurementStatus { get; set; } = "NotMeasured";
+    public double? MutationScoreBefore { get; set; }
+    public double? MutationScoreAfter { get; set; }
+    public double? MutationScoreDelta { get; set; }
+    [MaxLength(50)] public string MutationMeasurementStatus { get; set; } = "NotMeasured";
+    [MaxLength(50)] public string ImpactMeasurementStatus { get; set; } = "NotMeasured";
+    public string MeasurementFailureReason { get; set; } = string.Empty;
+    [MaxLength(20)] public string MeasurementPolicyVersion { get; set; } = string.Empty;
     [MaxLength(64)]  public string EffectiveProfileHash { get; set; } = string.Empty;
     [MaxLength(100)] public string ToolId { get; set; } = string.Empty;
     [MaxLength(50)]  public string RunStatus { get; set; } = string.Empty;
@@ -19,6 +33,7 @@ public class ToolAttemptEntity
     [MaxLength(300)] public string ImageName { get; set; } = string.Empty;
     [MaxLength(100)] public string ImageKey { get; set; } = string.Empty;
     [MaxLength(100)] public string BaseCommit { get; set; } = string.Empty;
+    [MaxLength(50)] public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
     public string WorkspacePath { get; set; } = string.Empty;
     public string ArtifactPath { get; set; } = string.Empty;
     public string StdOutLogPath { get; set; } = string.Empty;
@@ -38,6 +53,8 @@ public class ToolAttemptEntity
     public bool JsonlLogAvailable { get; set; }
     public bool UsageAvailable { get; set; }
     [MaxLength(50)] public string UsageSource { get; set; } = string.Empty;
+    [MaxLength(32)] public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    [MaxLength(64)] public string? UsagePolicyVersion { get; set; }
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
     public int? EstimatedPromptTokens { get; set; }
@@ -52,4 +69,6 @@ public class ToolAttemptEntity
     public virtual ExperimentRunEntity? ExperimentRun { get; set; }
     public virtual ExperimentMatrixWorkItemEntity? MatrixWorkItem { get; set; }
     public virtual CandidateMethodEntity? CandidateMethod { get; set; }
+    public virtual ICollection<AssertionLineageMeasurementEntity> AssertionLineageMeasurements { get; set; } =
+        new List<AssertionLineageMeasurementEntity>();
 }

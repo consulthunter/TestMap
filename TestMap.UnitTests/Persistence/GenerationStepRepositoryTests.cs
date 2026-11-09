@@ -33,6 +33,35 @@ public sealed class GenerationStepRepositoryTests
         Assert.Equal(1, await db.GenerationSteps.CountAsync());
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task InsertAndRead_PreservesSplitUsageAndNullableTotal()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var repo = new GenerationStepRepository(db);
+        var attemptId = await SeedAttemptAsync(db);
+        var step = MakeStep(attemptId, GenerationStepType.Scenario);
+        step.InputTokens = 80;
+        step.OutputTokens = null;
+        step.TokenCount = null;
+        step.UsageStatus = TokenUsageVocabulary.Partial;
+        step.UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate;
+        step.UsagePolicyVersion = TokenUsageVocabulary.PolicyV1;
+
+        var id = await repo.InsertAsync(step);
+        var restored = await repo.GetByIdAsync(id);
+
+        Assert.NotNull(restored);
+        Assert.Equal(80, restored!.InputTokens);
+        Assert.Null(restored.OutputTokens);
+        Assert.Null(restored.TokenCount);
+        Assert.Equal(TokenUsageVocabulary.Partial, restored.UsageStatus);
+        Assert.Equal(TokenUsageVocabulary.Cl100kLocalEstimate, restored.UsageSource);
+        Assert.Equal(TokenUsageVocabulary.PolicyV1, restored.UsagePolicyVersion);
+    }
+
     /// <summary>
     /// GetByAttemptIdAsync returns steps for the given attempt ordered by StepOrder ascending,
     /// excluding steps from other attempts.
@@ -242,6 +271,11 @@ public sealed class GenerationStepRepositoryTests
         Prompt = "prompt",
         Response = "response",
         TokenCount = tokens,
+        InputTokens = tokens,
+        OutputTokens = 0,
+        UsageStatus = TokenUsageVocabulary.CompleteEstimated,
+        UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate,
+        UsagePolicyVersion = TokenUsageVocabulary.PolicyV1,
         StartedAt = DateTime.UtcNow,
         Success = true,
         RuleDecisionSnapshotJson = string.Empty

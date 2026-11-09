@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Models.Experiment;
 
 namespace TestMap.Persistence.Ef.Entities.Experiment;
 
@@ -14,12 +15,15 @@ public class GenerationStepEntity
     public DateTime? EndTime { get; set; }
     public string Prompt { get; set; } = string.Empty;
     public string Response { get; set; } = string.Empty;
-    public int TokensUsed { get; set; }
+    public int? TokensUsed { get; set; }
     public bool Success { get; set; }
     public string ErrorMessage { get; set; } = string.Empty;
     public string ValidationResult { get; set; } = string.Empty;
     public int? InputTokens { get; set; }
     public int? OutputTokens { get; set; }
+    public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    public string? UsageSource { get; set; }
+    public string? UsagePolicyVersion { get; set; }
     public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
 
     public virtual GenerationAttemptEntity? GenerationAttempt { get; set; }

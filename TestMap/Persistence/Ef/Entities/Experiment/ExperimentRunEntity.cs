@@ -6,6 +6,7 @@ namespace TestMap.Persistence.Ef.Entities.Experiment;
 public class ExperimentRunEntity
 {
     public int Id { get; set; }
+    [MaxLength(32)] public string RunUid { get; set; } = Guid.NewGuid().ToString("N");
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public int ProjectId { get; set; }
@@ -15,6 +16,23 @@ public class ExperimentRunEntity
     public string ResultsFilePath { get; set; } = string.Empty;
     public int CandidateLimit { get; set; }
     [MaxLength(50)] public string Status { get; set; } = string.Empty;
+    [MaxLength(200)] public string ExperimentSeriesId { get; set; } = string.Empty;
+    public int? CandidateCohortId { get; set; }
+    [MaxLength(64)] public string TargetId { get; set; } = string.Empty;
+    [MaxLength(511)] public string RepositoryIdentity { get; set; } = string.Empty;
+    [MaxLength(40)] public string RequestedCommit { get; set; } = string.Empty;
+    [MaxLength(40)] public string ResolvedCommit { get; set; } = string.Empty;
+    [MaxLength(64)] public string TargetManifestSha256 { get; set; } = string.Empty;
+    [MaxLength(64)] public string TargetSourceSha256 { get; set; } = string.Empty;
+    public DateTime? MaterializedAtUtc { get; set; }
+    [MaxLength(50)] public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
+    [MaxLength(64)] public string ProvenancePolicyVersion { get; set; } = string.Empty;
+    [MaxLength(64)] public string AssertionLineagePolicyVersion { get; set; } = string.Empty;
+    [MaxLength(64)] public string AssertionCatalogVersion { get; set; } = string.Empty;
+    public int AssertionLineageMaxDepth { get; set; }
+    public int AssertionLineagePathCap { get; set; }
+
+    public virtual CandidateCohortEntity? CandidateCohort { get; set; }
 
     public virtual ICollection<CandidateMethodEntity> CandidateMethods { get; set; } =
         new List<CandidateMethodEntity>();

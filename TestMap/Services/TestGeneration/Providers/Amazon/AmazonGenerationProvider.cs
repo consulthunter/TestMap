@@ -10,6 +10,11 @@ namespace TestMap.Services.TestGeneration.Providers.Amazon;
 
 public class AmazonGenerationProvider : SemanticKernelGenerationProviderBase
 {
+    // AmazonClaudeExecutionSettings.MaxTokensToSample is a non-nullable int, so leaving it
+    // unset sends inferenceConfig.maxTokens=0 and Bedrock rejects the request. The other
+    // Bedrock settings types use nullable properties that are omitted when unset.
+    private const int DefaultMaxTokensToSample = 4096;
+
     private string _modelId = string.Empty;
 
     public override AiProvider Provider => AiProvider.Amazon;
@@ -38,7 +43,7 @@ public class AmazonGenerationProvider : SemanticKernelGenerationProviderBase
     protected override PromptExecutionSettings CreateExecutionSettings(double temperature)
     {
         if (_modelId.Contains("claude", StringComparison.OrdinalIgnoreCase))
-            return new AmazonClaudeExecutionSettings { Temperature = (float)temperature };
+            return new AmazonClaudeExecutionSettings { Temperature = (float)temperature, MaxTokensToSample = DefaultMaxTokensToSample };
 
         if (_modelId.Contains("command-r", StringComparison.OrdinalIgnoreCase))
             return new AmazonCommandRExecutionSettings { Temperature = (float)temperature };
@@ -58,6 +63,6 @@ public class AmazonGenerationProvider : SemanticKernelGenerationProviderBase
         if (_modelId.Contains("titan", StringComparison.OrdinalIgnoreCase))
             return new AmazonTitanExecutionSettings { Temperature = (float)temperature };
 
-        return new AmazonClaudeExecutionSettings { Temperature = (float)temperature };
+        return new AmazonClaudeExecutionSettings { Temperature = (float)temperature, MaxTokensToSample = DefaultMaxTokensToSample };
     }
 }

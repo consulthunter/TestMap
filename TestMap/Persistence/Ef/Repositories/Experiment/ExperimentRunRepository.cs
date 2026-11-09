@@ -73,6 +73,7 @@ public class ExperimentRunRepository
             throw new InvalidOperationException($"Experiment run '{run.Id}' was not found.");
 
         trackedEntity.StartTime = run.StartedAt;
+        trackedEntity.RunUid = run.RunUid;
         trackedEntity.EndTime = run.CompletedAt;
         trackedEntity.ProjectId = run.ProjectId;
         trackedEntity.Objective = run.Objective;
@@ -81,6 +82,21 @@ public class ExperimentRunRepository
         trackedEntity.ResultsFilePath = run.ResultsFilePath;
         trackedEntity.CandidateLimit = run.CandidateLimit;
         trackedEntity.Status = string.IsNullOrWhiteSpace(run.Status) ? "Completed" : run.Status;
+        trackedEntity.ExperimentSeriesId = run.ExperimentSeriesId;
+        trackedEntity.CandidateCohortId = run.CandidateCohortId;
+        trackedEntity.TargetId = run.TargetId;
+        trackedEntity.RepositoryIdentity = run.RepositoryIdentity;
+        trackedEntity.RequestedCommit = run.RequestedCommit;
+        trackedEntity.ResolvedCommit = run.ResolvedCommit;
+        trackedEntity.TargetManifestSha256 = run.TargetManifestSha256;
+        trackedEntity.TargetSourceSha256 = run.TargetSourceSha256;
+        trackedEntity.MaterializedAtUtc = run.MaterializedAtUtc;
+        trackedEntity.WorkspaceIntegrityStatus = run.WorkspaceIntegrityStatus;
+        trackedEntity.ProvenancePolicyVersion = run.ProvenancePolicyVersion;
+        trackedEntity.AssertionLineagePolicyVersion = run.AssertionLineagePolicyVersion;
+        trackedEntity.AssertionCatalogVersion = run.AssertionCatalogVersion;
+        trackedEntity.AssertionLineageMaxDepth = run.AssertionLineageMaxDepth;
+        trackedEntity.AssertionLineagePathCap = run.AssertionLineagePathCap;
 
         await _context.SaveChangesAsync(cancellationToken);
     }

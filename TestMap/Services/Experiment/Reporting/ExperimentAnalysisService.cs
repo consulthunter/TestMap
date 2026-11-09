@@ -186,7 +186,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
                 TotalAttempts = g.Count(),
                 SuccessfulTests = g.Count(a => a.TestExecution?.TestPassed ?? false),
                 AverageCoverageImprovement = g.Average(a => a.TestExecution?.CoverageImprovement ?? 0.0),
-                TotalTokensUsed = g.Sum(a => a.TotalTokensUsed),
+                TotalTokensUsed = g.All(a => TokenUsageVocabulary.IsComplete(a.UsageStatus))
+                    ? g.Sum(a => a.TotalTokensUsed)
+                    : null,
                 AverageDurationSeconds = g.Average(a => a.TotalDurationSeconds),
                 CompilationFailures = g.Count(a => !(a.TestExecution?.CompilationSuccess ?? false)),
                 TestFailures = g.Count(a => !(a.TestExecution?.TestPassed ?? false))
@@ -205,7 +207,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
                 TotalAttempts = g.Count(),
                 SuccessfulTests = g.Count(a => a.TestExecution?.TestPassed ?? false),
                 AverageCoverageImprovement = g.Average(a => a.TestExecution?.CoverageImprovement ?? 0.0),
-                TotalTokensUsed = g.Sum(a => a.TotalTokensUsed),
+                TotalTokensUsed = g.All(a => TokenUsageVocabulary.IsComplete(a.UsageStatus))
+                    ? g.Sum(a => a.TotalTokensUsed)
+                    : null,
                 AverageDurationSeconds = g.Average(a => a.TotalDurationSeconds)
             })
             .OrderByDescending(s => s.SuccessRate)
@@ -230,7 +234,9 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
             TotalMethods = methods.Count,
             TotalAttempts = attempts.Count,
             TotalSuccesses = attempts.Count(a => a.TestExecution?.TestPassed ?? false),
-            TotalTokensUsed = attempts.Sum(a => a.TotalTokensUsed),
+            TotalTokensUsed = attempts.All(a => TokenUsageVocabulary.IsComplete(a.UsageStatus))
+                ? attempts.Sum(a => a.TotalTokensUsed)
+                : null,
             TotalDurationSeconds = totalDuration,
             BestProvider = bestProvider?.Provider,
             BestBudgetMode = bestBudgetMode?.BudgetMode,
@@ -263,7 +269,8 @@ public class ExperimentAnalysisService : IExperimentAnalysisService
         var owner = _context.Project.Owner;
         var repo = _context.Project.RepoName;
         var branch = _context.Project.Branch;
-        var commitHash = _context.Project.Commit ?? _context.Project.LastAnalyzedCommit ?? _context.CurrentCommit;
+        var commitHash = _context.VerifiedBaseCommit
+            ?? throw new InvalidOperationException("Experiment analysis requires a verified pinned base commit.");
         var rows = new List<ExperimentResultRow>();
         var candidateProjectInfo = await LoadCandidateProjectInfoAsync(candidateMethods, cancellationToken);
 

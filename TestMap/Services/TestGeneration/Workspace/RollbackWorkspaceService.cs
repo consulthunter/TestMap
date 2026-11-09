@@ -1,5 +1,7 @@
 using LibGit2Sharp;
 using TestMap.App;
+using TestMap.Models.Targets;
+using TestMap.Services.RepoOperations;
 
 namespace TestMap.Services.TestGeneration.Workspace;
 
@@ -19,14 +21,58 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
 
     public Task RollbackChangesAsync(CancellationToken cancellationToken = default)
     {
+        string baseCommitSha;
+        using (var head = new Repository(_context.Project.DirectoryPath))
+        {
+            baseCommitSha = _context.VerifiedBaseCommit ?? head.Head.Tip?.Sha ??
+                            throw new InvalidOperationException("Repository has no verified base commit to restore.");
+        }
+        RepositoryLineEndings.EnsureExactCheckout(_context.Project.DirectoryPath, baseCommitSha);
+
+        var remaining = RestoreBaseCommit(baseCommitSha);
+        if (remaining.Count > 0)
+        {
+            // A path that differs only by line endings survives a forced checkout plus hard reset,
+            // because its normalized content already matches. Rewriting the tree from a fresh
+            // index puts the committed bytes back.
+            _context.Project.Logger?.Warning(
+                "Workspace still differs from pinned base commit {BaseCommit} after reset; rewriting the working tree. Remaining: {Remaining}",
+                baseCommitSha,
+                string.Join(", ", remaining));
+            RepositoryLineEndings.RewriteWorkingTree(_context.Project.DirectoryPath, baseCommitSha);
+            remaining = RestoreBaseCommit(baseCommitSha);
+        }
+
+        if (remaining.Count > 0)
+            throw new RepositoryMaterializationException(
+                MaterializationStatus.Failed,
+                $"Workspace restoration to the pinned base commit failed. Remaining: {string.Join(", ", remaining.Take(20))}");
+        _context.CurrentCommit = baseCommitSha.ToLowerInvariant();
+        _context.Project.Logger?.Debug("Repository rolled back to pinned base commit {BaseCommit}", baseCommitSha);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Forces the workspace to <paramref name="baseCommitSha"/> and returns what still differs:
+    /// a moved HEAD and every non-ignored status entry. Empty means restored.
+    /// </summary>
+    private List<string> RestoreBaseCommit(string baseCommitSha)
+    {
         using var repo = new Repository(_context.Project.DirectoryPath);
-        var headCommit = repo.Head.Tip ??
-                         throw new InvalidOperationException("Repository has no HEAD commit to reset to.");
-        repo.Reset(ResetMode.Hard, headCommit);
+        var baseCommit = repo.Lookup<Commit>(baseCommitSha) ??
+                         throw new InvalidOperationException("The verified base commit is unavailable locally.");
+        Commands.Checkout(repo, baseCommit, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
+        repo.Reset(ResetMode.Hard, baseCommit);
         DeleteUntrackedFiles(repo);
         DeleteIgnoredBuildArtifacts(repo.Info.WorkingDirectory);
-        _context.Project.Logger?.Debug("Repository rolled back to HEAD");
-        return Task.CompletedTask;
+
+        var remaining = new List<string>();
+        if (!string.Equals(repo.Head.Tip?.Sha, baseCommitSha, StringComparison.OrdinalIgnoreCase))
+            remaining.Add($"HEAD at {repo.Head.Tip?.Sha ?? "<none>"}");
+        remaining.AddRange(repo.RetrieveStatus()
+            .Where(x => x.State != FileStatus.Ignored && x.State != FileStatus.Unaltered)
+            .Select(x => $"{x.State} {x.FilePath}"));
+        return remaining;
     }
 
     public Task PersistAcceptedChangesAsync(string message, CancellationToken cancellationToken = default)

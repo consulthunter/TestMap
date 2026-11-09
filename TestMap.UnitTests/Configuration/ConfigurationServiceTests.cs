@@ -210,7 +210,7 @@ public sealed class ConfigurationServiceTests : IDisposable
     /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
-    public async Task ConfigureRunAsync_WithoutTargetFile_DoesNotCreateProjectModels()
+    public async Task ConfigureRunAsync_WithMissingConfiguredTarget_FailsClearly()
     {
         // Arrange
         var rootPath = CreateTemporaryDirectory();
@@ -230,14 +230,86 @@ public sealed class ConfigurationServiceTests : IDisposable
         var service = new ConfigurationService(config);
 
         // Act
-        await service.ConfigureRunAsync();
+        var exception = await Assert.ThrowsAsync<FileNotFoundException>(() => service.ConfigureRunAsync());
 
         // Assert
         Assert.Empty(service.ProjectModels);
+        Assert.Contains("Configured target source does not exist", exception.Message, StringComparison.Ordinal);
         Assert.True(Directory.Exists(config.RuntimeConfig.FilePaths.LogsDirPath));
         Assert.True(Directory.Exists(Path.Combine(config.RuntimeConfig.FilePaths.LogsDirPath!, service.RunDate)));
         Assert.True(Directory.Exists(config.RuntimeConfig.FilePaths.TempDirPath));
         Assert.True(Directory.Exists(config.RuntimeConfig.FilePaths.OutputDirPath));
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ConfigureRunAsync_UsesOneUtcInstantForAllReadableProjectLogs()
+    {
+        var rootPath = CreateTemporaryDirectory();
+        var logsPath = Path.Combine(rootPath, "Logs");
+        var targetFilePath = Path.Combine(rootPath, "targets.txt");
+        await File.WriteAllLinesAsync(targetFilePath,
+        [
+            "https://github.com/dotnet/runtime",
+            "https://github.com/xunit/xunit"
+        ]);
+        var config = new TestMapConfig
+        {
+            RuntimeConfig =
+            {
+                FilePaths =
+                {
+                    LogsDirPath = logsPath,
+                    TempDirPath = Path.Combine(rootPath, "Temp"),
+                    OutputDirPath = Path.Combine(rootPath, "Output"),
+                    TargetFilePath = targetFilePath
+                }
+            }
+        };
+        var startedAtUtc = new DateTimeOffset(2026, 7, 16, 23, 59, 59, TimeSpan.Zero);
+        var service = new ConfigurationService(config, runStartedAtUtc: startedAtUtc);
+
+        await service.ConfigureRunAsync();
+        foreach (var project in service.ProjectModels) project.EnsureProjectLogDir();
+
+        Assert.Equal(startedAtUtc, service.RunStartedAtUtc);
+        Assert.Equal("2026-07-16", service.RunDate);
+        Assert.All(service.ProjectModels, project =>
+        {
+            Assert.Equal(startedAtUtc, project.RunStartedAtUtc);
+            Assert.Contains(Path.Combine("2026-07-16", "23-59-59_"), project.LogsFilePath, StringComparison.OrdinalIgnoreCase);
+            (project.Logger as IDisposable)?.Dispose();
+        });
+        Assert.Equal(2, service.ProjectModels.Select(project => Path.GetDirectoryName(project.LogsFilePath)).Distinct().Count());
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task ConfigureRunAsync_CustomRunDateDisplay_DoesNotChangeLogDateParent()
+    {
+        var rootPath = CreateTemporaryDirectory();
+        var config = new TestMapConfig
+        {
+            RuntimeConfig =
+            {
+                RunDateFormat = "yyyy-MM-dd_HH-mm-ss",
+                FilePaths =
+                {
+                    LogsDirPath = Path.Combine(rootPath, "Logs"),
+                    TempDirPath = Path.Combine(rootPath, "Temp"),
+                    OutputDirPath = Path.Combine(rootPath, "Output")
+                }
+            }
+        };
+        var service = new ConfigurationService(
+            config,
+            runStartedAtUtc: new DateTimeOffset(2026, 7, 16, 14, 5, 9, TimeSpan.Zero));
+
+        await service.ConfigureRunAsync();
+
+        Assert.Equal("2026-07-16_14-05-09", service.RunDate);
+        Assert.True(Directory.Exists(Path.Combine(config.RuntimeConfig.FilePaths.LogsDirPath!, "2026-07-16")));
+        Assert.False(Directory.Exists(Path.Combine(config.RuntimeConfig.FilePaths.LogsDirPath!, service.RunDate)));
     }
 
     private void AddScope(string name, string? value)

@@ -8,10 +8,12 @@ import pandas as pd
 import pytest
 
 from analysis.audit_evaluation_data import (
+    audit_assertion_lineage,
     audit_agentic_identity_and_artifacts,
     audit_agentic_no_post_attempt,
     audit_generated_test_links,
     audit_outcome_classification,
+    audit_token_usage,
 )
 from analysis.export_failure_cases import build_failure_cases
 from analysis.export_training_dataset import build_mapping_rows
@@ -20,14 +22,85 @@ from analysis.statistics import mcnemar_test
 from analysis.summaries import build_overview
 
 
+def test_token_audit_rejects_contradictory_complete_total_and_missing_policy():
+    df = pd.DataFrame([{
+        "usage_status": "complete-estimated",
+        "usage_source": "cl100k-local-estimate",
+        "usage_policy_version": "",
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "total_tokens": 999,
+        "cumulative_input_tokens": 100,
+        "cumulative_output_tokens": 20,
+        "cumulative_tokens": 120,
+    }])
+
+    checks = {finding["check"] for finding in audit_token_usage(df)}
+
+    assert "contradictory_token_total" in checks
+    assert "missing_token_policy" in checks
+
+
+def test_token_audit_rejects_invalid_status_components_negative_and_cumulative_total():
+    df = pd.DataFrame([{
+        "usage_status": "missing",
+        "usage_source": "",
+        "usage_policy_version": "token-accounting-v1",
+        "input_tokens": -1,
+        "output_tokens": None,
+        "total_tokens": None,
+        "cumulative_input_tokens": 10,
+        "cumulative_output_tokens": 5,
+        "cumulative_tokens": 99,
+    }])
+
+    checks = {finding["check"] for finding in audit_token_usage(df)}
+
+    assert "invalid_empty_token_usage" in checks
+    assert "negative_token_count" in checks
+    assert "contradictory_cumulative_token_total" in checks
+
+
+def test_cost_summary_splits_components_and_status_counts():
+    overview = build_overview(pd.DataFrame([
+        {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120,
+         "usage_status": "complete-estimated", "duration_seconds": 1.0},
+        {"input_tokens": 50, "output_tokens": 10, "total_tokens": 60,
+         "usage_status": "complete-reported", "duration_seconds": 2.0},
+    ]))
+
+    assert overview["cost"]["input_tokens"] == 150
+    assert overview["cost"]["output_tokens"] == 30
+    assert overview["cost"]["total_tokens"] == 180
+    assert overview["cost"]["usage_status_counts"] == {
+        "complete-estimated": 1,
+        "complete-reported": 1,
+    }
+
+
 def _raw_rows() -> pd.DataFrame:
+    provenance = {
+        "results_schema_version": "3.0",
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "owner/repo",
+        "requested_commit": "0123456789abcdef0123456789abcdef01234567",
+        "resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
+    }
     return pd.DataFrame([
         {
+            **provenance,
+            "row_kind": "attempt",
+            "attempt_id": "llm-10",
+            "experiment_run_uid": "run-1",
             "experiment_run_id": "1",
             "producer_lane": "testmap",
             "repo_owner": "owner",
             "repo_name": "repo",
-            "commit_hash": "abc",
+            "commit_hash": provenance["resolved_commit"],
             "source_member_id": "1",
             "generation_attempt_id": "10",
             "failure_kind": "None",
@@ -36,11 +109,15 @@ def _raw_rows() -> pd.DataFrame:
             "total_duration_seconds": "5",
         },
         {
+            **provenance,
+            "row_kind": "attempt",
+            "attempt_id": "agent-20",
+            "experiment_run_uid": "run-1",
             "experiment_run_id": "1",
             "producer_lane": "agent-tool",
             "repo_owner": "owner",
             "repo_name": "repo",
-            "commit_hash": "abc",
+            "commit_hash": provenance["resolved_commit"],
             "source_member_id": "2",
             "tool_attempt_id": "20",
             "tool_id": "codex",
@@ -54,11 +131,15 @@ def _raw_rows() -> pd.DataFrame:
             "total_duration_seconds": "30",
         },
         {
+            **provenance,
+            "row_kind": "attempt",
+            "attempt_id": "agent-21",
+            "experiment_run_uid": "run-1",
             "experiment_run_id": "1",
             "producer_lane": "agent-tool",
             "repo_owner": "owner",
             "repo_name": "repo",
-            "commit_hash": "abc",
+            "commit_hash": provenance["resolved_commit"],
             "source_member_id": "3",
             "tool_attempt_id": "21",
             "tool_id": "codex",
@@ -99,6 +180,19 @@ def test_failure_case_export_contains_only_failures():
     assert "low_impact" not in labels
 
 
+def test_validated_impact_unknown_preserves_positive_impact_missingness():
+    row = _raw_rows().iloc[[1]].copy()
+    row["attempt_id"] = "agent-unknown"
+    row["tool_observed_outcome"] = "ValidatedImpactUnknown"
+    row["coverage_delta"] = pd.NA
+    row["mutation_score_delta"] = pd.NA
+
+    normalized = normalize_attempts(row)
+
+    assert normalized["validated_success"].iloc[0] == True  # noqa: E712
+    assert pd.isna(normalized["positive_impact"].iloc[0])
+
+
 def test_audit_checks_agentic_contract_and_links():
     attempts = pd.DataFrame([
         {
@@ -125,6 +219,30 @@ def test_audit_checks_agentic_contract_and_links():
     assert "agentic_missing_post_attempt_measurement" in checks
     assert "agentic_missing_generated_test_links" in checks
     assert "unclassified_attempts" in checks
+
+
+def test_assertion_audit_rejects_unavailable_measurement_without_reason():
+    attempts = pd.DataFrame([{
+        "results_schema_version": "4.0",
+        "attempt_id": "attempt-1",
+        "candidate_key": "candidate-1",
+        "lane": "llm",
+        "assertion_measurement_status": "Unavailable",
+        "assertion_measurement_reason": "",
+        "assertion_policy_version": "assertion-lineage-v1",
+        "assertion_catalog_version": "assertion-catalog-v1",
+        "assertion_max_depth": 4,
+        "recognized_assertion_count": pd.NA,
+        "traced_assertion_count": pd.NA,
+        "trivial_assertion_count": pd.NA,
+        "unresolved_assertion_count": pd.NA,
+    }])
+    findings = audit_assertion_lineage(
+        attempts, pd.DataFrame(), pd.DataFrame(), sidecar_present=False
+    )
+    assert "missing_assertion_measurement_reason" in {
+        finding["check"] for finding in findings
+    }
 
 
 def test_exact_mcnemar_uses_binomial_discordant_pairs():

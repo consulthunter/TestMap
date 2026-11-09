@@ -35,8 +35,16 @@ public sealed class BuildTestResultCollector
     public async Task<BuildTestCollectedResults> CollectAndMapAsync(
         string runId,
         string runDate,
-        IReadOnlyCollection<string> mutationTargets)
+        IReadOnlyCollection<string> mutationTargets,
+        CoverageReportScope? coverageScope = null)
     {
+        coverageScope ??= new CoverageReportScope(
+            "Solution",
+            TestMap.Models.Testing.TestReportRole.RepositoryBaseline,
+            null,
+            string.Empty,
+            string.Empty,
+            string.Empty);
         var (testResults, testResultRaw) = await _collectTestResultsService.CollectAsync(runId, runDate);
         _context.Project.TestResults = testResults;
 
@@ -48,6 +56,15 @@ public sealed class BuildTestResultCollector
         {
             (coverageReport, rawCoverageReport, normalizedCoverageReport) =
                 await _collectCoverageResultsService.CollectAsync(runId);
+            if (coverageReport != null)
+            {
+                coverageReport.ScopeKind = coverageScope.ScopeKind;
+                coverageReport.ReportRole = coverageScope.ReportRole;
+                coverageReport.ExperimentRunId = coverageScope.ExperimentRunId;
+                coverageReport.SourceProjectPath = coverageScope.SourceProjectPath;
+                coverageReport.TestProjectPath = coverageScope.TestProjectPath;
+                coverageReport.TargetFramework = coverageScope.TargetFramework;
+            }
             _context.Project.CoverageReport = coverageReport;
 
             if (coverageReport != null) await _mapCoverageService.MapAsync(coverageReport);

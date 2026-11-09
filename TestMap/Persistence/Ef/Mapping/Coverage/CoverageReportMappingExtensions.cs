@@ -14,10 +14,29 @@ public static class CoverageReportMappingExtensions
             ComplexityRaw = entity.Complexity.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Version = entity.Version,
             Timestamp = entity.Timestamp,
+            RunId = entity.RunId,
+            CollectionStatus = entity.CollectionStatus,
+            CollectionReason = entity.CollectionReason,
+            SuccessfulCollector = entity.SuccessfulCollector,
+            CollectionMetadataJson = entity.CollectionMetadataJson,
+            HasUsableCoverage = entity.HasUsableCoverage,
+            LineCountsAvailable = entity.LineCountsAvailable,
+            BranchCountsAvailable = entity.BranchCountsAvailable,
+            MeasurementPolicyVersion = entity.MeasurementPolicyVersion,
+            RawObjectCount = entity.RawObjectCount,
+            MappedObjectCount = entity.MappedObjectCount,
+            RawMemberCount = entity.RawMemberCount,
+            MappedMemberCount = entity.MappedMemberCount,
             LinesCovered = entity.LinesCovered,
             LinesValid = entity.LinesValid,
             BranchesCovered = entity.BranchesCovered,
-            BranchesValid = entity.BranchesValid
+            BranchesValid = entity.BranchesValid,
+            ScopeKind = entity.ScopeKind,
+            ReportRole = entity.ReportRole,
+            ExperimentRunId = entity.ExperimentRunId,
+            SourceProjectPath = entity.SourceProjectPath,
+            TestProjectPath = entity.TestProjectPath,
+            TargetFramework = entity.TargetFramework
         };
     }
 
@@ -31,11 +50,30 @@ public static class CoverageReportMappingExtensions
             Complexity = SanitizeDouble(model.ComplexityValue),
             Version = model.Version,
             Timestamp = model.Timestamp,
+            RunId = model.RunId,
+            CollectionStatus = model.CollectionStatus,
+            CollectionReason = model.CollectionReason,
+            SuccessfulCollector = model.SuccessfulCollector,
+            CollectionMetadataJson = model.CollectionMetadataJson,
+            HasUsableCoverage = model.HasUsableCoverage,
+            LineCountsAvailable = model.LineCountsAvailable,
+            BranchCountsAvailable = model.BranchCountsAvailable,
+            MeasurementPolicyVersion = model.MeasurementPolicyVersion,
+            RawObjectCount = model.RawObjectCount,
+            MappedObjectCount = model.MappedObjectCount,
+            RawMemberCount = model.RawMemberCount,
+            MappedMemberCount = model.MappedMemberCount,
             LinesCovered = model.LinesCovered,
             LinesValid = model.LinesValid,
             BranchesCovered = model.BranchesCovered,
             BranchesValid = model.BranchesValid,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            ScopeKind = model.ScopeKind,
+            ReportRole = model.ReportRole,
+            ExperimentRunId = model.ExperimentRunId,
+            SourceProjectPath = model.SourceProjectPath,
+            TestProjectPath = model.TestProjectPath,
+            TargetFramework = model.TargetFramework
         };
     }
 

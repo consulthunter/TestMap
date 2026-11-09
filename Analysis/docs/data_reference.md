@@ -5,35 +5,58 @@ Column and semantics reference for the datasets in `data/`. For the operational 
 
 ## Lanes and grain
 
-- `lane`: `llm` (direct LLM generation — one CSV row per attempt) or `agentic` (external tool — the
-  raw CSV has one row per generated test; `normalize` collapses these to one row per tool attempt).
-- `attempt_id` is globally unique: `llm:{owner}|{repo}:{generation_attempt_id}` or
-  `agentic:{tool_artifact_path}`. (Per-repo numeric ids are *not* unique across repos, hence the
-  qualifier.)
-- `candidate_key` = `owner|repo|commit|source_member_id` (lane-independent, so the two lanes pair on
-  it). `repository_key` = `owner|repo|commit`.
+- `lane`: `llm` (direct LLM generation) or `agentic` (external tool).
+- Result schema v3 writes separate attempt, generated-test, and test-result CSVs with pinned target,
+  revision, manifest, and workspace-integrity provenance. Agentic attempts
+  remain one row at attempt grain even when one tool invocation creates several tests.
+- `attempt_id` is a deterministic SHA-256 key over repository, experiment series/run, lane, stable
+  work-item key, and attempt number. Local `generation_attempt_id` and `tool_attempt_id` values are
+  retained for database joins but are not globally unique.
+- `candidate_key` = `repository_identity|resolved_commit|target_id|source_member_id`
+  (lane-independent). `repository_key` = `repository_identity|resolved_commit`, where
+  `repository_identity` is the canonical `owner/repo`.
+- Chains group by candidate, lane, producer, budget arm, and available run/work-item identity:
+  `experiment_run_uid` (legacy fallback `experiment_run_id`) and `resume_stable_key`
+  (fallback `matrix_work_item_key`). Independent repetitions remain separate. Pairing requires
+  explicitly selecting one run/configuration per candidate and lane when repetitions exist.
 
 ## Outcome columns
 
 - `outcome_classification` — authoritative label: `ValidatedEvidencePositive` (VEP),
-  `ValidatedLowImpact` (VLI), `FailedEvidencePositive`, `ValidationFailed`, `BuildFailed`,
+  `ValidatedLowImpact` (VLI), `ValidatedImpactUnknown`, `FailedEvidencePositive`, `ValidationFailed`, `BuildFailed`,
   `TestsFailed`, `TimedOut`, `ToolFailed`, `ConstraintViolation`, `NoChange`, `NotEvaluated`.
-- `validated_success` — VEP **or** VLI (broad success).
+- `validated_success` — VEP, VLI, or `ValidatedImpactUnknown` (validation passed).
 - `validated_evidence_positive` / `positive_impact` — VEP only (passed **and** metrics improved
   above the noise floor). This is the primary practical-impact measure.
 - `metric_improved` — `coverage_delta` ≥ 0.01 (1pp on the 0–1 scale) **or** `mutation_score_delta`
   ≥ 1.0 (1pp on the 0–100 scale).
+- `ValidatedImpactUnknown` means validation passed but no comparable before/after metric was
+  available. `positive_impact` remains missing for these attempts rather than becoming false.
 - `produced_change` — the attempt applied a change (LLM: a test was written; agentic:
   `changed_files_count > 0`).
 
 ## Metrics
 
 - Coverage stored as a 0–1 fraction; mutation score as 0–100.
+- **Shared baseline.** Each candidate is measured once (a targeted coverage + mutation run)
+  before either lane, recorded in `candidate_baselines`, and both lanes compare against it:
+  LLM `baseline_test_run_id` and agentic `targeted_baseline_id` are the same run, so `*_before`
+  is identical across every arm and tool of a candidate. A resumed run reuses the stored
+  baseline. A candidate whose baseline is unusable is skipped in both lanes, with the reason
+  in `candidate_baselines.failure_reason`. The audit's `candidate_baseline_mismatch` error
+  flags any candidate compared against more than one baseline. Databases without
+  `candidate_baselines` (pilots V1–V3) measured a baseline per LLM attempt; the audit reports
+  those as `legacy_per_attempt_baselines` (info).
 - `*_before` / `*_after` / `*_delta` for coverage and mutation. When a build/test failure prevents a
   post-measurement, `*_after`/`*_delta` are set to `NaN` (not 0) so they drop out of distributions.
 - `effective_tokens` — lane-fair token cost. **Attempt level**: agentic `total_tokens`; LLM
-  `cumulative_tokens` (repair-chain running total). **Candidate level**: LLM max cumulative over the
-  chain, agentic sum. Do **not** sum attempt-level LLM `effective_tokens` (cumulative double-counts).
+  `cumulative_tokens` (repair-chain running total). **Chain level**: LLM last non-null cumulative
+  total in numeric attempt order, agentic sum. Duplicate or partially missing sequence numbers
+  are rejected; multi-step cumulative costs require a sequence. Input/output components follow
+  the same order. Do **not** sum attempt-level LLM cumulative totals.
+- For tokens among VEP results, filter chains to `any_positive_impact == True`, then summarize
+  their measured `effective_tokens`. Pool both LLM budget arms for the all-LLM comparison.
+  Missing agentic usage remains missing; report the number of VEP chains with measured usage.
 - Change footprint (agentic): `changed_files_count`, `production_files_changed`,
   `test_files_changed`, `project_files_changed`, `deleted_files_count`. A non-zero production-file
   rate is a correctness risk.
@@ -43,9 +66,10 @@ Column and semantics reference for the datasets in `data/`. For the operational 
 | Column(s) | Meaning |
 |---|---|
 | `assertion_count`, `invocation_count`, `assertion_source` | Assertions in the generated test. `assertion_source = invocations` is real Roslyn detection (validated tests with a persisted member); `code_regex` is the fallback for tests with no member. |
-| `lines_closed`, `mutants_newly_killed` | Before/after set differences vs the targeted source member: coverage-gap lines closed, and mutants that survived the baseline but were killed after. Tool lane uses `targeted_baseline_id` + `post_attempt_test_run_id`; LLM lane uses `baseline_test_run_id` + `test_run_id`. |
+| `lines_closed`, `mutants_newly_killed` | Before/after set differences vs the targeted source member: coverage-gap lines closed, and mutants that survived the baseline but were killed after. Tool lane uses `targeted_baseline_id` + `post_attempt_test_run_id`; LLM lane uses `baseline_test_run_id` + `test_run_id`. Gap differences require explicitly usable member and report coverage on both sides; an absent gap row alone is not evidence of coverage. |
+| `method_mutation_score_before`, `method_mutation_score_after`, `method_mutation_score_delta`, `method_mutants_before`, `method_mutants_after` | Mutation score of the targeted source member only, in percentage points: detected (Killed, Timeout) / valid (detected + Survived + NoCoverage) over that member's non-static mutants in each run; same run pairs as above. `method_mutants_*` is the valid-mutant denominator. All are `NaN` when a run did not mutate the member; the score is `NaN` when the member has no valid mutants. Unlike `mutation_score_*` (whole source project), this changes visibly when one test kills a few mutants. |
 | `generated_test_n` | Number of generated tests counted for the attempt (agents often produce several). |
-| `mutation_operators.csv` | Per repo × mutator: `Killed`/`Survived`/… counts and `survival_rate` = Survived / (Survived + Killed). |
+| `mutation_operators.csv` | Per repository revision × baseline report × mutator: status counts and `survival_rate` = Survived / (Survived + Killed). Includes `repository_key`, owner, commit, `mutation_testing_report_id`, and `_source_db`; profiles are restricted to the evaluation cohort. |
 
 These populate only when the relevant SQLite columns exist (added by the
 `AddGeneratedTestExecutionMemberAndBaseline` migration) and the experiment has been run with that
@@ -57,3 +81,39 @@ stay `NaN`).
 `attempt_count`, `any_validated_success`, `any_positive_impact`,
 `validated_evidence_positive_count`, `validated_low_impact_count`, `best_coverage_delta`,
 `best_mutation_delta`, `total_generated_tests`, `effective_tokens` (lane-fair candidate cost).
+
+`any_positive_impact` uses three-valued logic over evaluable attempts: any true makes the chain
+true; all measured false makes it false; otherwise it remains unknown. Infrastructure attempts
+are excluded from outcome aggregation.
+
+## Training mapping snapshot
+
+`export-training --grain mapping` retains one row per `mapping_id`. Measurement policy
+`initial-test-run-v1` selects the first persisted test run (lowest ID) per project, then its
+first coverage report and first solution-baseline mutation report. It does not substitute a
+later or targeted report when the initial measurement is unavailable. Report IDs and test-run
+IDs are exported. Legacy databases without run provenance use only an unambiguous single
+snapshot (`legacy-single-snapshot`); rows that cannot be tied to a selected report stay unknown.
+
+Coverage, gap counts, and mutation features come from these selected reports. Identical
+duplicate member-coverage observations are collapsed; conflicting values become missing with
+`coverage_observation_status = ConflictingObservations`. Other statuses are `Measured` and
+`Unavailable`. Missing or unusable coverage does not produce a zero gap count. Static joins
+that duplicate a mapping are rejected rather than expanding the training population.
+
+`source_test_mappings` holds both baseline and attempt-time mappings, updated in place by
+`(project_id, source_member_id, test_member_id, evidence_kind)`, so mapping IDs are stable.
+Baseline mappings are the rows whose test member has `members.origin_kind = 'Baseline'`; the
+training export and the MSR mapping frame keep only those. An attempt's mappings are reached
+through `tool_attempt_generated_tests.mapping_id` (tool lane) or the LLM row's
+`generated_test_member_id` joined to `test_member_id`. LLM-generated tests with the same name
+in the same file share one member row, so its mapping reflects the latest attempt.
+
+## Empty datasets and rebuilds
+
+Header-only result grains and assertion sidecars are valid under the explicitly selected
+schema. Nonempty rows still require the correct version. A present, empty assertion sidecar
+is distinct from a missing sidecar. A successful rebuild overwrites or removes each optional
+evaluation output so an older cohort's generated tests, assertions, profiles, or families
+cannot remain in that output directory. MSR appends validate and align columns; legacy trace
+metadata stays nullable within the same CSV schema.

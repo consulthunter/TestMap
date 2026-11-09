@@ -1,0 +1,30 @@
+{
+  "RuntimeConfig": {
+    "Project": {
+      "KeepProjectFiles": true,
+      "AnalyzeLatestCommit": false
+    },
+    "FilePaths": {
+      "TargetFilePath": "TestMap/Data/pinned-targets-smoke.yaml",
+      "LogsDirPath": "TestMap/Logs",
+      "TempDirPath": "Temp",
+      "OutputDirPath": "TestMap/Output"
+    },
+    "MaxConcurrency": 1,
+    "RunDateFormat": "yyyy-MM-dd"
+  },
+  "ExperimentConfig": {
+    "Objective": "test-suite-expansion",
+    "CandidateSelectionStrategy": "metric-driven-improvement",
+    "Approaches": ["metrics-driven"],
+    "MetricsPaths": ["coverage-and-mutation"],
+    "BudgetModes": ["pass-at1"],
+    "CandidateLimit": 1,
+    "Temperature": 0,
+    "OutputPath": "TestMap/Output/pinned-target-example-results.csv",
+    "Evaluation": {
+      "TestMap": { "Enabled": true },
+      "Tools": { "Enabled": false, "ToolIds": [] }
+    }
+  }
+}

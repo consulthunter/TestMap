@@ -474,9 +474,8 @@ public sealed class AnalyzeProjectServiceInvocationTests
         // Act — analyze in topological order, then run the BFS
         await service.AnalyzeProjectAsync(sourceProject, sharedMemberIds);
         await service.AnalyzeProjectAsync(testProject, sharedMemberIds);
-
-        // (The service calls RefreshForProjectAsync internally after each project, so
-        // mappings are already computed. Verify the final state of the mappings table.)
+        Assert.Empty(await db.SourceTestMappings.ToListAsync());
+        await service.RefreshSourceTestMappingsAsync(sharedMemberIds.Values, MemberAnalysisOrigin.Baseline());
 
         // Assert — exactly one mapping: production method ← test method
         var mappings = await db.SourceTestMappings.ToListAsync();

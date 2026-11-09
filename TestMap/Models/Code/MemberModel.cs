@@ -16,7 +16,10 @@ public class MemberModel(
     bool isGenerated = false,
     string testMetadataSource = "",
     double? testMetadataConfidence = null,
-    string testMetadataPromptVersion = "")
+    string testMetadataPromptVersion = "",
+    string signature = "",
+    string originKind = MemberOrigin.Baseline,
+    int? originAttemptId = null)
 {
     public int Id { get; set; } = id;
     public int ObjectEntityId { get; set; } = objectEntityId;
@@ -33,6 +36,9 @@ public class MemberModel(
     public string TestMetadataSource { get; set; } = testMetadataSource;
     public double? TestMetadataConfidence { get; set; } = testMetadataConfidence;
     public string TestMetadataPromptVersion { get; set; } = testMetadataPromptVersion;
+    public string Signature { get; set; } = signature;
+    public string OriginKind { get; set; } = originKind;
+    public int? OriginAttemptId { get; set; } = originAttemptId;
     public Location Location { get; set; } = location;
     public string ContentHash => Utilities.Utilities.ComputeMemberIdentityHash(ObjectEntityId, Name, Kind, FullString);
 }

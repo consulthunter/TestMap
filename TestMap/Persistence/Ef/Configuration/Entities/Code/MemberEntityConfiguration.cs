@@ -63,5 +63,9 @@ public class MemberEntityConfiguration : IEntityTypeConfiguration<MemberEntity>
                 .IsRequired();
         });
         builder.Property(x => x.ContentHash).HasColumnName("content_hash");
+        builder.Property(x => x.Signature).HasColumnName("signature").HasDefaultValue(string.Empty).IsRequired();
+        builder.Property(x => x.OriginKind).HasColumnName("origin_kind").HasDefaultValue(MemberOrigin.Baseline).IsRequired();
+        builder.Property(x => x.OriginAttemptId).HasColumnName("origin_attempt_id");
+        builder.HasIndex(x => new { x.ObjectEntityId, x.Signature, x.OriginKind, x.OriginAttemptId });
     }
 }

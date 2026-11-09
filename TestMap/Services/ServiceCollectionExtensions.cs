@@ -8,6 +8,7 @@ using TestMap.Persistence.Ef.Repositories.Code;
 using TestMap.Persistence.Ef.Repositories.Coverage;
 using TestMap.Persistence.Ef.Repositories.AgentTools;
 using TestMap.Persistence.Ef.Repositories.Experiment;
+using TestMap.Persistence.Ef.Repositories.Experiment.Assertions;
 using TestMap.Persistence.Ef.Repositories.FlakyTestDetection;
 using TestMap.Persistence.Ef.Repositories.MutationTesting;
 using TestMap.Persistence.Ef.Repositories.RiskScoring;
@@ -22,6 +23,7 @@ using TestMap.Services.Rules;
 using TestMap.Services.FlakyTestDetection;
 using TestMap.Services.RiskScoring;
 using TestMap.Services.StaticAnalysis;
+using TestMap.Services.StaticAnalysis.Assertions;
 using TestMap.Services.StaticAnalysis.Enrichment;
 using TestMap.Services.TestExecution;
 using TestMap.Services.TestExecution.Collection;
@@ -34,6 +36,7 @@ using TestMap.Services.TestGeneration.Evidence;
 using TestMap.Services.TestGeneration.Providers;
 using TestMap.Services.TestGeneration.Providers.Abstractions;
 using TestMap.Services.TestGeneration.Providers.Amazon;
+using TestMap.Services.TestGeneration.Providers.Anthropic;
 using TestMap.Services.TestGeneration.Providers.Custom;
 using TestMap.Services.TestGeneration.Providers.Google;
 using TestMap.Services.TestGeneration.Providers.Ollama;
@@ -50,6 +53,9 @@ using TestMap.Services.Experiment.TaskCards;
 using TestMap.Services.TestGeneration.TargetSelection;
 using TestMap.Services.TestGeneration.TargetSelection.Strategies;
 using TestMap.Services.TestGeneration.Validation;
+using TestMap.Services.Targets;
+using TestMap.Services.Targets.Contracts;
+using TestMap.Services.Logging;
 
 namespace TestMap.Services;
 
@@ -95,6 +101,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITestActionExecutor, ActionAwareTestActionExecutor>();
         services.AddScoped<IGeneratedTestApplicationService, GeneratedTestApplicationService>();
         services.AddScoped<RollbackWorkspaceService>();
+        services.AddScoped<IWorkspaceIntegrityService, WorkspaceIntegrityService>();
         services.AddScoped<IGenerationWorkspaceService, BranchWorkspaceService>();
         services.AddScoped<CollectCoverageResultsService>();
         services.AddScoped<CollectMutationTestingResultsService>();
@@ -164,6 +171,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAiGenerationProvider, GoogleGeminiGenerationProvider>();
         services.AddScoped<IAiGenerationProvider, GoogleCloudGenerationProvider>();
         services.AddScoped<IAiGenerationProvider, AmazonGenerationProvider>();
+        services.AddScoped<IAiGenerationProvider, AnthropicGenerationProvider>();
 
         return services;
     }
@@ -173,9 +181,45 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddProjectServices(this IServiceCollection services)
     {
+        services.AddScoped<ProjectLogDirectoryAllocator>();
+        services.AddScoped<TargetIdentityService>();
+        services.AddScoped<TargetFingerprintService>();
+        services.AddScoped<IAtomicFilePublisher, AtomicFilePublisher>();
+        services.AddScoped<ITargetImportService, DelimitedTargetImportService>();
+        services.AddScoped<ITargetManifestSerializer, TargetManifestSerializer>();
+        services.AddScoped<TargetRejectionReportWriter>();
+        services.AddScoped<TargetManifestCreationService>();
+        services.AddScoped<ISingleRepositoryUrlParser, SingleRepositoryUrlParser>();
+        services.AddScoped<SingleRepositoryResolutionSanitizer>();
+        services.AddScoped<SingleRepositoryResolutionValidator>();
+        services.AddScoped<ISingleRepositoryResolutionSerializer, SingleRepositoryResolutionSerializer>();
+        services.AddScoped<GitHubRepositoryResolutionFailureClassifier>();
+        services.AddScoped<IRepositoryResolutionClient>(sp => new GitHubRepositoryResolutionClient(
+            Environment.GetEnvironmentVariable("GITHUB_TOKEN"),
+            sp.GetRequiredService<GitHubRepositoryResolutionFailureClassifier>()));
+        services.AddScoped<ISingleRepositoryResolver, SingleRepositoryResolver>();
+        services.AddScoped<SingleRepositoryTargetContractValidator>();
+        services.AddScoped<SingleRepositoryTargetPathResolver>();
+        services.AddScoped<SingleRepositoryTargetCreationService>();
+        services.AddScoped<IRemoteRepositoryProbe, LibGitRemoteRepositoryProbe>();
+        services.AddScoped<ITargetVerificationService, TargetVerificationService>();
+        services.AddScoped<TargetVerificationCoordinator>();
+        services.AddScoped<TargetVerificationReportWriter>();
+        services.AddScoped<TargetExecutionReportWriter>();
+        services.AddScoped<TargetPathResolver>();
+        services.AddScoped<ITargetSourceReader, TargetSourceReader>();
+        services.AddScoped<RepositoryUrlService>();
+        services.AddScoped<IRevisionWorkspaceLock, RevisionWorkspaceLock>();
+        services.AddScoped<IRepositoryMaterializationService, RepositoryMaterializationService>();
         services.AddScoped<IRepoOperations, RepoOperations.RepoOperations>();
         services.AddScoped<IStaticAnalysisWorkspace, StaticAnalysisWorkspace>();
         services.AddScoped<IRoslynSourceTestTraceService, RoslynSourceTestTraceService>();
+        services.AddSingleton<AssertionPatternCatalog>();
+        services.AddSingleton<AssertionOperandExtractor>();
+        services.AddSingleton<AssertionLineageClassifier>();
+        services.AddSingleton<RoslynProductionMemberResolver>();
+        services.AddScoped<AssertionLineageSlicer>();
+        services.AddScoped<IAssertionLineageAnalysisService, RoslynAssertionLineageAnalysisService>();
         services.AddScoped<IAnalyzeProjectService, AnalyzeProjectService>();
         services.AddScoped<ICodeMetricsService, CodeMetricsService>();
         services.AddScoped<ITestMetadataEnrichmentService, TestMetadataEnrichmentService>();
@@ -186,21 +230,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IGenerateTestService, GenerateTestService>();
         services.AddScoped<ICloneRepoService, CloneRepoService>();
         services.AddScoped<IDeleteProjectService, DeleteProjectService>();
-
-        return services;
-    }
-
-    /// <summary>
-    /// Adds project operation services with required dependencies.
-    /// </summary>
-    public static IServiceCollection AddProjectOperations(
-        this IServiceCollection services,
-        Models.Configuration.TestMapConfig config,
-        string githubToken,
-        ProjectContext context)
-    {
-        services.AddScoped<ICheckProjectsService, CheckProjectsService>(sp =>
-            new CheckProjectsService(config, githubToken, context));
 
         return services;
     }
@@ -242,13 +271,17 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddExperimentRepositories(this IServiceCollection services)
     {
         services.AddScoped<ExperimentRunRepository>();
+        services.AddScoped<CandidateCohortRepository>();
         services.AddScoped<ExperimentMatrixWorkItemRepository>();
         services.AddScoped<CandidateInventoryRepository>();
         services.AddScoped<SourceTestMappingRefreshService>();
         services.AddScoped<CandidateMethodRepository>();
         services.AddScoped<GenerationAttemptRepository>();
+        services.AddScoped<WorkspaceIntegrityObservationRepository>();
+        services.AddScoped<ICandidateBaselineStore, CandidateBaselineRepository>();
         services.AddScoped<GenerationStepRepository>();
         services.AddScoped<TestExecutionRepository>();
+        services.AddScoped<AssertionLineageMeasurementRepository>();
         services.AddScoped<ISourceTestMappingRefreshService>(sp =>
             sp.GetRequiredService<SourceTestMappingRefreshService>());
 
@@ -267,14 +300,18 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICandidateMethodMetadataService, CandidateMethodMetadataService>();
         services.AddScoped<IMethodSelectionService, MethodSelectionService>();
         services.AddScoped<IExperimentOrchestrationService, ExperimentOrchestrationService>();
+        services.AddScoped<CandidateCohortService>();
         services.AddScoped<IExperimentAnalysisService, ExperimentAnalysisService>();
         services.AddScoped<IExperimentResultsWriter, ExperimentResultsWriter>();
+        services.AddScoped<IAssertionObservationWriter, AssertionObservationWriter>();
+        services.AddScoped<IAssertionLineageSummaryService, AssertionLineageSummaryService>();
+        services.AddScoped<IAssertionLineageAuditService, AssertionLineageAuditService>();
         services.AddScoped<IStepAblationVariantGenerator, StepAblationVariantGenerator>();
         services.AddScoped<IGenerationExperimentMatrixGenerator, GenerationExperimentMatrixGenerator>();
         services.AddScoped<IGenerationBudgetExecutor, GenerationBudgetExecutor>();
         services.AddScoped<IExperimentResumeService, ExperimentResumeService>();
         services.AddScoped<ITargetedBaselineService, TargetedBaselineService>();
-        services.AddScoped<IToolPostAttemptRefreshService, ToolPostAttemptRefreshService>();
+        services.AddScoped<IAttemptMetricComparisonService, AttemptMetricComparisonService>();
         services.AddScoped<IToolPostAttemptAnalysisService, ToolPostAttemptAnalysisService>();
         services.AddScoped<IToolAttemptGeneratedTestService, ToolAttemptGeneratedTestService>();
         services.AddScoped<IToolPostAttemptMeasurementService, ToolPostAttemptMeasurementService>();
@@ -298,7 +335,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<BuildTestStep>();
         services.AddScoped<WriteCollectTestsResultStep>();
         services.AddScoped<GenerateTestsStep>();
-        services.AddScoped<CheckProjectsStep>();
         services.AddScoped<RunExperimentStep>();
 
         return services;
@@ -311,7 +347,6 @@ public static class ServiceCollectionExtensions
     {
         services.AddTransient<CollectTestsRun>();
         services.AddTransient<GenerateTestsRun>();
-        services.AddTransient<CheckProjectsRun>();
         services.AddTransient<ExperimentRun>();
         services.AddTransient<StaticAnalysisRun>();
 
@@ -368,9 +403,6 @@ public static class ServiceCollectionExtensions
         services.AddTestMapCore();
         services.AddAiProviders();
         services.AddProjectServices();
-
-        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN") ?? "";
-        services.AddProjectOperations(config, token, context);
 
         services.AddTestMapRepositories();
         services.AddExperimentRepositories();

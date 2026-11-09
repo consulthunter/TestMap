@@ -25,7 +25,7 @@ public sealed class ToolPostAttemptAnalysisServiceTests
         var (svc, analyze, metrics, smells) = MakeService(dbId: 1);
 
         /// Act
-        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath: string.Empty));
+        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath: string.Empty), 123);
 
         /// Assert
         Assert.False(result.Analyzed);
@@ -43,7 +43,7 @@ public sealed class ToolPostAttemptAnalysisServiceTests
         var (svc, analyze, metrics, smells) = MakeService(dbId: 1, projects: []);
 
         /// Act
-        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath: "tests/Tests.csproj"));
+        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath: "tests/Tests.csproj"), 123);
 
         /// Assert
         Assert.False(result.Analyzed);
@@ -70,13 +70,16 @@ public sealed class ToolPostAttemptAnalysisServiceTests
         var (svc, analyze, _, _) = MakeService(dbId: 1, projects: projects);
 
         /// Act
-        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath));
+        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath), 123);
 
         /// Assert: AnalyzeProjectAsync called once per project.
         Assert.True(result.Analyzed);
         Assert.Equal(2, analyze.Calls.Count);
         Assert.Contains(analyze.Calls, c => c.FilePath == srcProjectPath);
         Assert.Contains(analyze.Calls, c => c.FilePath == testProjectPath);
+
+        // Mappings are traced once for the whole pass, scoped to this attempt.
+        Assert.Equal(MemberAnalysisOrigin.ToolAttempt(123), Assert.Single(analyze.MappingRefreshes));
     }
 
     [Fact]
@@ -89,7 +92,7 @@ public sealed class ToolPostAttemptAnalysisServiceTests
             projects: [MakeProject(testProjectPath)]);
 
         /// Act
-        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath));
+        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath), 123);
 
         /// Assert: code metrics collected once, for the test project.
         Assert.True(result.Analyzed);
@@ -107,7 +110,7 @@ public sealed class ToolPostAttemptAnalysisServiceTests
             projects: [MakeProject(testProjectPath)]);
 
         /// Act
-        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath));
+        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath), 123);
 
         /// Assert: smell collection called with the exact path and project DB id.
         Assert.True(result.Analyzed);
@@ -126,7 +129,7 @@ public sealed class ToolPostAttemptAnalysisServiceTests
             projects: [MakeProject(testProjectPath)]);
 
         /// Act
-        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath));
+        var result = await svc.AnalyzeAsync(MakeContext(testProjectPath), 123);
 
         /// Assert: analysis succeeds but smells are not collected.
         Assert.True(result.Analyzed);
@@ -219,9 +222,21 @@ public sealed class ToolPostAttemptAnalysisServiceTests
 
         public Task AnalyzeProjectAsync(
             CSharpProjectModel analysisProject,
-            Dictionary<string, int>? sharedMemberIds = null)
+            Dictionary<string, int>? sharedMemberIds = null,
+            MemberAnalysisOrigin? origin = null)
         {
             Calls.Add(analysisProject);
+            return Task.CompletedTask;
+        }
+
+        public List<MemberAnalysisOrigin> MappingRefreshes { get; } = [];
+
+        public Task RefreshSourceTestMappingsAsync(
+            IReadOnlyCollection<int> observedMemberIds,
+            MemberAnalysisOrigin origin,
+            CancellationToken cancellationToken = default)
+        {
+            MappingRefreshes.Add(origin);
             return Task.CompletedTask;
         }
     }

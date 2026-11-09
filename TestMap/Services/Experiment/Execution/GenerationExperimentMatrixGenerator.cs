@@ -24,6 +24,15 @@ public sealed class GenerationExperimentMatrixGenerator : IGenerationExperimentM
         ExperimentConfig config,
         IReadOnlyList<AiProvider> providers)
     {
+        return Generate(
+            config,
+            providers.Distinct().Select(x => GenerationLlmArm.ForProvider(x, ResolveModelName(x))).ToList());
+    }
+
+    public GenerationExperimentMatrix Generate(
+        ExperimentConfig config,
+        IReadOnlyList<GenerationLlmArm> arms)
+    {
         var decisions = new List<RuleDecisionRecord>();
         var contextModes = GetContextModes(config, decisions);
         var stepVariants = _stepAblationVariantGenerator.Generate(
@@ -38,17 +47,23 @@ public sealed class GenerationExperimentMatrixGenerator : IGenerationExperimentM
 
         var items = new List<GenerationExperimentMatrixItem>();
 
-        foreach (var provider in providers.Distinct())
+        foreach (var arm in arms)
         foreach (var approach in approaches)
         foreach (var metricsPath in GetMetricsPaths(config, approach, decisions))
         foreach (var contextMode in contextModes)
         foreach (var budgetMode in budgetModes)
         foreach (var steps in stepVariants.Variants)
         {
-            var modelName = ResolveModelName(provider);
+            var modelName = string.IsNullOrWhiteSpace(arm.ModelName)
+                ? ResolveModelName(arm.Provider)
+                : arm.ModelName;
+
+            // The arm id leads the variant id. For a config without an explicit LlmArms list the id
+            // is the provider name, so those configs keep producing exactly the variant ids they
+            // did before arms existed.
             var variantId = string.Join(
                 "__",
-                provider,
+                arm.Id,
                 approach,
                 metricsPath?.ToString() ?? "NoMetrics",
                 contextMode,
@@ -58,8 +73,10 @@ public sealed class GenerationExperimentMatrixGenerator : IGenerationExperimentM
             items.Add(new GenerationExperimentMatrixItem
             {
                 VariantId = variantId,
-                Provider = provider,
+                ArmId = arm.Id,
+                Provider = arm.Provider,
                 ModelName = modelName,
+                Endpoint = arm.Endpoint,
                 Approach = approach,
                 MetricsPath = metricsPath,
                 ContextMode = contextMode,
@@ -72,8 +89,10 @@ public sealed class GenerationExperimentMatrixGenerator : IGenerationExperimentM
                     new GenerationExperimentMatrixItem
                     {
                         VariantId = variantId,
-                        Provider = provider,
+                        ArmId = arm.Id,
+                        Provider = arm.Provider,
                         ModelName = modelName,
+                        Endpoint = arm.Endpoint,
                         Approach = approach,
                         MetricsPath = metricsPath,
                         ContextMode = contextMode,

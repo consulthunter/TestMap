@@ -29,6 +29,10 @@ public sealed class ExperimentEvaluationConfigTests
         Assert.True(config.TestMap.Enabled);
         Assert.False(config.Tools.Enabled);
         Assert.Empty(config.Tools.ToolIds);
+        Assert.True(config.Assertions.Enabled);
+        Assert.Equal(
+            AssertionLineageEvaluationConfig.DefaultMaxDepth,
+            config.Assertions.MaxDepth);
     }
 
     /// <summary>
@@ -83,6 +87,11 @@ public sealed class ExperimentEvaluationConfigTests
                 Enabled = true,
                 ToolIds = ["codex", "claude"],
                 RequireAvailabilityInSetup = false
+            },
+            Assertions = new AssertionLineageEvaluationConfig
+            {
+                Enabled = true,
+                MaxDepth = 7
             }
         };
 
@@ -97,6 +106,8 @@ public sealed class ExperimentEvaluationConfigTests
         Assert.Contains("codex", deserialized.Tools.ToolIds);
         Assert.Contains("claude", deserialized.Tools.ToolIds);
         Assert.False(deserialized.Tools.RequireAvailabilityInSetup);
+        Assert.True(deserialized.Assertions.Enabled);
+        Assert.Equal(7, deserialized.Assertions.MaxDepth);
     }
 
     /// <summary>

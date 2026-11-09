@@ -12,4 +12,5 @@ public class TestRunModel
     public string LogPath { get; set; } = "";
     public List<TestResultModel> Results { get; set; } = new();
     public FailureAnalysisModel? FailureAnalysis { get; set; }
+    public string ReportRole { get; set; } = TestReportRole.AttemptMeasurement;
 }

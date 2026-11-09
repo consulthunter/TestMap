@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TestMap.Models.Configuration;
 using TestMap.Models.Configuration.AiProviders;
+using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.Testing;
 using TestMap.Models.Configuration.Testing.Generation;
 using TestMap.Models.Experiment;
@@ -155,6 +156,34 @@ public sealed class ConfigJsonSerializerTests
         var framework = Assert.Single(config.TestingConfig.TestingFrameworks);
         var concreteFramework = Assert.IsType<FrameworkConfig>(framework);
         Assert.Equal(["Fact", "Theory"], concreteFramework.patterns);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Deserialize_TestMapConfig_ReadsCandidateCohortContract()
+    {
+        const string json = """
+                            {
+                              "ExperimentConfig": {
+                                "ExperimentSeriesId": "model-study",
+                                "CandidateCohort": {
+                                  "Id": "cohort-a",
+                                  "Mode": "create",
+                                  "Randomize": true,
+                                  "RandomSeed": 42
+                                }
+                              }
+                            }
+                            """;
+
+        var config = JsonSerializer.Deserialize<TestMapConfig>(json, _options);
+
+        Assert.NotNull(config);
+        Assert.Equal("model-study", config.ExperimentConfig.ExperimentSeriesId);
+        Assert.Equal("cohort-a", config.ExperimentConfig.CandidateCohort.Id);
+        Assert.Equal(CandidateCohortMode.Create, config.ExperimentConfig.CandidateCohort.Mode);
+        Assert.True(config.ExperimentConfig.CandidateCohort.Randomize);
+        Assert.Equal(42, config.ExperimentConfig.CandidateCohort.RandomSeed);
     }
 
     /// <summary>

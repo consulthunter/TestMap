@@ -15,6 +15,14 @@ public sealed class ToolPostAttemptAnalysisResult
     /// Reason the analysis was skipped. Empty when <see cref="Analyzed"/> is true.
     /// </summary>
     public string SkipReason { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Ids of the members this pass actually observed in the workspace. Member rows are
+    /// upserted and never removed, so the database also holds members from earlier attempts
+    /// whose declarations no longer exist. Only ids in this set are present in the workspace
+    /// the attempt produced.
+    /// </summary>
+    public IReadOnlySet<int> ObservedMemberIds { get; init; } = new HashSet<int>();
 }
 
 public interface IToolPostAttemptAnalysisService
@@ -28,6 +36,7 @@ public interface IToolPostAttemptAnalysisService
     /// </summary>
     Task<ToolPostAttemptAnalysisResult> AnalyzeAsync(
         CandidateMethodContext methodContext,
+        int toolAttemptId,
         CancellationToken cancellationToken = default);
 }
 
@@ -57,6 +66,7 @@ public sealed class ToolPostAttemptAnalysisService : IToolPostAttemptAnalysisSer
 
     public async Task<ToolPostAttemptAnalysisResult> AnalyzeAsync(
         CandidateMethodContext methodContext,
+        int toolAttemptId,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(methodContext.TestProjectPath))
@@ -77,7 +87,16 @@ public sealed class ToolPostAttemptAnalysisService : IToolPostAttemptAnalysisSer
         // cross-project invocation edges resolve correctly.
         var sharedMemberIds = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var project in TopologicallySorted(_context.Project.Projects))
-            await _analyzeProjectService.AnalyzeProjectAsync(project, sharedMemberIds);
+            await _analyzeProjectService.AnalyzeProjectAsync(
+                project,
+                sharedMemberIds,
+                MemberAnalysisOrigin.ToolAttempt(toolAttemptId));
+
+        // Trace the tests this attempt added or changed, so LinkAsync finds their mappings.
+        await _analyzeProjectService.RefreshSourceTestMappingsAsync(
+            sharedMemberIds.Values,
+            MemberAnalysisOrigin.ToolAttempt(toolAttemptId),
+            cancellationToken);
 
         // Collect code metrics scoped to the test project only.
         await _codeMetricsService.CollectCodeMetricsAsync(testProject, cancellationToken);
@@ -89,7 +108,11 @@ public sealed class ToolPostAttemptAnalysisService : IToolPostAttemptAnalysisSer
                 _context.Project.DbId,
                 cancellationToken);
 
-        return new ToolPostAttemptAnalysisResult { Analyzed = true };
+        return new ToolPostAttemptAnalysisResult
+        {
+            Analyzed = true,
+            ObservedMemberIds = sharedMemberIds.Values.ToHashSet()
+        };
     }
 
     private static ToolPostAttemptAnalysisResult Skip(string reason) =>

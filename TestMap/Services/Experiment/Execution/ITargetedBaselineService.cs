@@ -7,6 +7,10 @@ public sealed class TargetedBaselineResult
 {
     public int? TestRunId { get; init; }
     public bool Ran { get; init; }
+
+    /// <summary>The run compiled, executed tests without a failure analysis, and was persisted.</summary>
+    public bool Usable { get; init; }
+
     public string SkipReason { get; init; } = string.Empty;
 }
 

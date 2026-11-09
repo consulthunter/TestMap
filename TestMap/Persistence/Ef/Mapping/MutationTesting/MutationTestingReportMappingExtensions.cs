@@ -31,6 +31,7 @@ public static class MutationTestingReportMappingExtensions
             ExperimentRunId = scope.ExperimentRunId,
             ScopeKind = scope.ScopeKind,
             IsBaseline = scope.IsBaseline,
+            ReportRole = scope.ReportRole,
             SourceProjectPath = scope.SourceProjectPath,
             TestProjectPath = scope.TestProjectPath,
             TargetFramework = scope.TargetFramework,

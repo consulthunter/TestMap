@@ -1,3 +1,4 @@
+using TestMap.Models;
 using TestMap.Models.Results;
 using TestMap.Models.Testing;
 using TestMap.Persistence.Ef.Entities.Testing;
@@ -11,6 +12,25 @@ namespace TestMap.UnitTests.Persistence;
 /// </summary>
 public sealed class TestRunMappingExtensionsTests
 {
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ToEntity_ProjectModel_KeepsRunIdentityIndependentFromReadableLogPath()
+    {
+        var project = new ProjectModel(owner: "owner", repoName: "repository")
+        {
+            DbId = 42,
+            ProjectId = "existing-run-identity"
+        };
+        var logPath = Path.Combine(
+            "Logs", "2026-07-16", "14-05-09_owner-repository", "existing-run-identity.log");
+
+        var entity = project.ToEntity(success: true, coverage: 80, logPath);
+
+        Assert.Equal(42, entity.ProjectId);
+        Assert.Equal("existing-run-identity", entity.RunId);
+        Assert.Equal(logPath, entity.LogPath);
+    }
+
     /// <summary>
     /// ToDomain maps the database primary key to DbId and the foreign key to DbProjectId,
     /// ensuring callers can correlate a returned domain object with the underlying row.

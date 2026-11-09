@@ -5,7 +5,7 @@
       "AnalyzeLatestCommit": false
     },
     "FilePaths": {
-      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example_project.txt",
+      "TargetFilePath": "D:\\Projects\\TestMap\\TestMap\\Data\\example.yaml",
       "LogsDirPath": "D:\\Projects\\TestMap\\TestMap\\Logs",
       "TempDirPath": "D:\\Projects\\TestMap\\Temp",
       "OutputDirPath": "D:\\Projects\\TestMap\\TestMap\\Output"
@@ -14,6 +14,7 @@
       "DefaultContext": "desktop-linux",
       "WindowsContext": "desktop-windows",
       "WindowsNetwork": "nat",
+      "StrykerConcurrency": 4,
       "Images": {
         "ValidationSdkAll": "testmap-validation-sdk-all:latest",
         "AgentTools": {
@@ -73,14 +74,14 @@
         "EnableEvidencePackage": true,
         "EnableContextGraph": true,
         "EnableContextResolution": true,
-        "EnableRoslynValidation": true,
+        "EnableRoslynValidation": false,
         "EnableSpeculativePlanning": false,
-        "EnableScenario": true,
-        "EnableMethodName": true,
-        "EnableArrangePlan": true,
-        "EnableInputPlan": true,
-        "EnableActionPlan": true,
-        "EnableAssertionPlan": true,
+        "EnableScenario": false,
+        "EnableMethodName": false,
+        "EnableArrangePlan": false,
+        "EnableInputPlan": false,
+        "EnableActionPlan": false,
+        "EnableAssertionPlan": false,
         "EnableFinalTest": true
       },
       "Acceptance": {
@@ -126,13 +127,19 @@
   },
   "AiProviderConfig": {
     "OpenAi": {
-      "Model": "gpt-5.1",
+      "Model": "gpt-5-mini",
       "OrgId": "",
       "ApiKey": "",
       "Provider": "openai"
     },
+    "Anthropic": {
+      "Model": "claude-haiku-4-5-20251001",
+      "AwsAccessKey": "",
+      "ApiKey": "",
+      "Provider": "anthropic"
+    },
     "Amazon": {
-      "Model": "",
+      "Model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
       "AwsAccessKey": "",
       "ApiKey": "",
       "Provider": "amazon",
@@ -158,7 +165,7 @@
       "Provider": "google-cloud"
     },
     "CustomOpenAi": {
-      "Model": "gpt-oss-120b",
+      "Model": "GLM-5.3",
       "OrgId": "",
       "ApiKey": "",
       "Endpoint": "https://llm-api.arc.vt.edu/api/",
@@ -183,9 +190,7 @@
       "coverage-and-mutation"
     ],
     "BudgetModes": [
-      "pass-at1",
-      "pass-at5",
-      "pass-at1-repair-at5"
+      "pass-at1"
     ],
     "ContextMappingMode": "heuristic-with-grounded-preference",
     "CompareHistoryModes": false,
@@ -211,17 +216,44 @@
       "IncludeAllDisabled": false,
       "MaxVariants": 32
     },
-    "Temperature": 0,
+    "Temperature": 1,
     "IncludeProviders": [
-      "CustomOpenAi"
+      "Anthropic"
     ],
-    "PreferredProvider": "CustomOpenAi",
-    "CandidateLimit": 10,
+    "PreferredProvider": "Anthropic",
+    "CandidateLimit": 1,
     "MinCoverageThreshold": 0.0,
     "MaxCoverageThreshold": 0.99,
     "StepErrorRetries": 3,
     "StepRetryDelayMs": 2000,
     "OutputPath": "D:\\Projects\\TestMap\\TestMap\\Output",
-    "IncludeDetailedErrors": true
+    "IncludeDetailedErrors": true,
+    "Evaluation": {
+      "TestMap": {
+        "Enabled": false
+      },
+      "Tools": {
+        "Enabled": true,
+        "ToolIds": ["openhands"],
+        "RequireAvailabilityInSetup": true
+      },
+      "Assertions": {
+        "Enabled": true,
+        "MaxDepth": 4
+      }
+    },
+    "Tools": [
+      {
+        "Id": "openhands",
+        "ImageKey": "openhands",
+        "Provider": "OpenAi",
+        "Model": "gpt-5-mini",
+        "TimeoutMinutes": 45,
+        "RequiredEnvironmentVariables": [ "OPENAI_API_KEY" ],
+        "Environment": {
+          "OPENHANDS_APPROVAL_MODE": "always-approve"
+        }
+      }
+    ]
   }
 }

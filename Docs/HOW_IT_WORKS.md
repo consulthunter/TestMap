@@ -52,6 +52,16 @@ Candidate methods are selected from stored analysis data. Strategies can focus o
 tests, low coverage, mutation weakness, or metric-driven improvement. Candidate selection is
 intentionally data-driven so experiment rows can be traced back to the same method and evidence.
 
+For experiments split across multiple invocations, candidate cohorts separate sampling from
+execution. A `create` run performs a seeded random ordering after eligibility and context resolution,
+then persists the exact candidate snapshots and stable source identities. A `reuse` run clones those
+snapshots into new run-local candidate rows. This keeps attempt ownership and reporting isolated per
+run while ensuring every compared model receives the same methods in the same order.
+
+An experiment series groups those execution runs and provides their default resume namespace.
+Compatibility checks bind a cohort to its repository, commit, objective, selection settings,
+candidate limit, and coverage thresholds.
+
 ## 6. Built-In LLM Generation Lane
 
 The TestMap lane uses the configured provider and generation profile to produce tests. The recommended
@@ -102,3 +112,18 @@ Both lanes are evaluated through the same persisted evidence and result reportin
 Experiment mode writes row-level results to CSV and persists richer data to SQLite. The CSV is for
 analysis and comparison; the database is the source of detailed attempt, execution, mapping, and
 artifact metadata.
+# Revision and Integrity Provenance
+
+The manifest byte hash is the provenance root. Before SQLite initialization, TestMap validates the
+origin, obtains the requested commit, checks it out detached, and verifies a clean tree. Requested
+and resolved commits must be identical.
+
+Workspace integrity is observed before extraction, baselines, experiment start, every attempt,
+post-attempt analysis, after rollback, and before result publication. A moved `HEAD`, wrong origin,
+invalid repository, unexpected dirty state, or failed restore blocks validation and positive-impact
+classification. Cleanup always targets the persisted base commit, never whatever `HEAD` happens to
+be after an agent exits.
+
+Canonical result schema 3.0 repeats target and revision provenance on attempt, generated-test, and
+test-result rows. Analysis uses `repository_family_key` for a project across revisions and
+`repository_revision_key` for one exact commit.

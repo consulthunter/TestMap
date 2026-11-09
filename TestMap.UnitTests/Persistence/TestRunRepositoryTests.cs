@@ -76,8 +76,8 @@ public sealed class TestRunRepositoryTests
     }
 
     /// <summary>
-    /// GetLatestBaselineAsync returns the most-recently created run whose RunId starts
-    /// with "baseline_", ordered by CreatedAt descending then Id descending.
+    /// GetLatestBaselineAsync returns the most-recent repository-baseline role,
+    /// ordered by CreatedAt descending then Id descending.
     /// </summary>
     [Fact]
     [Trait("Category", "Unit")]
@@ -96,6 +96,7 @@ public sealed class TestRunRepositoryTests
             Success = true,
             Coverage = 60,
             LogPath = string.Empty,
+            ReportRole = TestReportRole.RepositoryBaseline,
             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
         };
         var newer = new TestRunEntity
@@ -106,6 +107,7 @@ public sealed class TestRunRepositoryTests
             Success = true,
             Coverage = 80,
             LogPath = string.Empty,
+            ReportRole = TestReportRole.RepositoryBaseline,
             CreatedAt = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc)
         };
         db.TestRuns.AddRange(older, newer);

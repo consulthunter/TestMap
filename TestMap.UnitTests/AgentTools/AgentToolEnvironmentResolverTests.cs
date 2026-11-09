@@ -1,5 +1,6 @@
 using TestMap.Models.Configuration.AiProviders;
 using TestMap.Models.Configuration.AiProviders.Custom;
+using TestMap.Models.Configuration.AiProviders.Ollama;
 using TestMap.Models.Configuration.AiProviders.OpenAI;
 using TestMap.Models.Configuration.Experiment;
 using TestMap.Models.Configuration.Testing.Generation;
@@ -406,5 +407,133 @@ public sealed class AgentToolEnvironmentResolverTests
         // Assert
         Assert.Equal("300", result.ToolVars["CODEX_TIMEOUT"]);
         Assert.Equal("true", result.ToolVars["CODEX_VERBOSE"]);
+    }
+
+    /// <summary>
+    /// Copilot on GitHub-hosted models authenticates with GITHUB_COPILOT_TOKEN alone: no provider
+    /// API key is demanded even when the host environment has none.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_CopilotWithoutEndpoint_DoesNotRequireProviderApiKey()
+    {
+        var resolver = MakeResolver();
+        var previousOpenAi = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        Environment.SetEnvironmentVariable("OPENAI_API_KEY", null);
+        try
+        {
+            var providers = new AiProviderConfig
+            {
+                OpenAi = new OpenAiConfig { ApiKey = string.Empty, Model = "gpt-5.2" }
+            };
+
+            var result = resolver.Resolve(
+                new ExperimentToolConfig { Id = "copilot" },
+                providers,
+                MakeGenerationConfig(AiProvider.OpenAi));
+
+            Assert.True(result.IsValid);
+            Assert.Empty(result.MissingRequiredSecrets);
+            Assert.False(result.NormalizedVars.ContainsKey("TESTMAP_LLM_BASE_URL"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", previousOpenAi);
+        }
+    }
+
+    /// <summary>
+    /// In BYOK mode the model calls leave GitHub, so a missing provider key is a hard failure at
+    /// availability time rather than a 401 partway through the attempt.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_CopilotByokWithoutProviderKey_ReportsMissingSecret()
+    {
+        var resolver = MakeResolver();
+        var previousCustom = Environment.GetEnvironmentVariable("CUSTOM_API_KEY");
+        Environment.SetEnvironmentVariable("CUSTOM_API_KEY", null);
+        try
+        {
+            var providers = new AiProviderConfig
+            {
+                CustomOpenAi = new CustomOpenAiConfig
+                {
+                    ApiKey = string.Empty,
+                    Model = "gpt-oss-120b",
+                    Endpoint = "https://llm-api.example.test/api/"
+                }
+            };
+
+            var result = resolver.Resolve(
+                new ExperimentToolConfig { Id = "copilot", Provider = AiProvider.CustomOpenAi },
+                providers,
+                MakeGenerationConfig(AiProvider.CustomOpenAi));
+
+            Assert.False(result.IsValid);
+            Assert.Contains("CUSTOM_API_KEY", result.MissingRequiredSecrets);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CUSTOM_API_KEY", previousCustom);
+        }
+    }
+
+    /// <summary>
+    /// A configured BYOK key travels in NormalizedVars only, alongside the endpoint, and never
+    /// reaches persisted metadata.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_CopilotByokWithProviderKey_EmitsKeyAndEndpointWithoutPersisting()
+    {
+        var resolver = MakeResolver();
+        var providers = new AiProviderConfig
+        {
+            CustomOpenAi = new CustomOpenAiConfig
+            {
+                ApiKey = "custom-key",
+                Model = "gpt-oss-120b",
+                Endpoint = "https://llm-api.example.test/api/"
+            }
+        };
+
+        var result = resolver.Resolve(
+            new ExperimentToolConfig { Id = "copilot", Provider = AiProvider.CustomOpenAi },
+            providers,
+            MakeGenerationConfig(AiProvider.CustomOpenAi));
+
+        Assert.True(result.IsValid);
+        Assert.Equal("custom-key", result.NormalizedVars["TESTMAP_LLM_API_KEY"]);
+        Assert.Equal("https://llm-api.example.test/api/", result.NormalizedVars["TESTMAP_LLM_BASE_URL"]);
+        Assert.DoesNotContain("TESTMAP_LLM_API_KEY", result.PersistableMetadata.Keys);
+    }
+
+    /// <summary>
+    /// An unauthenticated local BYOK provider has no canonical secret, so it stays valid with no key.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_CopilotByokOllama_StaysValidWithoutProviderKey()
+    {
+        var resolver = MakeResolver();
+        var providers = new AiProviderConfig
+        {
+            Ollama = new OllamaConfig
+            {
+                ApiKey = string.Empty,
+                Model = "llama3.2",
+                Endpoint = "http://host.docker.internal:11434"
+            }
+        };
+
+        var result = resolver.Resolve(
+            new ExperimentToolConfig { Id = "copilot", Provider = AiProvider.Ollama },
+            providers,
+            MakeGenerationConfig(AiProvider.Ollama));
+
+        Assert.True(result.IsValid);
+        Assert.Equal("http://host.docker.internal:11434", result.NormalizedVars["TESTMAP_LLM_BASE_URL"]);
+        Assert.False(result.NormalizedVars.ContainsKey("TESTMAP_LLM_API_KEY"));
     }
 }

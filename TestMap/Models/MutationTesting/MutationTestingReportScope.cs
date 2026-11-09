@@ -6,9 +6,11 @@ public sealed record MutationTestingReportScope(
     int? ExperimentRunId = null,
     string SourceProjectPath = "",
     string TestProjectPath = "",
-    string TargetFramework = "")
+    string TargetFramework = "",
+    string ReportRole = Testing.TestReportRole.RepositoryBaseline)
 {
-    public static MutationTestingReportScope SolutionBaseline() => new("Solution", true);
+    public static MutationTestingReportScope SolutionBaseline() =>
+        new("Solution", true, ReportRole: Testing.TestReportRole.RepositoryBaseline);
 
     public static MutationTestingReportScope SourceProject(
         bool isBaseline,
@@ -23,7 +25,10 @@ public sealed record MutationTestingReportScope(
             experimentRunId,
             NormalizePath(sourceProjectPath),
             NormalizePath(testProjectPath),
-            targetFramework?.Trim() ?? string.Empty);
+            targetFramework?.Trim() ?? string.Empty,
+            isBaseline
+                ? Testing.TestReportRole.TargetedBaseline
+                : Testing.TestReportRole.AttemptMeasurement);
     }
 
     private static string NormalizePath(string? path)

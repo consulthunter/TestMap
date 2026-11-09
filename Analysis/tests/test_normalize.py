@@ -21,6 +21,28 @@ from analysis.normalize import (
 from analysis.schema import LANE_AGENTIC, LANE_LLM
 
 
+def test_normalize_attempts_coerces_split_tokens_and_computes_effective_components():
+    row = _llm_row(
+        usage_status="complete-estimated",
+        usage_source="cl100k-local-estimate",
+        usage_policy_version="token-accounting-v1",
+        input_tokens="100",
+        output_tokens="20",
+        total_tokens="120",
+        cumulative_input_tokens="160",
+        cumulative_output_tokens="30",
+        cumulative_tokens="190",
+    )
+
+    normalized = normalize_attempts(pd.DataFrame([row]))
+
+    assert normalized.loc[0, "input_tokens"] == 100
+    assert normalized.loc[0, "output_tokens"] == 20
+    assert normalized.loc[0, "effective_input_tokens"] == 160
+    assert normalized.loc[0, "effective_output_tokens"] == 30
+    assert normalized.loc[0, "effective_tokens"] == 190
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -28,12 +50,23 @@ from analysis.schema import LANE_AGENTIC, LANE_LLM
 def _llm_row(**kwargs) -> dict:
     """Minimal LLM attempt row matching pilot CSV structure."""
     defaults = {
+        "results_schema_version": "3.0",
+        "row_kind": "attempt",
+        "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
         "producer_lane": "testmap",
         "tool_id": "",
         "repo_owner": "consulthunter",
         "repo_name": "TestMap-Example",
-        "commit_hash": "abc123",
+        "commit_hash": "0123456789abcdef0123456789abcdef01234567",
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "consulthunter/testmap-example",
+        "requested_commit": "0123456789abcdef0123456789abcdef01234567",
+        "resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
         "source_member_id": "2",
         "source_method_name": "Start",
         "failure_kind": "Runtime",
@@ -53,18 +86,30 @@ def _llm_row(**kwargs) -> dict:
         "attempt_number": "1",
     }
     defaults.update(kwargs)
+    defaults.setdefault("attempt_id", f"llm-{defaults['generation_attempt_id']}")
     return defaults
 
 
 def _agentic_row(**kwargs) -> dict:
     """Minimal agentic generated-test row matching pilot CSV structure."""
     defaults = {
+        "results_schema_version": "3.0",
+        "row_kind": "attempt",
+        "experiment_run_uid": "run-1",
         "experiment_run_id": "1",
         "producer_lane": "agent-tool",
         "tool_id": "codex",
         "repo_owner": "consulthunter",
         "repo_name": "TestMap-Example",
-        "commit_hash": "abc123",
+        "commit_hash": "0123456789abcdef0123456789abcdef01234567",
+        "target_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "repository_identity": "consulthunter/testmap-example",
+        "requested_commit": "0123456789abcdef0123456789abcdef01234567",
+        "resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+        "target_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "target_source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_policy_version": "pinned-target-v1",
+        "workspace_integrity_status": "VerifiedClean",
         "source_member_id": "2",
         "source_method_name": "Start",
         "tool_run_status": "Completed",
@@ -87,6 +132,7 @@ def _agentic_row(**kwargs) -> dict:
     }
     defaults.update(kwargs)
     defaults.setdefault("tool_attempt_id", f"{defaults['tool_id']}-{defaults['source_member_id']}")
+    defaults.setdefault("attempt_id", f"agent-{defaults['tool_attempt_id']}")
     return defaults
 
 
@@ -176,41 +222,41 @@ class TestRenameRawColumns:
 class TestKeyConstruction:
     def test_candidate_key_is_stable(self):
         row = pd.Series({
-            "repo_owner": "owner",
-            "repo_name": "repo",
-            "commit_hash": "abc",
+            "repository_identity": "owner/repo",
+            "resolved_commit": "abc",
+            "target_id": "target-a",
             "source_member_id": "42",
         })
         assert make_candidate_key(row) == make_candidate_key(row)
 
     def test_candidate_key_includes_source_member_id(self):
-        row1 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c",
+        row1 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c", "target_id": "target-a",
                            "source_member_id": "1"})
-        row2 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c",
+        row2 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c", "target_id": "target-a",
                            "source_member_id": "2"})
         assert make_candidate_key(row1) != make_candidate_key(row2)
 
     def test_candidate_key_differs_by_repo_name(self):
-        row1 = pd.Series({"repo_owner": "o", "repo_name": "r1", "commit_hash": "c",
+        row1 = pd.Series({"repository_identity": "o/r1", "resolved_commit": "c", "target_id": "target-a",
                            "source_member_id": "1"})
-        row2 = pd.Series({"repo_owner": "o", "repo_name": "r2", "commit_hash": "c",
+        row2 = pd.Series({"repository_identity": "o/r2", "resolved_commit": "c", "target_id": "target-b",
                            "source_member_id": "1"})
         assert make_candidate_key(row1) != make_candidate_key(row2)
 
     def test_candidate_key_differs_by_commit(self):
-        row1 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c1",
+        row1 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c1", "target_id": "target-a",
                            "source_member_id": "1"})
-        row2 = pd.Series({"repo_owner": "o", "repo_name": "r", "commit_hash": "c2",
+        row2 = pd.Series({"repository_identity": "o/r", "resolved_commit": "c2", "target_id": "target-b",
                            "source_member_id": "1"})
         assert make_candidate_key(row1) != make_candidate_key(row2)
 
     def test_repository_key_is_stable(self):
-        row = pd.Series({"repo_owner": "owner", "repo_name": "repo", "commit_hash": "abc"})
+        row = pd.Series({"repository_identity": "owner/repo", "resolved_commit": "abc"})
         assert make_repository_key(row) == make_repository_key(row)
 
     def test_repository_key_differs_by_owner(self):
-        row1 = pd.Series({"repo_owner": "o1", "repo_name": "r", "commit_hash": "c"})
-        row2 = pd.Series({"repo_owner": "o2", "repo_name": "r", "commit_hash": "c"})
+        row1 = pd.Series({"repository_identity": "o1/r", "resolved_commit": "c"})
+        row2 = pd.Series({"repository_identity": "o2/r", "resolved_commit": "c"})
         assert make_repository_key(row1) != make_repository_key(row2)
 
     def test_missing_fields_handled_gracefully(self):
@@ -353,11 +399,13 @@ class TestCollapseAgenticToAttempts:
                          outcome: str = "Passed", tool_attempt_id: str | None = None) -> pd.DataFrame:
         """Build *n_tests* generated-test rows for one agentic attempt."""
         rows = []
-        attempt_id = tool_attempt_id or f"{tool_id}-{source_member_id}"
+        tool_attempt_id = tool_attempt_id or f"{tool_id}-{source_member_id}"
+        attempt_id = f"agent-{tool_attempt_id}"
         for i in range(n_tests):
             rows.append({
                 "experiment_run_id": "1",
-                "tool_attempt_id": attempt_id,
+                "tool_attempt_id": tool_attempt_id,
+                "attempt_id": attempt_id,
                 "tool_id": tool_id,
                 "repo_owner": "owner",
                 "repo_name": "repo",
@@ -381,7 +429,7 @@ class TestCollapseAgenticToAttempts:
         result = collapse_agentic_to_attempts(df)
         assert result["generated_test_count"].iloc[0] == 5
 
-    def test_distinct_tool_attempt_ids_produce_two_rows(self):
+    def test_distinct_attempt_ids_produce_two_rows(self):
         df_codex = self._agentic_attempt("codex", "2", n_tests=5)
         df2 = self._agentic_attempt("codex", "2", n_tests=6, tool_attempt_id="codex-2-repeat")
         combined = pd.concat([df_codex, df2], ignore_index=True)
@@ -421,9 +469,9 @@ class TestCollapseAgenticToAttempts:
         assert counts["codex"] == 5
         assert counts["gemini"] == 6
 
-    def test_missing_tool_attempt_id_raises(self):
-        df = self._agentic_attempt("codex", "2", n_tests=1).drop(columns=["tool_attempt_id"])
-        with pytest.raises(ValueError, match="tool_attempt_id"):
+    def test_missing_attempt_id_raises(self):
+        df = self._agentic_attempt("codex", "2", n_tests=1).drop(columns=["attempt_id"])
+        with pytest.raises(ValueError, match="attempt_id"):
             collapse_agentic_to_attempts(df)
 
 
@@ -444,9 +492,6 @@ class TestNormalizeAttempts:
             _agentic_row(tool_id="codex", source_member_id="2",
                          generated_test_method_name="TestA",
                          tool_attempt_id="101"),
-            _agentic_row(tool_id="codex", source_member_id="2",
-                         generated_test_method_name="TestB",
-                         tool_attempt_id="101"),
             _agentic_row(tool_id="gemini", source_member_id="2",
                          tool_validation_outcome="TestsFailed",
                          generated_test_method_name="TestC",
@@ -462,7 +507,7 @@ class TestNormalizeAttempts:
     def test_agentic_rows_collapsed(self):
         df = self._pilot_df()
         result = normalize_attempts(df)
-        # 2 LLM rows + 2 agentic attempts (codex/2 and gemini/2)
+        # Current attempt files already contain one row per attempt.
         agentic = result[result["lane"] == LANE_AGENTIC]
         assert len(agentic) == 2
 
@@ -514,17 +559,17 @@ class TestNormalizeAttempts:
         result = normalize_attempts(df)
         assert "changed_files_count" in result.columns
 
-    def test_llm_generated_test_count_is_one(self):
+    def test_generated_test_count_defaults_to_zero_without_child_dataset(self):
         df = self._pilot_df()
         result = normalize_attempts(df)
         llm = result[result["lane"] == LANE_LLM]
-        assert (llm["generated_test_count"] == 1).all()
+        assert (llm["generated_test_count"] == 0).all()
 
-    def test_agentic_generated_test_count_reflects_collapse(self):
+    def test_agentic_generated_test_count_defaults_to_zero(self):
         df = self._pilot_df()
         result = normalize_attempts(df)
         codex = result[(result["lane"] == LANE_AGENTIC) & (result["tool_id"] == "codex")]
-        assert codex["generated_test_count"].iloc[0] == 2  # 2 codex rows
+        assert codex["generated_test_count"].iloc[0] == 0
 
     def test_empty_df_returns_empty(self):
         result = normalize_attempts(pd.DataFrame())
@@ -539,14 +584,13 @@ class TestNormalizeAttemptsCurrentFixture:
     """Structural invariants for the current result CSV contract."""
 
     @pytest.fixture(scope="class")
-    def normalized(self):
+    @staticmethod
+    def normalized():
         raw = pd.DataFrame([
             _llm_row(failure_kind="Runtime", generation_attempt_id="1"),
             _llm_row(failure_kind="None", generation_attempt_id="2", source_member_id="478"),
             _agentic_row(tool_attempt_id="101", tool_id="codex", source_member_id="2",
                          generated_test_method_name="TestA"),
-            _agentic_row(tool_attempt_id="101", tool_id="codex", source_member_id="2",
-                         generated_test_method_name="TestB"),
             _agentic_row(tool_attempt_id="102", tool_id="codex", source_member_id="2",
                          generated_test_method_name="TestC"),
         ])
@@ -577,9 +621,9 @@ class TestNormalizeAttemptsCurrentFixture:
     def test_validated_success_column_present(self, normalized):
         assert "validated_success" in normalized.columns
 
-    def test_llm_generated_test_count_one(self, normalized):
+    def test_generated_test_count_zero_without_child_rows(self, normalized):
         llm = normalized[normalized["lane"] == LANE_LLM]
-        assert (llm["generated_test_count"] == 1).all()
+        assert (llm["generated_test_count"] == 0).all()
 
     def test_agentic_unique_per_tool_attempt_id(self, normalized):
         agentic = normalized[normalized["lane"] == LANE_AGENTIC]
@@ -659,8 +703,8 @@ class TestBuildCandidateSummary:
         result = build_candidate_summary(df)
         assert result.empty
 
-    def test_agentic_candidates_grouped_by_lane(self):
-        """Agentic attempts from different tools roll up into one candidate row."""
+    def test_agentic_candidates_grouped_by_producer(self):
+        """Attempts from different tools stay separate candidate rows."""
         rows = [
             {"candidate_key": "k1", "lane": LANE_AGENTIC, "tool_id": "codex",
              "validated_success": True, "coverage_delta": 0.35,
@@ -671,10 +715,11 @@ class TestBuildCandidateSummary:
              "mutation_score_delta": 0.0, "generated_test_count": 6,
              "repo_owner": "o", "repo_name": "r", "commit_hash": "c", "repository_key": "rk"},
         ]
-        result = build_candidate_summary(pd.DataFrame(rows))
-        assert len(result) == 1
-        assert result["any_validated_success"].iloc[0] == True  # noqa: E712
-        assert result["total_generated_tests"].iloc[0] == 11
+        result = build_candidate_summary(pd.DataFrame(rows)).set_index("producer")
+        assert len(result) == 2
+        assert result.loc["codex", "any_validated_success"] == True  # noqa: E712
+        assert result.loc["gemini", "any_validated_success"] == False  # noqa: E712
+        assert result.loc["gemini", "total_generated_tests"] == 6
 
 
 # ---------------------------------------------------------------------------

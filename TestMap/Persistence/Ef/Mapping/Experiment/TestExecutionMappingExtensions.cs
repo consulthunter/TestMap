@@ -27,6 +27,7 @@ public static class TestExecutionMappingExtensions
             CompilationSuccess = entity.CompilationSucceeded,
             TestsExecuted = InferTestsExecuted(entity),
             TestPassed = entity.CompilationSucceeded && InferTestsExecuted(entity) && entity.TestPassed,
+            CoverageBefore = entity.CoverageBefore,
             CoverageAfter = entity.FinalCoverage,
             CoverageImprovement = entity.CoverageDelta,
             BaselineMutationScore = entity.BaselineMutationScore,
@@ -97,6 +98,7 @@ public static class TestExecutionMappingExtensions
             RuntimeErrors = runtimeErrors ?? string.Empty,
             AssertionErrors = assertionErrors ?? string.Empty,
             ExecutionTimeMs = execution.ExecutionTimeMs ?? 0,
+            CoverageBefore = execution.CoverageBefore,
             FinalCoverage = execution.CoverageAfter,
             FinalCoveredLines = 0,
             FinalTotalLines = 0,
@@ -118,18 +120,7 @@ public static class TestExecutionMappingExtensions
 
     private static TestClassification ResolveClassification(TestExecution execution)
     {
-        if (execution.Classification != TestClassification.ValidationFailed ||
-            execution.FailureKind == TestFailureKind.None && !execution.TestPassed)
-            return execution.Classification;
-
-        if (execution.TestPassed)
-            return execution.CoverageImprovement > 0
-                ? TestClassification.ValidatedEvidencePositive
-                : TestClassification.ValidatedLowImpact;
-
-        return execution.CoverageImprovement > 0
-            ? TestClassification.FailedEvidencePositive
-            : TestClassification.ValidationFailed;
+        return execution.Classification;
     }
 
     private static TestFailureKind InferFailureKind(GeneratedTestExecutionEntity entity)

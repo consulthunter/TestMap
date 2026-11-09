@@ -11,6 +11,11 @@
 using TestMap.Models;
 using TestMap.Models.Configuration;
 using TestMap.Utilities;
+using TestMap.Models.Targets;
+using TestMap.Services.Targets;
+using TestMap.Services.Targets.Contracts;
+using TestMap.Services.Logging;
+using System.Globalization;
 
 namespace TestMap.Services.Configuration;
 
@@ -19,16 +24,37 @@ namespace TestMap.Services.Configuration;
 ///     Takes in the configuration parsed from the JSON
 ///     Configures variables for the run.
 /// </summary>
-public class ConfigurationService(TestMapConfig config) : IConfigurationService
+public class ConfigurationService : IConfigurationService
 {
-    public TestMapConfig Config { get; } = config;
+    private readonly ProjectLogDirectoryAllocator _logDirectoryAllocator;
+
+    public ConfigurationService(
+        TestMapConfig config,
+        ProjectLogDirectoryAllocator? logDirectoryAllocator = null,
+        DateTimeOffset? runStartedAtUtc = null)
+    {
+        Config = config;
+        _logDirectoryAllocator = logDirectoryAllocator ?? new ProjectLogDirectoryAllocator();
+        RunStartedAtUtc = runStartedAtUtc ?? DateTimeOffset.UtcNow;
+        if (RunStartedAtUtc.Offset != TimeSpan.Zero)
+            throw new ArgumentException("The configured run timestamp must be UTC.", nameof(runStartedAtUtc));
+        RunDate = RunStartedAtUtc.ToString(config.RuntimeConfig.RunDateFormat);
+    }
+
+    public TestMapConfig Config { get; }
     public RunMode RunMode { get; set; }
-    public string RunDate { get; } = DateTime.UtcNow.ToString(config.RuntimeConfig.RunDateFormat);
+    public DateTimeOffset RunStartedAtUtc { get; }
+    public string RunDate { get; }
     public List<ProjectModel> ProjectModels { get; } = new();
+    public TargetManifest? TargetManifest { get; private set; }
+    public string? TargetManifestSha256 { get; private set; }
+    public string? TargetExecutionReportPath { get; private set; }
 
     public async Task ConfigureRunAsync()
     {
-        EnsureDirectory(Config.RuntimeConfig.FilePaths.LogsDirPath, RunDate);
+        EnsureDirectory(
+            Config.RuntimeConfig.FilePaths.LogsDirPath,
+            RunStartedAtUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         EnsureDirectory(Config.RuntimeConfig.FilePaths.TempDirPath);
         EnsureDirectory(Config.RuntimeConfig.FilePaths.OutputDirPath);
         await ReadTargetAsync();
@@ -92,11 +118,58 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
     private async Task ReadTargetAsync()
     {
         var target = Config.RuntimeConfig.FilePaths.TargetFilePath;
-        if (!File.Exists(target)) return;
+        if (string.IsNullOrWhiteSpace(target)) return;
+        if (!File.Exists(target))
+            throw new FileNotFoundException(
+                $"Configured target source does not exist: {Path.GetFullPath(target)}",
+                target);
 
-        using var sr = new StreamReader(target);
-        string? line;
-        while ((line = await sr.ReadLineAsync()) != null) InitializeProjectModel(line);
+        var fingerprint = new TargetFingerprintService();
+        var reader = new TargetSourceReader(new TargetManifestSerializer(fingerprint), fingerprint);
+        var source = await reader.ReadAsync(
+            target,
+            RunMode == RunMode.Experiment ? TargetSourceMode.MeasuredExperiment : TargetSourceMode.Discovery);
+        TargetManifest = source.Manifest;
+        TargetManifestSha256 = source.ManifestSha256;
+        if (source.Manifest is not null)
+        {
+            TargetExecutionReportPath = Path.Combine(
+                Config.RuntimeConfig.FilePaths.OutputDirPath ?? Directory.GetCurrentDirectory(),
+                $"target-execution-{source.ManifestSha256![..12]}.csv");
+            foreach (var repositoryTarget in source.Targets)
+                InitializeProjectModel(repositoryTarget, source.Manifest, source.ManifestSha256!);
+            return;
+        }
+
+        foreach (var repoUrl in source.LegacyUrls)
+            InitializeProjectModel(repoUrl);
+    }
+
+    private void InitializeProjectModel(RepositoryTarget target, TargetManifest manifest, string manifestSha256)
+    {
+        var parts = target.Repository.Split('/');
+        var paths = new TargetPathResolver().Resolve(
+            target,
+            Config.RuntimeConfig.FilePaths.TempDirPath ?? string.Empty,
+            Config.RuntimeConfig.FilePaths.OutputDirPath ?? string.Empty,
+            Config.RuntimeConfig.FilePaths.LogsDirPath ?? string.Empty,
+            RunStartedAtUtc);
+        var model = new ProjectModel(
+            target.Url, parts[0], parts[1], RunDate,
+            paths.WorkspacePath,
+            Config.RuntimeConfig.FilePaths.LogsDirPath,
+            Config.RuntimeConfig.FilePaths.OutputDirPath,
+            Config.RuntimeConfig.FilePaths.TempDirPath,
+            paths.DatabasePath,
+            Config,
+            RunStartedAtUtc,
+            _logDirectoryAllocator);
+        model.BindTarget(target);
+        model.OutputPath = paths.ArtifactPath;
+        model.MaterializedRevision = new MaterializedRevision(
+            target.TargetId, target.Repository, target.Commit, null, null, paths,
+            manifestSha256, manifest.Source.Sha256, null, MaterializationStatus.Pending);
+        ProjectModels.Add(model);
     }
 
     private void InitializeProjectModel(string repoUrl)
@@ -116,7 +189,9 @@ public class ConfigurationService(TestMapConfig config) : IConfigurationService
             Config.RuntimeConfig.FilePaths.OutputDirPath,
             Config.RuntimeConfig.FilePaths.TempDirPath,
             dbFilePath,
-            Config);
+            Config,
+            RunStartedAtUtc,
+            _logDirectoryAllocator);
 
         ProjectModels.Add(model);
     }

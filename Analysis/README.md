@@ -39,11 +39,17 @@ per repository database.
 | Command | Purpose |
 |---|---|
 | `build-datasets` | Build the canonical CSVs + overview from result CSVs (and DBs). |
-| `export-failures` | Build the failure dataset. `--markdown` writes per-case files; `--sample {all,stratified-lane,stratified-label,stratified-tool,top-n,high-severity,llm-won,agentic-won}` filters. |
+| `export-failures` | Build the failure dataset. `--markdown` writes per-case files; `--sample {all,stratified-lane,stratified-label,stratified-tool,top-n,high-severity,first-attempt,lane-llm,lane-agentic}` filters (`--seed` fixes stratified draws). Infrastructure failures are excluded unless `--include-infrastructure`. Artifact paths are re-rooted under each database's folder; pass `--logs <run>/logs` to re-root run logs. |
 | `overview` | Headline counts (JSON/CSV) from an attempts CSV. |
 | `audit` | Data-completeness report to run before analysis. |
 | `export-training` | ML training export. `--grain {mapping,candidate,pair}`. |
 | `repo-report` | Render a single-repository report. |
+| `msr-population` | Select the MSR validation population from execution + validation reports; copy the corpus. |
+| `build-msr-datasets` | Consolidate per-repo `analysis.db` files into MSR validation frames + structural checks. |
+| `msr-coverage-audit` | Find repos claiming coverage with no coverage rows; classify why, write exclusions. |
+| `msr-validate` | Draw the seeded human-judged sample; write units, codebooks, and rater forms. |
+| `msr-collect` | Parse filled rating forms; report inter-rater agreement and agreement with TestMap. |
+| `candidate-paths` | Per eligible candidate: access-path hops from its paired test, setup bindings, and whether the default selector picks it (`--per-repo`). Input for `R/power_glmm.R --predictor=path_hops_capped`. |
 
 ## Outputs (`data/`)
 
@@ -51,9 +57,12 @@ per repository database.
 |---|---|
 | `evaluation_attempts.csv` | one row per attempt (LLM generation attempt or agentic tool attempt) |
 | `evaluation_candidates.csv` | best attempt per (candidate, lane) |
-| `evaluation_repositories.csv` | one row per (repository, lane) |
+| `evaluation_repositories.csv` | one row per (repository revision, lane) |
+| `evaluation_repository_families.csv` | one row per (repository family, lane), aggregating revisions explicitly |
 | `generated_tests.csv` | one row per generated/linked test |
 | `tool_generated_test_links.csv` | agentic tool attempt → generated test member links |
+| `assertion_observations.csv` | one row per recognized assertion from the schema-1 sidecar |
+| `traced_assertions.csv` | derived view containing only semantic `Traced` observations |
 | `mutation_operators.csv` | mutation-operator survival profile per repo (needs `--db`) |
 | `evaluation_overview.json` / `.csv` | headline totals and outcome counts |
 | `failures/failure_cases.csv` / `.jsonl` | qualitative failure dataset |
@@ -63,20 +72,85 @@ per repository database.
 
 | Notebook | Focus |
 |---|---|
-| `01_repository_evaluation` | Deep dive on one repository. |
-| `02_cross_repo_overview` | Study population, headline outcomes, data completeness. |
-| `03_cross_repo_lane_comparison` | LLM vs agentic on shared outcomes (paired, weighted, cost). |
-| `04_model_tool_analysis` | Per model/tool ranking, predictors, best-by-category. |
-| `05_failure_casebook` | Sampling frame + flow for qualitative coding. |
+| `00_msr_validation` | Mining-layer validation: availability, distributions, IQRs, structural checks. |
+| `00b_pilot_msr_validation` | The same checks on the pilot's post-experiment databases. |
+
+Exploratory notebooks live in `notebooks/exploratory/`; point them at a dataset with
+`ANALYSIS_DATA_DIR` (default `../../data`).
+
+| Notebook | Focus |
+|---|---|
+| `exploratory/01_repository_evaluation` | One repository (run per repo by `repo-report`); same sections as 02. |
+| `exploratory/02_cross_repo_overview` | All repositories: outcomes (including how each lane fails), metric movement, generated tests, smells, assertions, mutation profile, footprint, cost, completeness. |
+| `exploratory/03_cross_repo_lane_comparison` | LLM vs agentic: headline pass@1 pairs, chain/attempt/repository-weighted rates, cost-effectiveness, cost per validated test. |
+| `exploratory/04_model_tool_analysis` | Per model/tool: rates with Wilson CIs, tool family x backbone interaction, producer summary and cost frontier, robustness, smells, predictors, repair. |
+| `exploratory/05_failure_casebook` | Failure cases for qualitative coding: labels, seeded sample, headline-pair disagreements, safety failures. |
+
+## R: GLMM power analysis (`R/`)
+
+The data pipeline is Python; the GLMMs (complexity, path length) and their simulation-based power analysis use R
+(lme4, simr), the reference implementations. Requires R ≥ 4.4 (`Rscript R/install.R` once).
+Run from `Analysis/`:
+
+```powershell
+# 1. Candidate export (paths, setup, structural metrics, default-selection replay), then
+#    pilot-derived inputs: base rate, lane effect and config SD per outcome (null GLMM on the
+#    pilot chains); the complexity_index transform frozen on the MSR method corpus and
+#    applied to the MSR experiment candidates to form the simulation pool.
+uv run python -m analysis candidate-paths --db "<MSR>/Output/*/*/*/analysis.db" --out R/output/msr_candidate_paths.csv
+Rscript R/pilot_parameters.R            # -> pilot_parameters.json, complexity_transform.json, complexity_pool.csv
+
+# 2. Power grid (resumable: finished cells are cached in R/output/power/cells/)
+Rscript R/power_glmm.R --nsim=20                               # smoke test
+Rscript R/power_glmm.R --fast=TRUE --nsim=200                  # explore a grid (nAGQ = 0)
+Rscript R/power_glmm.R                                         # confirmatory: Laplace, 1000 sims
+Rscript R/power_glmm.R --help                                  # all grid options
+
+# Path length instead of complexity (OR per hop from the paired test to the candidate)
+Rscript R/power_glmm.R --predictor=path_hops_capped --pool=R/output/msr_candidate_paths.csv `
+  --pool-filter=selected_default --out=R/output/power_path   # drop the filter for randomized cohorts
+
+# 3. RQ1 exact McNemar power over discordance q and paired difference delta
+Rscript R/power_mcnemar.R --q=0.12,0.2,0.34 --delta=0.07,0.1 --n=408 --alpha=0.1
+```
+
+| Script | Purpose |
+|---|---|
+| `common.R` | Shared model formula; `complexity_index` transform (log1p, z-score, sign-align, PC1 anchored to SLOC) fitted once and applied frozen; CLI parsing. |
+| `pilot_parameters.R` | Pilot → simulation inputs. The pilot has one candidate per repo, so its candidate SD is repo + candidate combined and barely identified; it centres the `--sd-candidate` grid. |
+| `power_mcnemar.R` | Exact power and required n for the paired lane comparison, by discordance and paired difference. |
+| `power_glmm.R` | `simr::makeGlmer` + `powerSim` for one candidate-level predictor (`--predictor`, default `complexity_index`) over a grid of effect sizes, design sizes and variance components. OR = 1 cells are the type I error check. |
+
+The GLMM unit is the chain (candidate × config, where config = lane/producer/budget arm), not
+the repair step. Outcomes: `success` = any validated success in the chain; `vep` = any
+`ValidatedEvidencePositive` attempt.
 
 ## Key semantics
 
-- Two lanes: `llm` (one row/attempt) and `agentic` (collapsed to one row per tool attempt).
+- Two lanes: `llm` and `agentic`, both canonicalized to one row per attempt; generated tests are
+  loaded from the separate result child file.
 - `validated_success` = `ValidatedEvidencePositive` **or** `ValidatedLowImpact`; `positive_impact`
   (VEP) = test passed **and** metrics improved ≥ noise floor (coverage ≥ 1pp or mutation ≥ 1pp).
 - `effective_tokens` = lane-fair cost (LLM cumulative repair-chain total; agentic total run) — use
   it, not raw `total_tokens`, for cost comparisons.
+- Independent runs/work items remain separate chains. Repair costs follow numeric attempt order.
+  VEP cost comparisons select successful VEP chains and pool both LLM arms; missing usage stays missing.
 - Candidate-weighted views are the primary headline; attempt-weighted is a sensitivity check.
+- `read_result_grains()` is the explicit schema-3 compatibility reader. Because schema 3 has no
+  classified lineage, its assertion status is `NotMeasured` and its category counts remain null.
+- `read_schema4_result_bundle()` reads schema-4 attempts/children together with the schema-1
+  `*.assertions.csv` sidecar. Only these persisted semantic observations can populate `Traced`,
+  `Trivial`, and `Unresolved`; legacy regex or invocation counts remain inventory-only.
+- Run the strict audit before publishing assertion-quality results. It blocks unsupported versions,
+  missing policy/reasons, duplicate or orphan identities, broken trace paths, count mismatches,
+  missing sidecars, and cross-lane policy differences.
+- Assertion lineage measures direct data dependence only. `Traced` does not establish oracle
+  strength or mutation sensitivity, and it does not attribute a mutant kill to the assertion.
 
 Design rationale and methodology: [analysis_plan.md](analysis_plan.md).
 Column dictionary and lane-specific details: [docs/data_reference.md](docs/data_reference.md).
+
+The SQLite pipeline fixes and verification results are recorded in
+[docs/sqlite_pipeline_review.md](docs/sqlite_pipeline_review.md). Training mapping exports now
+preserve mapping grain and use explicitly identified initial measurement reports. Rebuild
+exports to obtain the new provenance columns and missingness behavior.

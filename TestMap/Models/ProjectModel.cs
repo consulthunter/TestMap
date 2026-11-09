@@ -12,12 +12,14 @@ using TestMap.Models.Code;
 using TestMap.Models.Configuration;
 using TestMap.Models.Coverage;
 using TestMap.Models.Results;
+using TestMap.Models.Targets;
+using TestMap.Services.Logging;
 
 namespace TestMap.Models;
 
 public class ProjectModel
 {
-    private readonly string _runDate;
+    private readonly ProjectLogDirectoryAllocator _logDirectoryAllocator;
 
     /// <summary>
     ///     Constructor
@@ -35,12 +37,15 @@ public class ProjectModel
     /// <param name="scripts">Batch or shell scripts defined in the config</param>
     public ProjectModel(string gitHubUrl = "", string owner = "", string repoName = "", string runDate = "",
         string directoryPath = "", string? logsDirPath = "", string? outputDirPath = "", string? tempDirPath = "",
-        string? databasePath = null, TestMapConfig? config = null)
+        string? databasePath = null, TestMapConfig? config = null,
+        DateTimeOffset? runStartedAtUtc = null,
+        ProjectLogDirectoryAllocator? logDirectoryAllocator = null)
     {
         GitHubUrl = gitHubUrl;
         Owner = owner;
         RepoName = repoName;
-        _runDate = runDate;
+        RunStartedAtUtc = ResolveRunStartedAtUtc(runDate, runStartedAtUtc);
+        _logDirectoryAllocator = logDirectoryAllocator ?? new ProjectLogDirectoryAllocator();
         Solutions = new List<CSharpSolutionModel>();
         Projects = new List<CSharpProjectModel>();
         DirectoryPath = directoryPath;
@@ -79,12 +84,21 @@ public class ProjectModel
     private string? OutputDirPath { get; }
     public string? OutputPath { get; set; }
     public string? LogsFilePath { get; private set; }
+    public DateTimeOffset RunStartedAtUtc { get; }
     public Dictionary<string, List<string>>? TestingFrameworks { get; set; }
     public Dictionary<string, string>? Docker { get; set; }
     public Dictionary<string, string>? Scripts { get; set; }
     public bool IsBaselineEstablished { get; set; }
     public string ContentHash { get; set; }
+    public RepositoryTarget? RepositoryTarget { get; set; }
+    public MaterializedRevision? MaterializedRevision { get; set; }
     public ILogger? Logger { get; private set; }
+
+    public void BindTarget(RepositoryTarget target)
+    {
+        RepositoryTarget = target;
+        ContentHash = Utilities.Utilities.ComputeSha256($"{Owner}-{RepoName}-{target.TargetId}");
+    }
 
     // methods
     /// <summary>
@@ -105,12 +119,33 @@ public class ProjectModel
     /// </summary>
     public void EnsureProjectLogDir()
     {
+        if (LogsFilePath is not null && Logger is not null) return;
+
+        if (MaterializedRevision is not null)
+        {
+            var allocation = _logDirectoryAllocator.Allocate(
+                LogsDirPath ?? string.Empty,
+                RunStartedAtUtc,
+                Owner,
+                RepoName,
+                ProjectId ?? "run",
+                "run.log");
+            MaterializedRevision = MaterializedRevision with
+            {
+                Paths = MaterializedRevision.Paths with { LogPath = allocation.LogFilePath }
+            };
+            CreateLog(allocation.LogFilePath);
+            return;
+        }
         if (ProjectId != null)
         {
-            var logDirPath = Path.Combine(LogsDirPath ?? string.Empty, _runDate, ProjectId);
-
-            if (!Directory.Exists(logDirPath)) Directory.CreateDirectory(logDirPath);
-            CreateLog(logDirPath);
+            var allocation = _logDirectoryAllocator.Allocate(
+                LogsDirPath ?? string.Empty,
+                RunStartedAtUtc,
+                Owner,
+                RepoName,
+                ProjectId);
+            CreateLog(allocation.LogFilePath);
         }
     }
 
@@ -121,6 +156,12 @@ public class ProjectModel
     /// </summary>
     public void EnsureProjectOutputDir()
     {
+        if (MaterializedRevision is not null)
+        {
+            Directory.CreateDirectory(MaterializedRevision.Paths.ArtifactPath);
+            OutputPath = MaterializedRevision.Paths.ArtifactPath;
+            return;
+        }
         if (ProjectId != null)
         {
             var outputPath = Path.Combine(OutputDirPath ?? string.Empty, $"{Owner}-{RepoName}");
@@ -132,10 +173,9 @@ public class ProjectModel
     /// <summary>
     ///     Creates the logger for the project
     /// </summary>
-    /// <param name="logDirPath">Absolute file path for the project's log directory</param>
-    private void CreateLog(string logDirPath)
+    /// <param name="logFilePath">Absolute file path for the project log</param>
+    private void CreateLog(string logFilePath)
     {
-        var logFilePath = Path.Combine(logDirPath, $"{ProjectId}.log");
         LogsFilePath = logFilePath;
 
         // logger
@@ -143,5 +183,28 @@ public class ProjectModel
             .Enrich.FromLogContext()
             .WriteTo.File(LogsFilePath)
             .CreateLogger();
+    }
+
+    private static DateTimeOffset ResolveRunStartedAtUtc(string runDate, DateTimeOffset? supplied)
+    {
+        if (supplied is { } timestamp)
+        {
+            if (timestamp.Offset != TimeSpan.Zero)
+                throw new ArgumentException("The project run timestamp must be UTC.", nameof(supplied));
+            return timestamp;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (DateOnly.TryParseExact(
+                runDate,
+                "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var date))
+            return new DateTimeOffset(
+                date.Year, date.Month, date.Day,
+                now.Hour, now.Minute, now.Second, now.Millisecond,
+                TimeSpan.Zero);
+        return now;
     }
 }

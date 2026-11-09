@@ -44,6 +44,29 @@ public sealed class AgentToolLogPathResolverTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void Resolve_GeminiWithoutExplicitFormat_UsesContainerStreamJsonDefault()
+    {
+        var result = AgentToolLogPathResolver.Resolve("/attempt", "gemini");
+
+        Assert.Equal(Path.Combine("/attempt", "gemini.events.jsonl"), result.StdOutLogPath);
+        Assert.Equal(result.StdOutLogPath, result.JsonlLogPath);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Resolve_GeminiJson_UsesJsonForStdOutAndDiscoverableUsagePath()
+    {
+        var result = AgentToolLogPathResolver.Resolve(
+            "/attempt",
+            "gemini",
+            new Dictionary<string, string> { ["GEMINI_OUTPUT_FORMAT"] = "json" });
+
+        Assert.Equal(Path.Combine("/attempt", "gemini.json"), result.StdOutLogPath);
+        Assert.Equal(result.StdOutLogPath, result.JsonlLogPath);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void Resolve_RegularTextTool_LeavesJsonlPathEmpty()
     {
         var result = AgentToolLogPathResolver.Resolve("/attempt", "aider");

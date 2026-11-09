@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using TestMap.Models.Experiment;
+using TestMap.Persistence.Ef.Entities.Experiment.Assertions;
 using TestMap.Persistence.Ef.Entities.Rules;
 
 namespace TestMap.Persistence.Ef.Entities.Experiment;
@@ -26,7 +28,12 @@ public class GenerationAttemptEntity
     public int? ParentAttemptId { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
-    public int TotalTokensUsed { get; set; }
+    public int? InputTokens { get; set; }
+    public int? OutputTokens { get; set; }
+    public int? TotalTokensUsed { get; set; }
+    public string UsageStatus { get; set; } = TokenUsageVocabulary.Missing;
+    public string? UsageSource { get; set; }
+    public string? UsagePolicyVersion { get; set; }
     public double GenerationDurationSeconds { get; set; }
     public double ValidationDurationSeconds { get; set; }
     public double TotalAttemptDurationSeconds { get; set; }
@@ -36,6 +43,8 @@ public class GenerationAttemptEntity
     [MaxLength(100)] public string FailureCategory { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
     public string RuleDecisionSnapshotJson { get; set; } = string.Empty;
+    [MaxLength(40)] public string BaseCommit { get; set; } = string.Empty;
+    [MaxLength(50)] public string WorkspaceIntegrityStatus { get; set; } = string.Empty;
 
     // Basic Extension patch metadata (nullable; null for non-BE attempts)
     public string? PatchJson { get; set; }
@@ -52,5 +61,7 @@ public class GenerationAttemptEntity
     public virtual GenerationAttemptEntity? ParentAttempt { get; set; }
     public virtual ICollection<GenerationStepEntity> GenerationSteps { get; set; } = new List<GenerationStepEntity>();
     public virtual GeneratedTestExecutionEntity? TestExecution { get; set; }
+    public virtual ICollection<AssertionLineageMeasurementEntity> AssertionLineageMeasurements { get; set; } =
+        new List<AssertionLineageMeasurementEntity>();
     public virtual ICollection<RuleDecisionEntity> RuleDecisions { get; set; } = new List<RuleDecisionEntity>();
 }

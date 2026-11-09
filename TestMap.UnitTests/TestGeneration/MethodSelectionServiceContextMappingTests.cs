@@ -331,6 +331,37 @@ public sealed class MethodSelectionServiceContextMappingTests
         Assert.Equal("Roslyn", traceStep.EdgeSource);
     }
 
+    /// <summary>
+    /// Attempt-time mappings persist next to the baseline ones. A mapping whose test member an
+    /// attempt produced is never used as grounded context for a candidate.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task SelectCandidateMethodsAsync_IgnoresMappingsOfAttemptGeneratedTests()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDatabaseAsync(connection);
+        await SeedSelectionProjectAsync(db);
+        await RefreshSourceTestMappingsAsync(db);
+        var test = await db.Members.SingleAsync(x => x.Id == 21);
+        test.OriginKind = MemberOrigin.ToolAttempt;
+        test.OriginAttemptId = 5;
+        await db.SaveChangesAsync();
+        Assert.Contains(await db.SourceTestMappings.ToListAsync(), x => x.TestMemberId == 21);
+        var service = CreateService(db, TestContextMappingMode.DirectInvocationOnly);
+
+        await service.SelectCandidateMethodsAsync(new ExperimentConfig
+        {
+            CandidateLimit = 1,
+            MaxCoverageThreshold = 1.0,
+            ContextMappingMode = TestContextMappingMode.DirectInvocationOnly
+        });
+
+        var inventoryItem = await db.CandidateInventory.SingleAsync(x => x.SourceMemberId == 11);
+        Assert.Null(inventoryItem.SourceTestMappingId);
+    }
+
     [Fact]
     [Trait("Category", "Unit")]
     public async Task SelectCandidateMethodsAsync_IncludesNonPublicMethodsWithIndirectTestContext()
@@ -546,6 +577,50 @@ public sealed class MethodSelectionServiceContextMappingTests
         Assert.Empty(await db.SourceTestMappingTraceSteps.ToListAsync());
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task SelectCandidateMethodsAsync_RequiredBaselineExcludesWeakHeuristicContext()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDatabaseAsync(connection);
+        await SeedProjectAsync(db, includeDirectInvocation: false);
+        db.CoverageReports.Add(new CoverageReportEntity
+        {
+            Id = 1,
+            ProjectId = 1,
+            LineRate = 0.0,
+            BranchRate = 0.0,
+            Complexity = 1,
+            Version = "test",
+            Timestamp = 1,
+            LinesValid = 1
+        });
+        db.MemberCoverages.Add(new MemberCoverageEntity
+        {
+            Id = 1,
+            MemberId = 10,
+            CoverageReportId = 1,
+            LineRate = 0.0,
+            LinesValid = 1,
+            Complexity = 1
+        });
+        await db.SaveChangesAsync();
+        var service = CreateService(db, TestContextMappingMode.HeuristicWithGroundedPreference);
+
+        var selected = await service.SelectCandidateMethodsAsync(new ExperimentConfig
+        {
+            CandidateLimit = 1,
+            MaxCoverageThreshold = 1.0,
+            ContextMappingMode = TestContextMappingMode.HeuristicWithGroundedPreference
+        }, requirePassingExistingTest: true);
+
+        Assert.Empty(selected);
+        var inventoryItem = await db.CandidateInventory.SingleAsync();
+        Assert.False(inventoryItem.IsExperimentEligible);
+        Assert.Contains("No paired existing test", inventoryItem.IneligibilityReason);
+    }
+
     private static async Task<TestMapDbContext> CreateDatabaseAsync(SqliteConnection connection)
     {
         var options = new DbContextOptionsBuilder<TestMapDbContext>()
@@ -553,6 +628,21 @@ public sealed class MethodSelectionServiceContextMappingTests
             .Options;
         var db = new TestMapDbContext(options);
         await db.Database.EnsureCreatedAsync();
+        db.ChangeTracker.Tracked += (_, args) =>
+        {
+            if (args.FromQuery) return;
+            if (args.Entry.Entity is CoverageReportEntity report)
+            {
+                report.MeasurementPolicyVersion = "coverage-integrity-v1";
+                report.HasUsableCoverage = true;
+                report.CollectionStatus = "Mapped";
+            }
+            else if (args.Entry.Entity is MemberCoverageEntity coverage)
+            {
+                coverage.AttributionStatus = "Mapped";
+                coverage.LineCountsAvailable = true;
+            }
+        };
         return db;
     }
 
@@ -563,7 +653,8 @@ public sealed class MethodSelectionServiceContextMappingTests
             projectContext,
             db,
             new TestTraceService(await BuildTestMappingsAsync(db)));
-        await service.RefreshForProjectAsync(1, 1);
+        var observed = (await db.Members.Select(x => x.Id).ToListAsync()).ToHashSet();
+        await service.RefreshAsync(1, [1], observed, MemberAnalysisOrigin.Baseline());
     }
 
     private static async Task<List<SourceTestMappingEntity>> BuildTestMappingsAsync(TestMapDbContext db)
@@ -1311,6 +1402,8 @@ public sealed class MethodSelectionServiceContextMappingTests
         public Task<List<SourceTestMappingEntity>?> TraceAsync(
             int projectId,
             int solutionId,
+            IReadOnlySet<int> indexMemberIds,
+            IReadOnlySet<int> testMemberIds,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult<List<SourceTestMappingEntity>?>(_mappings);

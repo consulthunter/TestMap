@@ -28,17 +28,20 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
     private readonly ProjectContext? _projectContext;
     private readonly TestMapConfig? _config;
     private readonly TaskCardWriter? _taskCardWriter;
+    private readonly string? _verifiedBaseCommit;
 
     public AgentToolEvaluationLane(
         IAgentToolRunner runner,
         IAgentToolEnvironmentResolver envResolver,
         ToolAttemptRepository attemptRepo,
-        IReadOnlyList<ExperimentToolConfig> tools)
+        IReadOnlyList<ExperimentToolConfig> tools,
+        string verifiedBaseCommit)
     {
         _runner = runner;
         _envResolver = envResolver;
         _attemptRepo = attemptRepo;
         _tools = tools;
+        _verifiedBaseCommit = verifiedBaseCommit;
     }
 
     public AgentToolEvaluationLane(
@@ -49,7 +52,13 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         ProjectContext projectContext,
         TestMapConfig config,
         TaskCardWriter taskCardWriter)
-        : this(runner, envResolver, attemptRepo, tools)
+        : this(
+            runner,
+            envResolver,
+            attemptRepo,
+            tools,
+            projectContext.VerifiedBaseCommit
+            ?? throw new InvalidOperationException("Agent tool lanes require a verified pinned base commit."))
     {
         _projectContext = projectContext;
         _config = config;
@@ -89,13 +98,17 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             CandidateMethodId = context.Candidate.Id,
             TargetedBaselineId = context.TargetedBaselineId,
             ToolId = tool.Id,
-            ImageKey = tool.ImageKey ?? tool.Id,
+            ImageKey = tool.Family,
             RunStatus = ToolRunStatus.Planned,
             StartedAt = DateTime.UtcNow,
             TimeoutSeconds = tool.TimeoutMinutes * 60,
             Model = environment.PersistableMetadata.TryGetValue("model", out var model) ? model : tool.Model ?? string.Empty,
-            ProviderId = environment.PersistableMetadata.TryGetValue("provider_id", out var provider) ? provider : string.Empty
+            ProviderId = environment.PersistableMetadata.TryGetValue("provider_id", out var provider) ? provider : string.Empty,
+            UsageStatus = TokenUsageVocabulary.Missing,
+            UsagePolicyVersion = TokenUsageVocabulary.PolicyV1
         };
+        attempt.BaseCommit = _verifiedBaseCommit!;
+        attempt.WorkspaceIntegrityStatus = "VerifiedClean";
 
         attempt.Id = await _attemptRepo.InsertAsync(attempt, cancellationToken);
         attempt.WorkspacePath = ResolveWorkspacePath();
@@ -107,7 +120,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             logEnvironment[item.Key] = item.Value;
         var logPaths = AgentToolLogPathResolver.Resolve(
             attempt.ArtifactPath,
-            tool.Id,
+            tool.Family,
             logEnvironment);
         attempt.StdOutLogPath = logPaths.StdOutLogPath;
         attempt.StdErrLogPath = logPaths.StdErrLogPath;
@@ -145,14 +158,23 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             attempt.CompletedAt = DateTime.UtcNow;
             attempt.JsonlLogAvailable = HasJsonlEventLog(attempt.JsonlLogPath);
             attempt.EstimatedPromptTokens = EstimatePromptTokens(taskCardContent.Prompt);
-            var usage = ExtractUsage(attempt.ArtifactPath, tool.Id);
+            var observedModel = ExtractObservedModel(attempt.ArtifactPath, tool.Family);
+            if (!string.IsNullOrWhiteSpace(observedModel))
+                attempt.Model = observedModel;
+            var usage = ExtractUsage(attempt.ArtifactPath, tool.Family);
             if (usage != null)
             {
-                attempt.UsageAvailable = true;
                 attempt.UsageSource = usage.Source;
                 attempt.InputTokens = usage.InputTokens;
                 attempt.OutputTokens = usage.OutputTokens;
             }
+            attempt.UsageStatus = TokenUsageVocabulary.Classify(
+                attempt.InputTokens,
+                attempt.OutputTokens,
+                applicable: true,
+                estimated: false);
+            attempt.UsageAvailable = attempt.UsageStatus == TokenUsageVocabulary.CompleteReported;
+            attempt.UsagePolicyVersion = TokenUsageVocabulary.PolicyV1;
 
             IReadOnlyList<string> collectedChangedFiles = [];
             if (result.TimedOut)
@@ -358,12 +380,12 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             : Math.Max(1, (int)Math.Ceiling(prompt.Length / 4.0));
     }
 
-    internal static ToolUsageSummary? ExtractUsage(string artifactPath, string toolId)
+    internal static ToolUsageSummary? ExtractUsage(string artifactPath, string toolFamily)
     {
         if (string.IsNullOrWhiteSpace(artifactPath) || !Directory.Exists(artifactPath))
             return null;
 
-        var preferred = Path.Combine(artifactPath, $"{toolId}.events.jsonl");
+        var preferred = Path.Combine(artifactPath, $"{toolFamily}.events.jsonl");
         var files = File.Exists(preferred)
             ? [preferred]
             : Directory.GetFiles(artifactPath, "*.events.jsonl")
@@ -379,11 +401,18 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
                 latest = parsed;
         }
 
+        if (latest == null && toolFamily.Equals("gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            var jsonPath = Path.Combine(artifactPath, "gemini.json");
+            if (File.Exists(jsonPath))
+                latest = TryParseUsageLine(File.ReadAllText(jsonPath), Path.GetFileName(jsonPath));
+        }
+
         return latest
                ?? ExtractOpenHandsPersistedUsage(artifactPath)
-               ?? ExtractMiniSweTrajectoryUsage(artifactPath, toolId)
-               ?? ExtractCopilotUsage(artifactPath, toolId)
-               ?? ExtractAiderStdoutUsage(artifactPath, toolId);
+               ?? ExtractMiniSweTrajectoryUsage(artifactPath, toolFamily)
+               ?? ExtractCopilotUsage(artifactPath, toolFamily)
+               ?? ExtractAiderStdoutUsage(artifactPath, toolFamily);
     }
 
     private static ToolUsageSummary? ExtractOpenHandsPersistedUsage(string artifactPath)
@@ -397,7 +426,10 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
                 using var doc = JsonDocument.Parse(File.ReadAllText(file));
                 var source = Path.GetRelativePath(artifactPath, file);
                 var parsed = TryParseOpenHandsPersistedUsage(doc.RootElement, source);
-                if (parsed != null)
+                // The CLI writes base_state.json when the conversation starts and refreshes it as
+                // it runs. A run killed at the timeout can leave only that initial all-zero
+                // snapshot, which is not a measurement of the run.
+                if (parsed != null && (parsed.InputTokens ?? 0) + (parsed.OutputTokens ?? 0) > 0)
                     latest = parsed;
             }
             catch (JsonException)
@@ -576,15 +608,10 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
 
     private static ToolUsageSummary? TryParseOpenHandsTokenUsage(JsonElement usage, string sourceFile)
     {
-        var inputTokens = Sum(
-            ReadInt(usage, "prompt_tokens"),
-            ReadInt(usage, "input_tokens"),
-            ReadInt(usage, "cache_read_tokens"),
-            ReadInt(usage, "cache_write_tokens"));
-        var outputTokens = Sum(
-            ReadInt(usage, "completion_tokens"),
-            ReadInt(usage, "output_tokens"),
-            ReadInt(usage, "reasoning_tokens"));
+        // The SDK copies litellm's prompt/completion counts, which already include cache
+        // reads/writes and reasoning. Those fields are breakdowns and must not be added on top.
+        var inputTokens = ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens");
+        var outputTokens = ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens");
         if (!inputTokens.HasValue && !outputTokens.HasValue)
             return null;
 
@@ -594,9 +621,9 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             $"{sourceFile}:accumulated_token_usage");
     }
 
-    private static ToolUsageSummary? ExtractMiniSweTrajectoryUsage(string artifactPath, string toolId)
+    private static ToolUsageSummary? ExtractMiniSweTrajectoryUsage(string artifactPath, string toolFamily)
     {
-        if (!toolId.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
+        if (!toolFamily.Equals("mini-swe-agent", StringComparison.OrdinalIgnoreCase))
             return null;
 
         var trajectoryPath = Path.Combine(artifactPath, "mini-swe-agent-trajectory.json");
@@ -626,8 +653,18 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         long outputTokens = 0;
         var any = false;
 
-        foreach (var usage in EnumerateNamedObjects(root, "usage"))
+        // mini-swe-agent-1.1 trajectories keep each model response on its assistant
+        // message: messages[].extra.response.usage. prompt_tokens already includes cache.
+        if (!root.TryGetProperty("messages", out var messages) ||
+            messages.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var message in messages.EnumerateArray())
         {
+            if (!TryGetObject(message, "extra", out var extra) ||
+                !TryGetObject(extra, "response", out var response) ||
+                !TryGetObject(response, "usage", out var usage))
+                continue;
             var promptTokens = ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens");
             var completionTokens = ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens");
 
@@ -652,24 +689,38 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             $"{sourceFile}:usage");
     }
 
-    private static ToolUsageSummary? ExtractAiderStdoutUsage(string artifactPath, string toolId)
+    private static ToolUsageSummary? ExtractAiderStdoutUsage(string artifactPath, string toolFamily)
     {
-        if (!toolId.Equals("aider", StringComparison.OrdinalIgnoreCase))
+        if (!toolFamily.Equals("aider", StringComparison.OrdinalIgnoreCase))
             return null;
 
         var stdoutPath = Path.Combine(artifactPath, "aider.stdout.log");
         if (!File.Exists(stdoutPath))
             return null;
 
-        ToolUsageSummary? latest = null;
+        // Aider prints one "Tokens:" line per LLM request (a later line can report fewer received
+        // tokens than an earlier one), so the attempt's usage is their sum.
+        long? inputTokens = null;
+        long? outputTokens = null;
         foreach (var line in File.ReadLines(stdoutPath))
         {
             var parsed = TryParseAiderTokenLine(line, Path.GetFileName(stdoutPath));
-            if (parsed != null)
-                latest = parsed;
+            if (parsed == null)
+                continue;
+
+            if (parsed.InputTokens.HasValue)
+                inputTokens = (inputTokens ?? 0) + parsed.InputTokens.Value;
+            if (parsed.OutputTokens.HasValue)
+                outputTokens = (outputTokens ?? 0) + parsed.OutputTokens.Value;
         }
 
-        return latest;
+        if (!inputTokens.HasValue && !outputTokens.HasValue)
+            return null;
+
+        return new ToolUsageSummary(
+            inputTokens.HasValue ? ClampToInt(inputTokens.Value) : null,
+            outputTokens.HasValue ? ClampToInt(outputTokens.Value) : null,
+            $"{Path.GetFileName(stdoutPath)}:tokens-line");
     }
 
     private static ToolUsageSummary? TryParseAiderTokenLine(string line, string sourceFile)
@@ -696,9 +747,86 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
             $"{sourceFile}:tokens-line");
     }
 
-    private static ToolUsageSummary? ExtractCopilotUsage(string artifactPath, string toolId)
+    /// <summary>
+    /// Reads the model the tool actually served from its telemetry, so an attempt records what ran
+    /// rather than what was requested. Copilot can substitute a model without failing the run
+    /// (quota fallback, retired id), and a configured value alone would misattribute those attempts.
+    /// Returns null when the tool emits no model telemetry, leaving the configured model in place.
+    /// </summary>
+    internal static string? ExtractObservedModel(string artifactPath, string toolFamily)
     {
-        if (!toolId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+        if (!toolFamily.Equals("copilot", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var otelPath = Path.Combine(artifactPath, "copilot-otel.jsonl");
+        if (!File.Exists(otelPath))
+            return null;
+
+        string? latest = null;
+        try
+        {
+            foreach (var line in File.ReadLines(otelPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                using var doc = JsonDocument.Parse(line);
+                var model = TryReadCopilotSpanModel(doc.RootElement);
+                if (!string.IsNullOrWhiteSpace(model))
+                    latest = model;
+            }
+        }
+        catch (JsonException)
+        {
+            return latest;
+        }
+        catch (IOException)
+        {
+            return latest;
+        }
+
+        return latest;
+    }
+
+    private static string? TryReadCopilotSpanModel(JsonElement root)
+    {
+        string? found = null;
+        foreach (var obj in EnumerateObjects(root))
+        {
+            if (!TryReadString(obj, "type", out var type) ||
+                !type.Equals("span", StringComparison.OrdinalIgnoreCase) ||
+                !TryReadString(obj, "name", out var name) ||
+                !name.StartsWith("chat ", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Response model first: it is what the server actually billed. The span name
+            // ("chat <model>") is the last resort for exports without gen_ai model attributes.
+            if (TryReadAttributeString(obj, "gen_ai.response.model", out var responseModel) &&
+                !string.IsNullOrWhiteSpace(responseModel))
+                found = Truncate(responseModel.Trim());
+            else if (TryReadAttributeString(obj, "gen_ai.request.model", out var requestModel) &&
+                     !string.IsNullOrWhiteSpace(requestModel))
+                found = Truncate(requestModel.Trim());
+            else
+            {
+                var spanModel = name["chat ".Length..].Trim();
+                if (spanModel.Length > 0)
+                    found = Truncate(spanModel);
+            }
+        }
+
+        return found;
+    }
+
+    private static string Truncate(string value)
+    {
+        // ToolAttempt.Model is a 200 character column.
+        return value.Length <= 200 ? value : value[..200];
+    }
+
+    private static ToolUsageSummary? ExtractCopilotUsage(string artifactPath, string toolFamily)
+    {
+        if (!toolFamily.Equals("copilot", StringComparison.OrdinalIgnoreCase))
             return null;
 
         return ExtractCopilotOtelUsage(artifactPath)
@@ -1265,6 +1393,7 @@ public sealed class AgentToolEvaluationLane : IExperimentEvaluationLane
         builder.AppendLine();
         builder.AppendLine("Task: add or extend tests for the target method. Keep changes focused.");
         builder.AppendLine("Do not remove existing tests. Avoid unrelated production changes.");
+        builder.AppendLine("Leave your changes uncommitted in the working tree; do not run git commit.");
         builder.AppendLine();
         builder.AppendLine($"Target method: {targetName}");
         builder.AppendLine($"Signature: {signature}");

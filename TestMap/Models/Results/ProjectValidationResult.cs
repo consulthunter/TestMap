@@ -20,5 +20,14 @@ public record ProjectValidationResult(
     string UnsupportedProjects,
     string BaselineRunId,
     string FailureCategory,
-    string FailureSummary
+    string FailureSummary,
+    string CoverageStatus,
+    string CoverageReason,
+    string CoveragePolicyVersion,
+    int? RawCoverageObjectCount,
+    int? MappedCoverageObjectCount,
+    int? RawCoverageMemberCount,
+    int? MappedCoverageMemberCount,
+    string MutationStatus = "",
+    string MutationReason = ""
 );

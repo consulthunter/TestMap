@@ -26,30 +26,27 @@ public class ObjectCoverageRepository
         return entity?.ToDomain();
     }
 
-    public async Task<int> InsertOrUpdateAsync(ObjectCoverageModel model, int objectId, int coverageReportId)
+    public async Task<int> InsertOrUpdateAsync(ObjectCoverageModel model, int? objectId, int coverageReportId)
     {
-        var existing = await _context.ObjectCoverages.FirstOrDefaultAsync(x =>
-            x.ObjectId == objectId && x.CoverageReportId == coverageReportId);
+        var existing = await FindExistingAsync(model, objectId, coverageReportId);
 
         return await InsertOrUpdateAsync(model, objectId, coverageReportId, existing);
     }
 
     public async Task<int> InsertOrUpdateAsync(
         ObjectCoverageModel model,
-        int objectId,
+        int? objectId,
         int coverageReportId,
         ObjectCoverageEntity? existing)
     {
-        existing ??= await _context.ObjectCoverages.FirstOrDefaultAsync(x =>
-            x.ObjectId == objectId && x.CoverageReportId == coverageReportId);
+        existing ??= await FindExistingAsync(model, objectId, coverageReportId);
 
         if (existing != null)
         {
-            if (HasChanged(existing, model))
+            if (existing.ObjectId != objectId || HasChanged(existing, model))
             {
-                existing.LineRate = SanitizeDouble(model.LineRate);
-                existing.BranchRate = SanitizeDouble(model.BranchRate);
-                existing.Complexity = SanitizeDouble(model.ComplexityValue);
+                existing.ObjectId = objectId;
+                Apply(existing, model);
                 await _context.SaveChangesAsync();
             }
 
@@ -66,6 +63,18 @@ public class ObjectCoverageRepository
     {
         return entity.LineRate != SanitizeDouble(model.LineRate) ||
                entity.BranchRate != SanitizeDouble(model.BranchRate) ||
+               entity.SourceOrdinal != model.SourceOrdinal ||
+               entity.PackageName != model.PackageName ||
+               entity.Name != model.Name ||
+               entity.Filename != model.Filename ||
+               entity.AttributionStatus != model.AttributionStatus ||
+               entity.AttributionReason != model.AttributionReason ||
+               entity.LinesCovered != model.LinesCovered ||
+               entity.LinesValid != model.LinesValid ||
+               entity.BranchesCovered != model.BranchesCovered ||
+               entity.BranchesValid != model.BranchesValid ||
+               entity.LineCountsAvailable != model.LineCountsAvailable ||
+               entity.BranchCountsAvailable != model.BranchCountsAvailable ||
                entity.Complexity != SanitizeDouble(model.ComplexityValue);
     }
 
@@ -73,7 +82,31 @@ public class ObjectCoverageRepository
     {
         entity.LineRate = SanitizeDouble(model.LineRate);
         entity.BranchRate = SanitizeDouble(model.BranchRate);
+        entity.SourceOrdinal = model.SourceOrdinal;
+        entity.PackageName = model.PackageName;
+        entity.Name = model.Name;
+        entity.Filename = model.Filename;
+        entity.AttributionStatus = model.AttributionStatus;
+        entity.AttributionReason = model.AttributionReason;
+        entity.LinesCovered = model.LinesCovered;
+        entity.LinesValid = model.LinesValid;
+        entity.BranchesCovered = model.BranchesCovered;
+        entity.BranchesValid = model.BranchesValid;
+        entity.LineCountsAvailable = model.LineCountsAvailable;
+        entity.BranchCountsAvailable = model.BranchCountsAvailable;
         entity.Complexity = SanitizeDouble(model.ComplexityValue);
+    }
+
+    private Task<ObjectCoverageEntity?> FindExistingAsync(
+        ObjectCoverageModel model,
+        int? objectId,
+        int coverageReportId)
+    {
+        return model.SourceOrdinal >= 0
+            ? _context.ObjectCoverages.FirstOrDefaultAsync(x =>
+                x.CoverageReportId == coverageReportId && x.SourceOrdinal == model.SourceOrdinal)
+            : _context.ObjectCoverages.FirstOrDefaultAsync(x =>
+                x.ObjectId == objectId && x.CoverageReportId == coverageReportId && x.SourceOrdinal < 0);
     }
 
     public static double SanitizeDouble(double value)

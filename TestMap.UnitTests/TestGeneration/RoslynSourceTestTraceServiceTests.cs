@@ -10,6 +10,7 @@ using TestMap.Models.Configuration;
 using TestMap.Persistence.Ef;
 using TestMap.Persistence.Ef.Entities;
 using TestMap.Persistence.Ef.Entities.Code;
+using TestMap.Persistence.Ef.Entities.Experiment;
 using TestMap.Services.StaticAnalysis;
 using Location = TestMap.Models.Code.Location;
 
@@ -40,7 +41,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         var mappings = await db.SourceTestMappings
             .Include(x => x.TraceSteps)
@@ -58,6 +59,161 @@ public sealed class RoslynSourceTestTraceServiceTests
         // Deep (member 11) is called by Entry internally but is NOT a mapping target —
         // source-test mapping stops at the first production hit.
         Assert.DoesNotContain(mappings, m => m.SourceMemberId == 11);
+    }
+
+    /// <summary>
+    /// An attempt left a newer version of Entry behind. The baseline pass did not observe it, so
+    /// the mapping binds to the baseline row even though the stale row has the higher id.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RefreshAsync_StaleAttemptVersionWithHigherId_ResolvesToObservedBaselineRow()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDbAsync(connection);
+        await SeedAsync(db);
+        db.Members.Add(AttemptVersion(50, 1, "Entry", "public int Entry() => 2;", new Location(4, 4, 4, 4),
+            isTestMember: false, MemberOrigin.ToolAttempt, 7));
+        await db.SaveChangesAsync();
+        var refresh = CreateRefresh(db);
+
+        await refresh.RefreshAsync(1, [1], new HashSet<int> { 10, 11, 20 }, MemberAnalysisOrigin.Baseline());
+
+        var mapping = Assert.Single(await db.SourceTestMappings.ToListAsync());
+        Assert.Equal(10, mapping.SourceMemberId);
+        Assert.Equal(20, mapping.TestMemberId);
+    }
+
+    /// <summary>
+    /// A tool rewrote a baseline test. Its attempt version is traced and mapped, while the
+    /// baseline test keeps its mapping row and id.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RefreshAsync_AttemptModifiesBaselineTest_MapsAttemptVersionAndKeepsBaselineRow()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDbAsync(connection);
+        await SeedAsync(db);
+        var refresh = CreateRefresh(db);
+        await RefreshBaselineAsync(db, refresh);
+        var baseline = await db.SourceTestMappings.AsNoTracking().SingleAsync();
+
+        db.Members.Add(AttemptVersion(60, 2, "Entry_ReturnsValue",
+            "public void Entry_ReturnsValue() { Assert.Equal(2, new Source.Svc().Entry()); }",
+            new Location(5, 4, 5, 4), isTestMember: true, MemberOrigin.ToolAttempt, 7));
+        await db.SaveChangesAsync();
+        await refresh.RefreshAsync(1, [1], new HashSet<int> { 10, 11, 60 }, MemberAnalysisOrigin.ToolAttempt(7));
+
+        var mappings = await db.SourceTestMappings.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+        Assert.Equal(2, mappings.Count);
+        Assert.Equal(baseline.Id, mappings[0].Id);
+        Assert.Equal(20, mappings[0].TestMemberId);
+        Assert.Equal(10, mappings[1].SourceMemberId);
+        Assert.Equal(60, mappings[1].TestMemberId);
+    }
+
+    /// <summary>
+    /// Re-running the baseline pass updates rows in place, so ids referenced elsewhere (the
+    /// candidate inventory, generated-test links) stay valid.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RefreshAsync_RepeatedBaselinePass_KeepsMappingIdAndCandidateLink()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDbAsync(connection);
+        await SeedAsync(db);
+        var refresh = CreateRefresh(db);
+        await RefreshBaselineAsync(db, refresh);
+        var first = await db.SourceTestMappings.AsNoTracking().SingleAsync();
+        db.CandidateInventory.Add(new CandidateInventoryEntity
+        {
+            ProjectId = 1,
+            SourceMemberId = 10,
+            SourceTestMappingId = first.Id,
+            SourceMethodName = "Entry",
+            SelectionTime = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        await RefreshBaselineAsync(db, refresh);
+
+        var second = await db.SourceTestMappings.AsNoTracking().SingleAsync();
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(first.Id, (await db.CandidateInventory.AsNoTracking().SingleAsync()).SourceTestMappingId);
+    }
+
+    /// <summary>
+    /// LLM attempts that generate a same-named test in the same file share one member row. The
+    /// second attempt updates that row's mapping in place instead of failing on the unique key.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RefreshAsync_SameNamedLlmTestTwice_UpdatesOneMappingInPlace()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var db = await CreateDbAsync(connection);
+        await SeedAsync(db);
+        db.Members.Add(AttemptVersion(70, 2, "Entry_ReturnsValue",
+            "public void Entry_ReturnsValue() { Assert.Equal(3, new Source.Svc().Entry()); }",
+            new Location(5, 4, 5, 4), isTestMember: true, MemberOrigin.LlmAttempt, null));
+        await db.SaveChangesAsync();
+        var refresh = CreateRefresh(db);
+        var observed = new HashSet<int> { 10, 11, 70 };
+
+        await refresh.RefreshAsync(1, [1], observed, MemberAnalysisOrigin.LlmAttempt(null));
+        var first = await db.SourceTestMappings.AsNoTracking().SingleAsync();
+        await refresh.RefreshAsync(1, [1], observed, MemberAnalysisOrigin.LlmAttempt(null));
+
+        var second = await db.SourceTestMappings.AsNoTracking().SingleAsync();
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(70, second.TestMemberId);
+    }
+
+    private static SourceTestMappingRefreshService CreateRefresh(TestMapDbContext db)
+    {
+        var context = new ProjectContext(new ProjectModel(config: new TestMapConfig()) { DbId = 1 });
+        var tracer = new RoslynSourceTestTraceService(context, db, new InMemoryStaticAnalysisWorkspace(CreateSolution()));
+        return new SourceTestMappingRefreshService(context, db, tracer);
+    }
+
+    private static MemberEntity AttemptVersion(
+        int id,
+        int objectId,
+        string name,
+        string fullString,
+        Location location,
+        bool isTestMember,
+        string originKind,
+        int? originAttemptId)
+    {
+        return new MemberEntity
+        {
+            Id = id,
+            ObjectEntityId = objectId,
+            Name = name,
+            Kind = "method",
+            Modifiers = ["public"],
+            IsTestMember = isTestMember,
+            FullString = fullString,
+            Location = location,
+            ContentHash = $"attempt-{id}",
+            OriginKind = originKind,
+            OriginAttemptId = originAttemptId
+        };
+    }
+
+    /// <summary>Runs a baseline pass that observed every member row in the database.</summary>
+    private static async Task RefreshBaselineAsync(TestMapDbContext db, SourceTestMappingRefreshService refresh)
+    {
+        var observed = (await db.Members.Select(x => x.Id).ToListAsync()).ToHashSet();
+        await refresh.RefreshAsync(1, [1], observed, MemberAnalysisOrigin.Baseline());
     }
 
     private static async Task<TestMapDbContext> CreateDbAsync(SqliteConnection connection)
@@ -252,7 +408,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         var mappings = await db.SourceTestMappings.Include(x => x.TraceSteps).ToListAsync();
         var mapping = Assert.Single(mappings);
@@ -281,7 +437,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         var mappings = await db.SourceTestMappings.ToListAsync();
         var mapping = Assert.Single(mappings);
@@ -308,7 +464,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         var mappings = await db.SourceTestMappings.ToListAsync();
         var mapping = Assert.Single(mappings);
@@ -338,7 +494,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         Assert.Empty(await db.SourceTestMappings.ToListAsync());
     }
@@ -361,7 +517,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         // Cycle is broken; production Work is never reached from either helper.
         Assert.Empty(await db.SourceTestMappings.ToListAsync());
@@ -384,7 +540,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         var mappings = await db.SourceTestMappings.OrderBy(x => x.TestMemberId).ToListAsync();
         Assert.Equal(2, mappings.Count);
@@ -410,7 +566,7 @@ public sealed class RoslynSourceTestTraceServiceTests
         var tracer = new RoslynSourceTestTraceService(context, db, workspace);
         var refresh = new SourceTestMappingRefreshService(context, db, tracer);
 
-        await refresh.RefreshForProjectAsync(1, 1);
+        await RefreshBaselineAsync(db, refresh);
 
         var mappings = await db.SourceTestMappings.ToListAsync();
         var mapping = Assert.Single(mappings);

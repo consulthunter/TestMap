@@ -9,6 +9,7 @@ public class CandidateMethod
 {
     public int Id { get; set; }
     public int ExperimentRunId { get; set; }
+    public int? CandidateCohortMemberId { get; set; }
     public int? CandidateInventoryId { get; set; }
     public int MemberId { get; set; }
     public int? ExistingTestMemberId { get; set; }

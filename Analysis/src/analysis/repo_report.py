@@ -33,8 +33,9 @@ def _notebook_path(input_path: str, notebook: Optional[str]) -> Path:
     if notebook:
         return Path(notebook).resolve()
     # Convention: input is  Analysis/data/evaluation_attempts.csv
-    #             NB01 is   Analysis/notebooks/01_repository_evaluation.ipynb
-    return Path(input_path).resolve().parent.parent / "notebooks" / "01_repository_evaluation.ipynb"
+    #             NB01 is   Analysis/notebooks/exploratory/01_repository_evaluation.ipynb
+    return (Path(input_path).resolve().parent.parent / "notebooks" / "exploratory"
+            / "01_repository_evaluation.ipynb")
 
 
 def run_single(

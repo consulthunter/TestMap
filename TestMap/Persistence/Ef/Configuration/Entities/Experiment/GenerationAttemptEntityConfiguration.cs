@@ -33,7 +33,12 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
         builder.Property(x => x.ParentAttemptId).HasColumnName("parent_attempt_id");
         builder.Property(x => x.StartTime).HasColumnName("start_time").IsRequired();
         builder.Property(x => x.EndTime).HasColumnName("end_time");
-        builder.Property(x => x.TotalTokensUsed).HasColumnName("total_tokens_used").IsRequired();
+        builder.Property(x => x.InputTokens).HasColumnName("input_tokens");
+        builder.Property(x => x.OutputTokens).HasColumnName("output_tokens");
+        builder.Property(x => x.TotalTokensUsed).HasColumnName("total_tokens_used");
+        builder.Property(x => x.UsageStatus).HasColumnName("usage_status").IsRequired();
+        builder.Property(x => x.UsageSource).HasColumnName("usage_source");
+        builder.Property(x => x.UsagePolicyVersion).HasColumnName("usage_policy_version");
         builder.Property(x => x.GenerationDurationSeconds).HasColumnName("generation_duration_seconds").IsRequired();
         builder.Property(x => x.ValidationDurationSeconds).HasColumnName("validation_duration_seconds").IsRequired();
         builder.Property(x => x.TotalAttemptDurationSeconds).HasColumnName("total_attempt_duration_seconds").IsRequired();
@@ -43,6 +48,8 @@ public class GenerationAttemptEntityConfiguration : IEntityTypeConfiguration<Gen
         builder.Property(x => x.FailureCategory).HasColumnName("failure_category").IsRequired();
         builder.Property(x => x.ErrorMessage).HasColumnName("error_message").IsRequired();
         builder.Property(x => x.RuleDecisionSnapshotJson).HasColumnName("rule_decision_snapshot_json").IsRequired();
+        builder.Property(x => x.BaseCommit).HasColumnName("base_commit").IsRequired();
+        builder.Property(x => x.WorkspaceIntegrityStatus).HasColumnName("workspace_integrity_status").IsRequired();
 
         // Basic Extension patch metadata — nullable so existing rows are unaffected
         builder.Property(x => x.PatchJson).HasColumnName("patch_json");

@@ -10,6 +10,7 @@ public class MutationTestingReportEntity
     public int? ExperimentRunId { get; set; }
     public string ScopeKind { get; set; } = "Solution";
     public bool IsBaseline { get; set; }
+    public string ReportRole { get; set; } = TestMap.Models.Testing.TestReportRole.RepositoryBaseline;
     public string SourceProjectPath { get; set; } = string.Empty;
     public string TestProjectPath { get; set; } = string.Empty;
     public string TargetFramework { get; set; } = string.Empty;

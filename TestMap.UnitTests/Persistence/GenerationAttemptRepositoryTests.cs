@@ -150,6 +150,34 @@ public sealed class GenerationAttemptRepositoryTests
         Assert.Equal(new string('b', 64), updated.ModifiedFileSha256);
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task InsertAndRead_PreservesCompleteTokenUsage()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = await CreateDbAsync(connection);
+        var repo = new GenerationAttemptRepository(db);
+        var (_, candidateMethodId) = await SeedExperimentGraphAsync(db);
+        var attempt = MakeAttempt(candidateMethodId: candidateMethodId);
+        attempt.InputTokens = 200;
+        attempt.OutputTokens = 50;
+        attempt.TotalTokensUsed = 250;
+        attempt.UsageStatus = TokenUsageVocabulary.CompleteEstimated;
+        attempt.UsageSource = TokenUsageVocabulary.Cl100kLocalEstimate;
+        attempt.UsagePolicyVersion = TokenUsageVocabulary.PolicyV1;
+
+        var id = await repo.InsertAsync(attempt);
+        var restored = await repo.GetByIdAsync(id);
+
+        Assert.NotNull(restored);
+        Assert.Equal(200, restored!.InputTokens);
+        Assert.Equal(50, restored.OutputTokens);
+        Assert.Equal(250, restored.TotalTokensUsed);
+        Assert.Equal(TokenUsageVocabulary.CompleteEstimated, restored.UsageStatus);
+        Assert.Equal(TokenUsageVocabulary.PolicyV1, restored.UsagePolicyVersion);
+    }
+
     // ─── Infrastructure ───────────────────────────────────────────────────────
 
     private static async Task<TestMapDbContext> CreateDbAsync(SqliteConnection connection)

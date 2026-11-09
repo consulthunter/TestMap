@@ -7,6 +7,7 @@ public class CandidateMethodEntity
 {
     public int Id { get; set; }
     public int ExperimentRunId { get; set; }
+    public int? CandidateCohortMemberId { get; set; }
     public int? CandidateInventoryId { get; set; }
     public int SourceMemberId { get; set; }
     public int? ExistingTestMemberId { get; set; }
@@ -34,6 +35,7 @@ public class CandidateMethodEntity
     public DateTime SelectionTime { get; set; }
 
     public virtual ExperimentRunEntity? ExperimentRun { get; set; }
+    public virtual CandidateCohortMemberEntity? CandidateCohortMember { get; set; }
     public virtual CandidateInventoryEntity? CandidateInventory { get; set; }
 
     public virtual ICollection<GenerationAttemptEntity> GenerationAttempts { get; set; } =

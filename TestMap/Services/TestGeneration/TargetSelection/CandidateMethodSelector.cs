@@ -93,6 +93,10 @@ public sealed class CandidateMethodSelector
                         from coverage in _dbContext.MemberCoverages
                         join report in _dbContext.CoverageReports on coverage.CoverageReportId equals report.Id
                         where coverage.MemberId == member.Id
+                              && coverage.AttributionStatus == "Mapped"
+                              && report.MeasurementPolicyVersion == "coverage-integrity-v1"
+                              && report.ReportRole == TestMap.Models.Testing.TestReportRole.RepositoryBaseline
+                              && report.HasUsableCoverage
                               && coverage.LineRate >= minCoverageThreshold
                               && coverage.LineRate <= maxCoverageThreshold
                         orderby report.Timestamp descending, report.CreatedAt descending, coverage.Id descending
@@ -104,6 +108,7 @@ public sealed class CandidateMethodSelector
                     .FirstOrDefault()
                 where !member.IsTestMember
                       && !member.IsGenerated
+                      && member.OriginKind == TestMap.Models.Code.MemberOrigin.Baseline
                       && !sourceObject.IsTestObject
                       && member.Kind == "method"
                       && selectedCoverage != null

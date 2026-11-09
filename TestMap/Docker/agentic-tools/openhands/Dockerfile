@@ -1,10 +1,9 @@
 ﻿FROM testmap-dotnet-agent-base:0.1
 
-ARG OPENHANDS_VERSION=latest
+ARG OPENHANDS_VERSION=1.16.0
 
-# Install OpenHands using uv.
-# For reproducible evaluation runs, replace "latest" with a pinned version
-# after the pilot stabilizes.
+# Install OpenHands using uv. The version is pinned so an evaluation sweep cannot
+# silently change tool behaviour partway through; bump it deliberately.
 RUN if [ "$OPENHANDS_VERSION" = "latest" ]; then \
       uv tool install openhands --python 3.12; \
     else \

@@ -1,10 +1,10 @@
 FROM testmap-dotnet-agent-base:0.1
 
-ARG GEMINI_CLI_VERSION=latest
+ARG GEMINI_CLI_VERSION=0.55.1
 
 # Install the official Google Gemini CLI.
-# For reproducible evaluation runs, replace "latest" with a pinned version
-# after the pilot stabilizes.
+# The version is pinned so an evaluation sweep cannot silently change tool
+# behaviour partway through; bump it deliberately.
 RUN npm install -g @google/gemini-cli@${GEMINI_CLI_VERSION}
 
 # Shared runner helper and Gemini-specific execution script.

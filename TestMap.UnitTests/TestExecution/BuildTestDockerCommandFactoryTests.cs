@@ -1,4 +1,5 @@
 using TestMap.Models.Code;
+using TestMap.Models.Testing;
 using TestMap.Rules.TestExecution;
 using TestMap.Services.TestExecution;
 
@@ -15,7 +16,7 @@ public sealed class BuildTestDockerCommandFactoryTests
         var request = BuildTestRunRequest.CreateIteration(
             "tests/Sample.Tests/Sample.Tests.csproj",
             "net10.0",
-            "DoWork",
+            new TargetMemberDescriptor(1, "DoWork", "void DoWork()", "Sample", "Sample.cs", 1, 2),
             "src/Sample/Sample.csproj",
             experimentRunId: 42,
             isMutationBaseline);
@@ -24,6 +25,9 @@ public sealed class BuildTestDockerCommandFactoryTests
 
         Assert.Equal("SourceProject", scope.ScopeKind);
         Assert.Equal(isMutationBaseline, scope.IsBaseline);
+        Assert.Equal(
+            isMutationBaseline ? TestReportRole.TargetedBaseline : TestReportRole.AttemptMeasurement,
+            scope.ReportRole);
         Assert.Equal(42, scope.ExperimentRunId);
         Assert.Equal(Path.GetFullPath("src/Sample/Sample.csproj"), scope.SourceProjectPath);
         Assert.Equal(Path.GetFullPath("tests/Sample.Tests/Sample.Tests.csproj"), scope.TestProjectPath);
@@ -37,12 +41,33 @@ public sealed class BuildTestDockerCommandFactoryTests
         var request = BuildTestRunRequest.CreateIteration(
             "tests/Sample.Tests/Sample.Tests.csproj",
             "net10.0",
-            "DoWork");
+            new TargetMemberDescriptor(1, "DoWork", "void DoWork()", "Sample", "Sample.cs", 1, 2));
 
         var scope = request.CreateMutationReportScope();
 
         Assert.Equal("Solution", scope.ScopeKind);
         Assert.True(scope.IsBaseline);
+        Assert.Equal(TestReportRole.RepositoryBaseline, scope.ReportRole);
+    }
+
+    [Fact]
+    public void CreateCoverageReportScope_ForTargetedBaseline_PreservesComparableScope()
+    {
+        var request = BuildTestRunRequest.CreateIteration(
+            "tests/Sample.Tests/Sample.Tests.csproj",
+            "net10.0",
+            new TargetMemberDescriptor(1, "DoWork", "void DoWork()", "Sample", "Sample.cs", 1, 2),
+            "src/Sample/Sample.csproj",
+            experimentRunId: 42,
+            isMutationBaseline: true);
+
+        var scope = request.CreateCoverageReportScope();
+
+        Assert.Equal("SourceProject", scope.ScopeKind);
+        Assert.Equal(TestReportRole.TargetedBaseline, scope.ReportRole);
+        Assert.Equal("src/Sample/Sample.csproj", scope.SourceProjectPath);
+        Assert.Equal("tests/Sample.Tests/Sample.Tests.csproj", scope.TestProjectPath);
+        Assert.Equal("net10.0", scope.TargetFramework);
     }
 
     /// <summary>
@@ -337,14 +362,51 @@ public sealed class BuildTestDockerCommandFactoryTests
             "iteration_123",
             "/app/project/src/Sample/Sample.csproj",
             "/app/project/tests/Sample.Tests/Sample.Tests.csproj",
-            "net9.0");
+            "net9.0",
+            3);
 
         Assert.Equal(
-            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --project \"/app/project/src/Sample/Sample.csproj\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\" --target-framework \"net9.0\"",
+            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker-project --run-id \"iteration_123\" --report-name \"Sample\" --project \"/app/project/src/Sample/Sample.csproj\" --test-project \"/app/project/tests/Sample.Tests/Sample.Tests.csproj\" --target-framework \"net9.0\" --stryker-concurrency 3",
             args);
         Assert.Contains("--project \"/app/project/src/Sample/Sample.csproj\"", args);
         Assert.Contains("--target-framework \"net9.0\"", args);
         Assert.DoesNotContain("--solution", args);
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void CreateBaselineMutationArgs_PassesConfiguredStrykerConcurrency()
+    {
+        var args = BuildTestDockerCommandFactory.CreateBaselineMutationArgs(
+            DockerRuntimePathMapper.LinuxContextName,
+            "sample-testing",
+            "-v \"D:\\repo:/app/project\"",
+            "testmap-runner",
+            "baseline_123",
+            ["Sample.sln"],
+            5);
+
+        Assert.Equal(
+            "--context desktop-linux run -d --name sample-testing -v \"D:\\repo:/app/project\" testmap-runner python3 -m testmap_runner dotnet-stryker --run-id \"baseline_123\" --solutions \"Sample.sln\" --stryker-concurrency 5",
+            args);
+    }
+
+    [Theory]
+    [Trait("Category", "Unit")]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void MutationArgs_WithNonPositiveStrykerConcurrency_OmitFlagForStrykerDefault(int concurrency)
+    {
+        var baseline = BuildTestDockerCommandFactory.CreateBaselineMutationArgs(
+            DockerRuntimePathMapper.LinuxContextName, "sample-testing", "-v \"D:\\repo:/app/project\"",
+            "testmap-runner", "baseline_123", ["Sample.sln"], concurrency);
+        var targeted = BuildTestDockerCommandFactory.CreateTargetedMutationArgs(
+            DockerRuntimePathMapper.LinuxContextName, "sample-testing", "-v \"D:\\repo:/app/project\"",
+            "testmap-runner", "iteration_123", "/app/project/src/Sample/Sample.csproj",
+            "/app/project/tests/Sample.Tests/Sample.Tests.csproj", null, concurrency);
+
+        Assert.DoesNotContain("--stryker-concurrency", baseline);
+        Assert.DoesNotContain("--stryker-concurrency", targeted);
     }
 
     /// <summary>

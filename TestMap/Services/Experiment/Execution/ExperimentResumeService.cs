@@ -18,13 +18,13 @@ public sealed class ExperimentResumeService : IExperimentResumeService
         CandidateMethod candidateMethod,
         GenerationExperimentMatrixItem matrixItem)
     {
-        return string.Join(
+        var key = string.Join(
             "|",
             Normalize(resumeGroupId),
             Normalize(repositoryIdentity),
             Normalize(commitHash),
             objective,
-            candidateMethod.MemberId.ToString(),
+            BuildCandidateIdentity(candidateMethod),
             matrixItem.Provider,
             Normalize(matrixItem.ModelName),
             matrixItem.Approach,
@@ -32,6 +32,16 @@ public sealed class ExperimentResumeService : IExperimentResumeService
             matrixItem.ContextMode,
             matrixItem.BudgetMode,
             Normalize(matrixItem.Steps.VariantId));
+
+        // Provider plus model identifies an arm on its own unless two arms share both and differ
+        // only by endpoint, so the arm id is appended to disambiguate. It is omitted when the arm
+        // id is just the provider name — the arm a config without an explicit LlmArms list
+        // produces — so those configs keep the keys they already have in the database and stay
+        // resumable across this change.
+        return string.Equals(matrixItem.ArmId, matrixItem.Provider.ToString(), StringComparison.Ordinal) ||
+               string.IsNullOrWhiteSpace(matrixItem.ArmId)
+            ? key
+            : string.Join("|", key, Normalize(matrixItem.ArmId));
     }
 
     public ExperimentMatrixWorkItem CreateWorkItem(
@@ -162,5 +172,32 @@ public sealed class ExperimentResumeService : IExperimentResumeService
     private static string Normalize(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? "none" : value.Trim();
+    }
+
+    /// <summary>
+    /// Identifies a candidate's shared targeted baseline. It omits the matrix values because one
+    /// baseline serves every arm and tool for the candidate, and the objective because the
+    /// baseline measures the unmodified workspace.
+    /// </summary>
+    public static string BuildCandidateBaselineKey(
+        string resumeGroupId,
+        string repositoryIdentity,
+        string commitHash,
+        CandidateMethod candidateMethod)
+    {
+        return string.Join(
+            "|",
+            Normalize(resumeGroupId),
+            Normalize(repositoryIdentity),
+            Normalize(commitHash),
+            BuildCandidateIdentity(candidateMethod),
+            "targeted-baseline");
+    }
+
+    internal static string BuildCandidateIdentity(CandidateMethod candidateMethod)
+    {
+        return candidateMethod.CandidateCohortMemberId.HasValue
+            ? $"cohort-member:{candidateMethod.CandidateCohortMemberId.Value}"
+            : $"source-member:{candidateMethod.MemberId}";
     }
 }

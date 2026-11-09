@@ -7,6 +7,7 @@ public enum GeneratedTestClassification
 {
     ValidatedEvidencePositive,
     ValidatedLowImpact,
+    ValidatedImpactUnknown,
     FailedEvidencePositive,
     ValidationFailed
 }

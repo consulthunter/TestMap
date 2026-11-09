@@ -55,6 +55,10 @@ public sealed class MigrationSchemaTests
             Assert.Contains("tool_attempts", tables);
             Assert.Contains("source_test_mappings", tables);
             Assert.Contains("source_test_mapping_trace_steps", tables);
+            Assert.Contains("assertion_lineage_measurements", tables);
+            Assert.Contains("generated_test_assertion_summaries", tables);
+            Assert.Contains("assertion_observations", tables);
+            Assert.Contains("assertion_lineage_steps", tables);
 
             // Rules and risk
             Assert.Contains("rule_definitions", tables);
@@ -89,7 +93,7 @@ public sealed class MigrationSchemaTests
 
             var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
 
-            Assert.Equal(10, applied.Count);
+            Assert.Equal(20, applied.Count);
             Assert.Contains(applied, x => x.Contains("InitialCreate"));
             Assert.Contains(applied, x => x.Contains("AddToolAttempts"));
             Assert.Contains(applied, x => x.Contains("AddToolAttemptPostMeasurement"));
@@ -100,6 +104,71 @@ public sealed class MigrationSchemaTests
             Assert.Contains(applied, x => x.Contains("AddMutantOriginalCode"));
             Assert.Contains(applied, x => x.Contains("AddGeneratedTestExecutionTestRunId"));
             Assert.Contains(applied, x => x.Contains("AddGeneratedTestExecutionMemberAndBaseline"));
+            Assert.Contains(applied, x => x.Contains("AddCandidateCohorts"));
+            Assert.Contains(applied, x => x.Contains("HardenEvaluationMeasurements"));
+            Assert.Contains(applied, x => x.Contains("AddToolAttemptNumber"));
+            Assert.Contains(applied, x => x.Contains("AddPinnedProjectProvenance"));
+            Assert.Contains(applied, x => x.Contains("AddPinnedExperimentProvenanceAndIntegrity"));
+            Assert.Contains(applied, x => x.Contains("AddAssertionLineageEvidence"));
+            Assert.Contains(applied, x => x.Contains("AddCoverageDataIntegrity"));
+            Assert.Contains(applied, x => x.Contains("AddTokenUsageAccounting"));
+            Assert.Contains(applied, x => x.Contains("AddAnalysisOriginAndReportRoles"));
+            Assert.Contains(applied, x => x.Contains("AddCandidateBaselines"));
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsCoverageIntegrityColumnsAndIndexesWithoutNewTables()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var reportColumns = await GetColumnNamesAsync(db, "coverage_reports");
+            var objectColumns = await GetColumnNamesAsync(db, "object_coverages");
+            var memberColumns = await GetColumnNamesAsync(db, "member_coverages");
+
+            Assert.Contains("run_id", reportColumns);
+            Assert.Contains("collection_status", reportColumns);
+            Assert.Contains("measurement_policy_version", reportColumns);
+            Assert.Contains("raw_member_count", reportColumns);
+            Assert.Contains("source_ordinal", objectColumns);
+            Assert.Contains("attribution_status", objectColumns);
+            Assert.Contains("line_counts_available", objectColumns);
+            Assert.Contains("object_coverage_id", memberColumns);
+            Assert.Contains("signature", memberColumns);
+            Assert.Contains("branch_counts_available", memberColumns);
+
+            var indexes = await GetIndexNamesAsync(db);
+            Assert.Contains("IX_coverage_reports_project_id_run_id", indexes);
+            Assert.Contains("IX_object_coverages_coverage_report_id_source_ordinal", indexes);
+            Assert.Contains("IX_member_coverages_object_coverage_id_source_ordinal", indexes);
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsAnalysisOriginsReportRolesAndCoverageScope()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var memberColumns = await GetColumnNamesAsync(db, "members");
+            Assert.Contains("signature", memberColumns);
+            Assert.Contains("origin_kind", memberColumns);
+            Assert.Contains("origin_attempt_id", memberColumns);
+
+            Assert.Contains("report_role", await GetColumnNamesAsync(db, "test_runs"));
+            Assert.Contains("report_role", await GetColumnNamesAsync(db, "mutation_testing_reports"));
+
+            var coverageColumns = await GetColumnNamesAsync(db, "coverage_reports");
+            Assert.Contains("report_role", coverageColumns);
+            Assert.Contains("scope_kind", coverageColumns);
+            Assert.Contains("source_project_path", coverageColumns);
+            Assert.Contains("test_project_path", coverageColumns);
+            Assert.Contains("target_framework", coverageColumns);
+
+            Assert.Contains("coverage_before", await GetColumnNamesAsync(db, "generated_test_executions"));
         });
     }
 
@@ -153,6 +222,33 @@ public sealed class MigrationSchemaTests
             Assert.Contains("modified_file_path", columns);
             Assert.Contains("modified_file_contents", columns);
             Assert.Contains("modified_file_sha256", columns);
+        });
+    }
+
+    [Fact]
+    public async Task MigrateAsync_AddsTokenUsageColumnsAndNullableGenerationTotals()
+    {
+        await WithTempDatabaseAsync(async (db, _) =>
+        {
+            await db.Database.MigrateAsync();
+
+            var stepColumns = await GetColumnNamesAsync(db, "generation_steps");
+            var generationColumns = await GetColumnNamesAsync(db, "generation_attempts");
+            var toolColumns = await GetColumnNamesAsync(db, "tool_attempts");
+
+            Assert.Contains("usage_status", stepColumns);
+            Assert.Contains("usage_source", stepColumns);
+            Assert.Contains("usage_policy_version", stepColumns);
+            Assert.Contains("input_tokens", generationColumns);
+            Assert.Contains("output_tokens", generationColumns);
+            Assert.Contains("usage_status", generationColumns);
+            Assert.Contains("usage_source", generationColumns);
+            Assert.Contains("usage_policy_version", generationColumns);
+            Assert.Contains("usage_status", toolColumns);
+            Assert.Contains("usage_policy_version", toolColumns);
+
+            Assert.False(await IsColumnRequiredAsync(db, "generation_steps", "tokens_used"));
+            Assert.False(await IsColumnRequiredAsync(db, "generation_attempts", "total_tokens_used"));
         });
     }
 
@@ -260,5 +356,40 @@ public sealed class MigrationSchemaTests
             columns.Add(reader.GetString(1));
 
         return columns;
+    }
+
+    private static async Task<IReadOnlyList<string>> GetIndexNamesAsync(TestMapDbContext db)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;";
+        var indexes = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) indexes.Add(reader.GetString(0));
+        return indexes;
+    }
+
+    private static async Task<bool> IsColumnRequiredAsync(
+        TestMapDbContext db,
+        string tableName,
+        string columnName)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info(\"{tableName.Replace("\"", "\"\"")}\");";
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                return reader.GetInt32(3) == 1;
+        }
+
+        throw new InvalidOperationException($"Column '{columnName}' was not found in '{tableName}'.");
     }
 }

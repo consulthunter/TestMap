@@ -1,0 +1,218 @@
+schema_version: 2
+generated_at_utc: 2026-07-16T18:26:57.6723535+00:00
+source:
+  file: licenseFiltered.yaml
+  sha256: cbe4ff6d47fb16ee24a83ad6d6a4b72e7a2c8ae51b5e5f606bc56632f687c542
+derivation:
+  kind: project_test_presence
+  category: tests_detected
+  policy_name: project-test-presence
+  policy_version: 1
+  report:
+    file: licenseFiltered-project-check-report-d14258c49078.yaml
+    sha256: d14258c490786e957b30fae663db653d78d1d0ed981c332b5b5f2dbb11287e81
+targets:
+  - target_id: 625fc14a67e135c366d6cd1172a346c66e5f9cbbeb0df890edfe4353899ff0b9
+    repository: parse-community/parse-sdk-dotnet
+    url: https://github.com/parse-community/parse-sdk-dotnet.git
+    commit: 22803e5d2278cb2fd6c04a12f3eac84fe03fbe6d
+    source_rows:
+      - 39
+  - target_id: 537e171e9cebf06f1ab3b6ea10712358c1d5bfa2b88c424357d54aa470ab58a7
+    repository: tintoy/dotnet-kube-client
+    url: https://github.com/tintoy/dotnet-kube-client.git
+    commit: 6dccfe7e6733a2401165e6068854cb852d72d507
+    source_rows:
+      - 41
+  - target_id: bd91b5df5eed41c352d6d6af3cb1a9864776307a1b7baa525e58081faff98391
+    repository: aalhour/c-sharp-algorithms
+    url: https://github.com/aalhour/c-sharp-algorithms.git
+    commit: b82432474a916ac784cd1446eabcba615c333463
+    source_rows:
+      - 47
+  - target_id: 838d8e25dd890186382e8081c9a45b7ba5b30fe56375ce54a72b359d02bf5059
+    repository: alirezanet/gridify
+    url: https://github.com/alirezanet/gridify.git
+    commit: 2d6b9b3fe66f02a448eb5065fc3acdd0d74dd5da
+    source_rows:
+      - 56
+  - target_id: 6d4c2702aa0a058bdf954833ad828bc7ae56e83e1a70307b338a82e97cd28f1b
+    repository: dotnetcore/aspectcore-framework
+    url: https://github.com/dotnetcore/aspectcore-framework.git
+    commit: d8fa5ca2d16cb90481586369abc1f19f97946ac4
+    source_rows:
+      - 59
+  - target_id: 51574c5bbbfddd418c3cbe585c3efdf60666b8d3cebc701f7c5f7243bdfd477e
+    repository: cysharp/zstring
+    url: https://github.com/cysharp/zstring.git
+    commit: e2b86f7ad433dd7dba2ac0b1a66d36f5105aa912
+    source_rows:
+      - 64
+  - target_id: 928040cd6c6e79de57607343ca25bb1b04029f92ba3f48c7af3f90f8c367a0f6
+    repository: indice-co/edi.net
+    url: https://github.com/indice-co/edi.net.git
+    commit: 4c3bd14fd385a1ad8e8f650f09c0f39da7e3c5ab
+    source_rows:
+      - 84
+  - target_id: 3ab604aa3efa956e23aaf6cc2aed6aa6d8d9d5987be2acc08976a9fc9ed10045
+    repository: vonage/vonage-dotnet-sdk
+    url: https://github.com/vonage/vonage-dotnet-sdk.git
+    commit: 8cad0859af710634ac70c2a5cd2f03c7b11903b9
+    source_rows:
+      - 231
+  - target_id: 3f0fb368196af9f1450cd1f0009379701417d1299082038293aea89c0f55421f
+    repository: qowaiv/qowaiv
+    url: https://github.com/qowaiv/qowaiv.git
+    commit: 8a64b2447ab3a46634530cbc7650b5a80bb775f5
+    source_rows:
+      - 238
+  - target_id: 59e86017cfdf7835da0a7930c6151ba54e41b1d50d52bdda2ad4c42ee689269c
+    repository: serilog/serilog-expressions
+    url: https://github.com/serilog/serilog-expressions.git
+    commit: 697c8fa89ec167b1f3f9457c8cee500ad02e8bc2
+    source_rows:
+      - 291
+  - target_id: 2af1d6dbf2df45316a455f1e04ccfe2590abe16c6138bf6769ededf38fa5e084
+    repository: avaloniaui/avaloniaedit
+    url: https://github.com/avaloniaui/avaloniaedit.git
+    commit: be976eacf40ed3c6992ca3157773e8f1e7315eae
+    source_rows:
+      - 337
+  - target_id: 5cffc27f47603519420c58fdf8b92c9e14ca10f8d0c1507f55b2a922d34b129b
+    repository: dotnetcore/webapiclient
+    url: https://github.com/dotnetcore/webapiclient.git
+    commit: 5065c116c52f150800aef686c7d013fcf052801e
+    source_rows:
+      - 390
+  - target_id: 7bf13dd3a11d0b3eaa4feabe084e35809f348a21119b61e887d1aaed7e49bc84
+    repository: mattosaurus/pgpcore
+    url: https://github.com/mattosaurus/pgpcore.git
+    commit: d5efce26a8210c1195606b2300af2ae42cfd4325
+    source_rows:
+      - 432
+  - target_id: a3a638c12c61c1509c57d358cc6c5905ebc723687186b708ada5241d5ea66bfa
+    repository: neo-project/neo-vm
+    url: https://github.com/neo-project/neo-vm.git
+    commit: 99095c26663c70fe8bc05f0c76b5447dec0187ee
+    source_rows:
+      - 583
+  - target_id: 929e8bc4392cfda6705061ab04f370364ce2bd0caaf4641adacf4c097d40ae8a
+    repository: yellowfeather/dbfdatareader
+    url: https://github.com/yellowfeather/dbfdatareader.git
+    commit: 4f6ac3e29a65d5ebfaacb91ef427a39d5ba761f1
+    source_rows:
+      - 600
+  - target_id: d88a0c0428d90618f8693939e7e80b0cb09f3bbcbc2cc3bd419c06722a6fa61a
+    repository: neo-project/neo
+    url: https://github.com/neo-project/neo.git
+    commit: 14fb62d8171dd613d5639c793e61ac1d143b47ef
+    source_rows:
+      - 658
+  - target_id: e92076515edcb7c45b223c5e022ed3e8ec85cd248fa36c3e3807e8b03983e4a5
+    repository: burgyn/mmlib.swaggerforocelot
+    url: https://github.com/burgyn/mmlib.swaggerforocelot.git
+    commit: 0d58cfefb19dd12cfbc90c5e56b18dd651ab506b
+    source_rows:
+      - 686
+  - target_id: 0bb553b87aa3ce486a727fa1b23437b6ec5f4d26196f2e0cef498f4c029ae466
+    repository: dotnet-outdated/dotnet-outdated
+    url: https://github.com/dotnet-outdated/dotnet-outdated.git
+    commit: 3b4f62e3c7e9c6b6e82144274c36a58abd30e276
+    source_rows:
+      - 735
+  - target_id: 3ade4793274236a5d43393b8023584af22f5ae6f10169bbf79bbf6e4a720cde9
+    repository: scellecs/morpeh
+    url: https://github.com/scellecs/morpeh.git
+    commit: 7bcaf7845e667e9aec397ad97911ba2c5a28a296
+    source_rows:
+      - 815
+  - target_id: bce34f1261ac1a29ff7546353b5193fa075cdaac76acbb279b18df63b40325ae
+    repository: entitygraphql/entitygraphql
+    url: https://github.com/entitygraphql/entitygraphql.git
+    commit: 1e65fcc87341d92c4aa71608ade5f89f13bd4eeb
+    source_rows:
+      - 892
+  - target_id: 46fb60387e823f1a5896dda100c1e169b7dea0bc68b179deffda7e2812ed731d
+    repository: danipen/textmatesharp
+    url: https://github.com/danipen/textmatesharp.git
+    commit: 622d1b240a5be474939857c0b2780249022f14a3
+    source_rows:
+      - 968
+  - target_id: 6418a2dd3c6b2e9be8b28e17cf1bf06ec397620444b4394448d2e4a107b2fe1e
+    repository: crowdin/crowdin-api-client-dotnet
+    url: https://github.com/crowdin/crowdin-api-client-dotnet.git
+    commit: 25f2a2e0b92ed57cb624c63406d5b26eb5d2a1ab
+    source_rows:
+      - 986
+  - target_id: b7d31e3b9f5d23627a0f0e0a9fa0e4f8aacf6414a27ecc4a0e212e2476cbf48f
+    repository: unitystation/stationhub
+    url: https://github.com/unitystation/stationhub.git
+    commit: 2c4e82dfd21a67d062b117daaa7425cc9d8501fe
+    source_rows:
+      - 1116
+  - target_id: 5a00ed6c07f77848f60c618a50d8dc602e0bccfa2c1a45599bd6aecf0f94b637
+    repository: tryagi/langchain
+    url: https://github.com/tryagi/langchain.git
+    commit: 26bb1d16d61472d42b65762f8942bb1a595792ca
+    source_rows:
+      - 1154
+  - target_id: d85bed36e127aaf9e2f2971592109c75e3b38d97fb7746640a1a3af2b79258c1
+    repository: tylerbrinks/sqlparser-cs
+    url: https://github.com/tylerbrinks/sqlparser-cs.git
+    commit: e1929977a96290f937e9a2a67e3c823b7dc25cd2
+    source_rows:
+      - 1181
+  - target_id: dd86b1982ebe9b84156fb34a2be05dab00ebba699561d7a8601fc6202d2b839e
+    repository: chickensoft-games/godotenv
+    url: https://github.com/chickensoft-games/godotenv.git
+    commit: 9a9bfdbd251179f40221bc9c8af0e8283efe7cef
+    source_rows:
+      - 1212
+  - target_id: 7f9fbdd5f8af7db3f67817d552f50cf5dfaa18fbe68a6218e495e966c49218ba
+    repository: mattpannella/pupdate
+    url: https://github.com/mattpannella/pupdate.git
+    commit: 07452a17af897d7c6d041fcc4dcad5100df67e48
+    source_rows:
+      - 1223
+  - target_id: 5f69e04e125557190484326ebfb091b19f4e468b6d6c899ec65b8e3593310158
+    repository: hngprojects/hng_boilerplate_csharp_web
+    url: https://github.com/hngprojects/hng_boilerplate_csharp_web.git
+    commit: 8c8247a9bfb43ce8053c03e0915ce192bbdf0ae8
+    source_rows:
+      - 1282
+  - target_id: 64d96bad1933122b10018ad8064986cc23eede0df15290687528958f4511b25e
+    repository: oras-project/oras-dotnet
+    url: https://github.com/oras-project/oras-dotnet.git
+    commit: 034b059bbbef87c2cb2dcf795ff3a33ba58e2422
+    source_rows:
+      - 1303
+  - target_id: 3e0a62eeb6fecf956eaf99ade8fe536ac6722fa576f243be050bf707fcb903e9
+    repository: azure/azure-api-management-policy-toolkit
+    url: https://github.com/azure/azure-api-management-policy-toolkit.git
+    commit: 09a81c26a4c042a9360a400d2d1a7003e740884a
+    source_rows:
+      - 1320
+  - target_id: 6e28069455eaccf4895e848f7880df96adbb1d4be1b43cda9c5586e64d2ad87d
+    repository: tim-maes/facet
+    url: https://github.com/tim-maes/facet.git
+    commit: 58d455f375c097cde20ee03e7395644e56acd1b0
+    source_rows:
+      - 1367
+  - target_id: cb3ad398fb98a72a50a7aa12dac14af15ef2b6fa3e0e72c570c277fb2ba2d4ed
+    repository: a2aproject/a2a-dotnet
+    url: https://github.com/a2aproject/a2a-dotnet.git
+    commit: 8fe65cfaa65a72b2d63bc9bef2e2d32fddc12a18
+    source_rows:
+      - 1396
+  - target_id: d8b3ae0910ca246624a1549064c842594e4e29a9f6eb3e4799255d65ec11c3cd
+    repository: polymind-inc/acmebot
+    url: https://github.com/polymind-inc/acmebot.git
+    commit: 4919dc6e494a507f584148af7e4fdeff93d55c6f
+    source_rows:
+      - 1471
+  - target_id: 293fc4669df66951d5957c0f9b669e7e69c59345b54d9f9100789dc50934c357
+    repository: beans-bv/dotnet-stellar-sdk
+    url: https://github.com/beans-bv/dotnet-stellar-sdk.git
+    commit: 56671eb43fc4dc93f8c7ff23affdb6ed42636250
+    source_rows:
+      - 1497

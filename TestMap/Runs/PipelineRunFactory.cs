@@ -17,7 +17,6 @@ public class PipelineRunFactory : IPipelineRunFactory
     /// </summary>
     private static readonly Dictionary<RunMode, Type> RunTypeMap = new()
     {
-        [RunMode.CheckProjects] = typeof(CheckProjectsRun),
         [RunMode.CollectTests] = typeof(CollectTestsRun),
         [RunMode.GenerateTests] = typeof(GenerateTestsRun),
         [RunMode.Experiment] = typeof(ExperimentRun),

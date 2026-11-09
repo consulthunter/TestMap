@@ -28,7 +28,7 @@ public static class GenerationValidationDecisionEngine
             Decision(execution.TestsExecuted ? GenerationValidationRuleDefinitions.TestsExecuted : GenerationValidationRuleDefinitions.TestsNotExecuted, execution.TestsExecuted ? "TestsExecuted" : "TestsNotExecuted"),
             Decision(execution.AllTestsPassed ? GenerationValidationRuleDefinitions.AllTestsPassed : GenerationValidationRuleDefinitions.TestFailure, execution.AllTestsPassed ? "AllTestsPassed" : "TestFailure"),
             Decision(coverageImproved ? GenerationValidationRuleDefinitions.CoverageImproved : GenerationValidationRuleDefinitions.CoverageDidNotImprove, coverageImproved ? "CoverageImproved" : "CoverageDidNotImprove",
-                RuleDecisionFactory.CreateEvidence("Coverage", "Delta", execution.CoverageImprovement.ToString("R"))),
+                RuleDecisionFactory.CreateEvidence("Coverage", "Delta", execution.CoverageImprovement?.ToString("R") ?? string.Empty)),
             Decision(
                 GenerationValidationRuleDefinitions.OutcomeSelected,
                 outcome.ToString(),

@@ -12,10 +12,14 @@ dependencies = [
     "scipy>=1.18.0",
     "click>=8.4.2",
     "papermill>=2.7.0",
+    "pyyaml>=6.0.3",
 ]
 
 [project.scripts]
 analysis = "analysis.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=9.0.0"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -18,7 +18,8 @@ public sealed class GenerationValidationResult
     public bool MutationScoreImproved { get; init; }
     public bool MutantKilled { get; init; }
     public bool HasUsefulMetricSignal { get; init; }
-    public double CoverageImprovement { get; init; }
+    public bool ImpactEvaluable { get; init; }
+    public double? CoverageImprovement { get; init; }
     public double? MutationScoreImprovement { get; init; }
     public MetricsDrivenPath? MetricsPath { get; init; }
     public string? FailureStage { get; init; }

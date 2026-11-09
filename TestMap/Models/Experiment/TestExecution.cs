@@ -1,5 +1,7 @@
 namespace TestMap.Models.Experiment;
 
+using TestMap.Services.StaticAnalysis.Assertions;
+
 /// <summary>
 /// Represents the execution result of a generated test.
 /// </summary>
@@ -17,8 +19,9 @@ public class TestExecution
     public bool CompilationSuccess { get; set; }
     public bool TestsExecuted { get; set; }
     public bool TestPassed { get; set; }
-    public double CoverageAfter { get; set; }
-    public double CoverageImprovement { get; set; }
+    public double? CoverageBefore { get; set; }
+    public double? CoverageAfter { get; set; }
+    public double? CoverageImprovement { get; set; }
     public double? BaselineMutationScore { get; set; }
     public double? MutationScoreAfter { get; set; }
     public double? MutationScoreImprovement { get; set; }
@@ -65,4 +68,13 @@ public class TestExecution
 
     /// <summary>Number of helper methods added by the patch applier (0 for non-patch paths).</summary>
     public int AppliedHelperCount { get; set; }
+
+    /// <summary>The source member identity used for assertion-lineage attribution.</summary>
+    public int? IntendedSourceMemberId { get; set; }
+
+    /// <summary>
+    /// Attempt-time assertion evidence. This property is transient and is never mapped to
+    /// <c>generated_test_executions</c>.
+    /// </summary>
+    public AssertionLineageAnalysisResult? AssertionLineageAnalysis { get; set; }
 }

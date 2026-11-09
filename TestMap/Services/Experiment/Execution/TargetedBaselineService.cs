@@ -1,5 +1,6 @@
 using TestMap.Models.Experiment;
 using TestMap.Services.TestExecution;
+using TestMap.Services.TestGeneration.Execution;
 using TestMap.Services.TestGeneration.TargetSelection;
 
 namespace TestMap.Services.Experiment.Execution;
@@ -31,17 +32,23 @@ public sealed class TargetedBaselineService : ITargetedBaselineService
             BuildTestRunRequest.CreateIteration(
                 methodContext.TestProjectPath,
                 methodContext.TargetBuildFramework,
-                candidate.MethodName,
+                methodContext.ToTargetMemberDescriptor(candidate),
                 methodContext.SourceProjectPath,
                 experimentRunId,
                 isMutationBaseline: true));
 
         int? testRunId = run.DbId > 0 ? run.DbId : null;
+        var usableRun = GeneratedTestExecutionService.IsUsableValidationRun(run);
         return new TargetedBaselineResult
         {
             TestRunId = testRunId,
             Ran = true,
-            SkipReason = testRunId.HasValue ? string.Empty : "Baseline ran but did not return a persisted test run id."
+            Usable = testRunId.HasValue && usableRun,
+            SkipReason = !testRunId.HasValue
+                ? "Baseline ran but did not return a persisted test run id."
+                : usableRun
+                    ? string.Empty
+                    : run.FailureAnalysis?.Summary ?? "Baseline did not compile or execute any tests."
         };
     }
 

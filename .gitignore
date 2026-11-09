@@ -11,11 +11,31 @@ TestMap/Tools/
 TestMap.Tests/Output/
 TestMap.Tests/Logs/
 .idea/
+.vscode/
+Thumbs.db
+*.tmp
+*.swp
+__pycache__/
+*.py[cod]
 *.sln.DotSettings.user
 *.env
+.venv/
+venv/
 Release/
 Replication/
 Replication.zip
 coverage/
 .ai/
 .claude/
+# Keep generated Spec Kit state local, but version the research constitution and
+# the templates whose behavior it governs.
+.specify/*
+!.specify/memory/
+.specify/memory/*
+!.specify/memory/constitution.md
+!.specify/templates/
+.specify/templates/*
+!.specify/templates/plan-template.md
+!.specify/templates/spec-template.md
+!.specify/templates/tasks-template.md
+.agents/

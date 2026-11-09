@@ -41,6 +41,18 @@ public class AnalyzeProjectStep : IPipelineStep
             {
                 context.Logger.Error(e, "Project analysis failed for {ProjectFilePath}", project.FilePath);
             }
+
+        // One mapping trace for the whole pass, once every project's members are persisted.
+        try
+        {
+            await _analyzeProjectService.RefreshSourceTestMappingsAsync(
+                sharedMemberIds.Values,
+                MemberAnalysisOrigin.Baseline());
+        }
+        catch (Exception e)
+        {
+            context.Logger.Error(e, "Source-test mapping refresh failed for {ProjectId}", context.Project.ProjectId);
+        }
     }
 
     /// <summary>

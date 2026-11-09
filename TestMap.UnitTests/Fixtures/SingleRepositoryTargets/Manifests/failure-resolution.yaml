@@ -1,0 +1,19 @@
+resolution_schema_version: 1
+requested_at_utc: 2026-07-16T18:30:00.0000000+00:00
+completed_at_utc: 2026-07-16T18:30:01.0000000+00:00
+requested_url: https://github.com/powershell/platyps
+requested_url_sha256: e204bb9d9e0e1011e176ea8b0df7cb9b6073b8f304890c1df57cf495f8a858d1
+repository: powershell/platyps
+canonical_url: https://github.com/powershell/platyps.git
+provider: github.com
+policy_name: github-default-branch-head
+policy_version: '1'
+authentication_mode: anonymous
+status: ServiceUnavailable
+resolved_repository: null
+default_branch: null
+resolved_commit: null
+resolution_passes: 1
+reason_kind: service_unavailable
+retry_after_utc: null
+summary: Repository provider is temporarily unavailable.

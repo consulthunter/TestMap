@@ -13,6 +13,14 @@ public class ProjectEntity
     [MaxLength(255)] public string? Branch { get; set; }
     [MaxLength(255)] public string? LastAnalyzedCommit { get; set; }
     [MaxLength(255)] public string? ContentHash { get; set; }
+    [MaxLength(64)] public string? TargetId { get; set; }
+    [MaxLength(511)] public string? RepositoryIdentity { get; set; }
+    [MaxLength(40)] public string? RequestedCommit { get; set; }
+    [MaxLength(40)] public string? ResolvedCommit { get; set; }
+    [MaxLength(64)] public string? TargetManifestSha256 { get; set; }
+    [MaxLength(64)] public string? TargetSourceSha256 { get; set; }
+    [MaxLength(64)] public string? ProvenancePolicyVersion { get; set; }
+    public DateTime? MaterializedAtUtc { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

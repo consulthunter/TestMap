@@ -1,0 +1,57 @@
+# Contract example: complete target-level project-check census.
+report_schema_version: 1
+generated_at_utc: 2026-07-16T18:30:00.0000000+00:00
+input:
+  file: pinned-targets-smoke.yaml
+  sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  schema_version: 1
+policy:
+  name: project-test-presence
+  version: "1"
+summary:
+  input_targets: 2
+  tests_detected: 1
+  no_tests_detected: 0
+  indeterminate: 1
+  by_status:
+    TestsDetected: 1
+    NoTestsDetected: 0
+    InvalidTarget: 0
+    RepositoryIdentityMismatch: 0
+    RepositoryUnavailable: 0
+    AuthenticationFailed: 0
+    AuthorizationFailed: 0
+    RateLimited: 0
+    CommitUnavailable: 0
+    CommitMismatch: 0
+    TreeUnavailable: 0
+    TreeTruncated: 1
+    ServiceUnavailable: 0
+    CheckFailed: 0
+observations:
+  - target_id: 395d32ccf9d1b31a7648092050aed86960d2331c1ffc59696c79acf62b3e46cf
+    repository: crashkonijn/goap
+    requested_commit: b9409d7537cf0bba3f6075fe4cc6472f135c522a
+    observed_commit: b9409d7537cf0bba3f6075fe4cc6472f135c522a
+    status: TestsDetected
+    policy_name: project-test-presence
+    policy_version: "1"
+    evidence_category: TestProjectFile
+    evidence_path: Goap.Tests/Goap.Tests.csproj
+    tree_complete: true
+    reason_kind: null
+    summary: A test project filename was detected at the requested commit.
+    checked_at_utc: 2026-07-16T18:29:58.0000000+00:00
+  - target_id: 151ba3e0342c65b392d57d8accaffc7aed7b527d0040832cf2bbb752b95814dc
+    repository: powershell/platyps
+    requested_commit: 063264b97f6596469650ef6497fe83b9e51464c6
+    observed_commit: 063264b97f6596469650ef6497fe83b9e51464c6
+    status: TreeTruncated
+    policy_name: project-test-presence
+    policy_version: "1"
+    evidence_category: null
+    evidence_path: null
+    tree_complete: false
+    reason_kind: recursive_tree_truncated
+    summary: The returned tree was incomplete and contained no recognized positive evidence.
+    checked_at_utc: 2026-07-16T18:29:59.0000000+00:00

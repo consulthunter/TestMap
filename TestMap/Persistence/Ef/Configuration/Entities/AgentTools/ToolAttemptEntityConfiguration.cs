@@ -15,8 +15,20 @@ public class ToolAttemptEntityConfiguration : IEntityTypeConfiguration<ToolAttem
         builder.Property(x => x.ExperimentRunId).HasColumnName("experiment_run_id").IsRequired();
         builder.Property(x => x.MatrixWorkItemId).HasColumnName("matrix_work_item_id");
         builder.Property(x => x.CandidateMethodId).HasColumnName("candidate_method_id").IsRequired();
+        builder.Property(x => x.AttemptNumber).HasColumnName("attempt_number").IsRequired();
         builder.Property(x => x.TargetedBaselineId).HasColumnName("targeted_baseline_id");
         builder.Property(x => x.PostAttemptTestRunId).HasColumnName("post_attempt_test_run_id");
+        builder.Property(x => x.CoverageBefore).HasColumnName("coverage_before");
+        builder.Property(x => x.CoverageAfter).HasColumnName("coverage_after");
+        builder.Property(x => x.CoverageDelta).HasColumnName("coverage_delta");
+        builder.Property(x => x.CoverageMeasurementStatus).HasColumnName("coverage_measurement_status").IsRequired();
+        builder.Property(x => x.MutationScoreBefore).HasColumnName("mutation_score_before");
+        builder.Property(x => x.MutationScoreAfter).HasColumnName("mutation_score_after");
+        builder.Property(x => x.MutationScoreDelta).HasColumnName("mutation_score_delta");
+        builder.Property(x => x.MutationMeasurementStatus).HasColumnName("mutation_measurement_status").IsRequired();
+        builder.Property(x => x.ImpactMeasurementStatus).HasColumnName("impact_measurement_status").IsRequired();
+        builder.Property(x => x.MeasurementFailureReason).HasColumnName("measurement_failure_reason").IsRequired();
+        builder.Property(x => x.MeasurementPolicyVersion).HasColumnName("measurement_policy_version").IsRequired();
         builder.Property(x => x.EffectiveProfileHash).HasColumnName("effective_profile_hash").IsRequired();
         builder.Property(x => x.ToolId).HasColumnName("tool_id").IsRequired();
         builder.Property(x => x.RunStatus).HasColumnName("run_status").IsRequired();
@@ -25,6 +37,7 @@ public class ToolAttemptEntityConfiguration : IEntityTypeConfiguration<ToolAttem
         builder.Property(x => x.ImageName).HasColumnName("image_name").IsRequired();
         builder.Property(x => x.ImageKey).HasColumnName("image_key").IsRequired();
         builder.Property(x => x.BaseCommit).HasColumnName("base_commit").IsRequired();
+        builder.Property(x => x.WorkspaceIntegrityStatus).HasColumnName("workspace_integrity_status").IsRequired();
         builder.Property(x => x.WorkspacePath).HasColumnName("workspace_path").IsRequired();
         builder.Property(x => x.ArtifactPath).HasColumnName("artifact_path").IsRequired();
         builder.Property(x => x.StdOutLogPath).HasColumnName("stdout_log_path").IsRequired();
@@ -44,6 +57,8 @@ public class ToolAttemptEntityConfiguration : IEntityTypeConfiguration<ToolAttem
         builder.Property(x => x.JsonlLogAvailable).HasColumnName("jsonl_log_available").IsRequired();
         builder.Property(x => x.UsageAvailable).HasColumnName("usage_available").IsRequired();
         builder.Property(x => x.UsageSource).HasColumnName("usage_source").IsRequired();
+        builder.Property(x => x.UsageStatus).HasColumnName("usage_status").IsRequired();
+        builder.Property(x => x.UsagePolicyVersion).HasColumnName("usage_policy_version");
         builder.Property(x => x.InputTokens).HasColumnName("input_tokens");
         builder.Property(x => x.OutputTokens).HasColumnName("output_tokens");
         builder.Property(x => x.EstimatedPromptTokens).HasColumnName("estimated_prompt_tokens");
