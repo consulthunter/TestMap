@@ -55,6 +55,16 @@ public sealed class StaticAnalysisWorkspace : IStaticAnalysisWorkspace, IDisposa
             if (cachedProject != null) return cachedProject;
         }
 
+        // Opening a project also loads the projects it references, and MSBuildWorkspace refuses
+        // to load any of them a second time. Serve one that is already loaded from the workspace.
+        if (!_projectsByPath.ContainsKey(normalizedProjectPath))
+        {
+            var loadedProject = _workspace.CurrentSolution.Projects.FirstOrDefault(project =>
+                string.Equals(project.FilePath, normalizedProjectPath, StringComparison.OrdinalIgnoreCase));
+            if (loadedProject != null)
+                return RemoveAnalyzerReferences(loadedProject.Solution).GetProject(loadedProject.Id) ?? loadedProject;
+        }
+
         if (!_projectsByPath.TryGetValue(normalizedProjectPath, out var projectTask))
         {
             projectTask = OpenSanitizedProjectAsync(normalizedProjectPath, cancellationToken);
