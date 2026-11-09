@@ -27,7 +27,7 @@ See [Configuration](CONFIG.md) for field-level guidance.
 For a new repository, run discovery and analysis before generation:
 
 ```powershell
-dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\pinned-targets-smoke.yaml
+dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\example.yaml
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 ```
 
@@ -256,7 +256,8 @@ report.
 - Keep speculative planning off for Basic Extension unless you deliberately want the older decomposed
   generation flow.
 - Inspect failed attempts in the database, not just the CSV.
-# Reproducible Target Manifests
+
+## Reproducible Target Manifests
 
 The import file may be comma- or tab-delimited and needs only `name` and `lastCommitSHA`. `name` is
 the GitHub `owner/repository`; `lastCommitSHA` must be the full 40-character commit. Other columns are

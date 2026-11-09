@@ -5,12 +5,17 @@ one or more analysis or generation steps, and persists results to a per-project 
 
 ## 1. Repository Ingestion
 
-TestMap reads repository URLs from `RuntimeConfig.FilePaths.TargetFilePath`. For each repository, it
-creates a local project workspace under `RuntimeConfig.FilePaths.TempDirPath` and an output/database
-area under `RuntimeConfig.FilePaths.OutputDirPath`.
+TestMap reads targets from `RuntimeConfig.FilePaths.TargetFilePath`. Experiments require a pinned
+YAML manifest that binds each `owner/repository` to a full commit SHA; discovery commands may still
+read URL lists. For each repository, it creates a local project workspace under
+`RuntimeConfig.FilePaths.TempDirPath` and an output/database area under
+`RuntimeConfig.FilePaths.OutputDirPath`.
 
 The workspace is treated as disposable experiment state. Generation and tool attempts are rolled back
-between lanes and attempts so the next attempt starts from the expected baseline.
+between lanes and attempts so the next attempt starts from the pinned commit: a forced checkout and
+hard reset to that commit, then removal of untracked files and `bin`/`obj` directories. The workspace
+pins `core.autocrlf=false` and `core.eol=lf`, so files are checked out exactly as committed and an
+agent container that rewrites a file with LF endings does not leave a phantom modification behind.
 
 ## 2. Project Discovery
 
@@ -31,6 +36,19 @@ Roslyn analysis extracts source structure into a database model:
 - context graph access paths
 
 This gives later generation steps a grounded picture of how a test can legally reach a target method.
+
+Members are versioned rather than overwritten. The baseline analysis writes `Baseline` rows. When an
+attempt is analyzed, unchanged members reuse their baseline row, and members the attempt added or
+changed get new rows tagged with the attempt (`ToolAttempt` with its id, or `LlmAttempt`). Baseline
+evidence is never rewritten by an attempt.
+
+Source/test mappings come from a Roslyn trace of each test method: it follows calls through test
+helpers (up to `MaxTestCodeDepth`) and stops at the first production member reached. Each analysis
+pass traces once, after every project has been analyzed. The baseline pass traces all tests; an
+attempt pass traces only the tests that attempt added or changed. Calls resolve only to the member
+versions that pass observed on disk. Mappings are updated in place by
+`(project, source member, test member, evidence kind)`, so their ids stay stable and links to them
+from the candidate inventory and from generated tests remain valid.
 
 ## 4. Evidence Collection
 
@@ -97,8 +115,14 @@ from changed-file counts.
 
 ## 8. Validation And Measurement
 
-After an LLM or tool attempt, TestMap refreshes analysis where needed, links generated test members,
-runs build/test validation, and measures the effect on coverage and mutation outcomes.
+Before either lane runs, each candidate gets one targeted coverage and mutation baseline. Both lanes
+compare against that same baseline, it is stored in `candidate_baselines`, and a resumed run reuses
+it rather than measuring again.
+
+After an LLM or tool attempt, TestMap re-analyzes every project in dependency order under the
+attempt's origin, traces mappings for the new or changed tests, links generated test members, runs
+build/test validation, and measures the effect on coverage and mutation against the shared baseline.
+The workspace is then rolled back to the pinned commit.
 
 The key distinction:
 
@@ -112,7 +136,12 @@ Both lanes are evaluated through the same persisted evidence and result reportin
 Experiment mode writes row-level results to CSV and persists richer data to SQLite. The CSV is for
 analysis and comparison; the database is the source of detailed attempt, execution, mapping, and
 artifact metadata.
-# Revision and Integrity Provenance
+
+Attempt-time mappings persist beside the baseline ones. Consumers that describe the repository's own
+tests (prompt context selection, the MSR and training exports) keep only mappings whose test member
+is a `Baseline` row. See `Analysis/docs/data_reference.md`.
+
+## 10. Revision and Integrity Provenance
 
 The manifest byte hash is the provenance root. Before SQLite initialization, TestMap validates the
 origin, obtains the requested commit, checks it out detached, and verifies a clean tree. Requested

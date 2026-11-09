@@ -32,18 +32,21 @@ TestMap/                      .NET application, config, Docker images, migration
 TestMap/Config/               example and experiment configuration JSON files
 TestMap/Docker/               validation and agent-tool Docker runners
 TestMap/Migrations/           EF Core migrations for project/output databases
+TestMap/Data/                 pinned YAML target manifests
 TestMap.UnitTests/            unit test project
-TestMap.IntegrationTests/     integration tests, including migration schema checks
+TestMap.IntegrationTests/     integration tests (migration schema, real MSBuild workspace, git)
+TestMap.EndToEndTests/        end-to-end command tests
 Docs/                         user-facing documentation
-.ai/Docs/                     internal design notes and implementation plans
-Analysis/                     analysis helpers for result datasets
+specs/                        feature specifications and implementation plans
+Analysis/                     Python analysis package, notebooks, and R models for result datasets
+Replication/                  replication material for the published studies
 ```
 
 ## Main Commands
 
 ```powershell
 dotnet run --project .\TestMap\TestMap.csproj -- setup
-dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\pinned-targets-smoke.yaml
+dotnet run --project .\TestMap\TestMap.csproj -- check-projects --file .\TestMap\Data\example.yaml
 dotnet run --project .\TestMap\TestMap.csproj -- collect-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- generate-tests --config .\TestMap\Config\default-config.json
 dotnet run --project .\TestMap\TestMap.csproj -- experiment --config .\TestMap\Config\default-config.json
@@ -66,6 +69,9 @@ auditable bundle was published but the screening set is incomplete.
 - [Configuration](Docs/CONFIG.md): config model, override rules, tool model settings, secrets, and experimental switches.
 - [How It Works](Docs/HOW_IT_WORKS.md): high-level architecture and execution flow.
 - [How To Use](Docs/HOW_TO_USE.md): regular generation, experiments, tool evaluation, outputs, and practical workflows.
+- [Analysis](Analysis/README.md): building evaluation and MSR datasets from experiment outputs, with
+  the [data reference](Analysis/docs/data_reference.md) for every derived column.
+- [Replication](Replication/README.md): data and steps for reproducing the published studies.
 
 ## Stable And Experimental Surfaces
 
@@ -81,54 +87,7 @@ anything you intend to measure or report.
 For Basic Extension generation, keep `EnableSpeculativePlanning` disabled unless you are deliberately
 running an ablation. The one-shot structured patch path is the recommended default.
 
-## Coverage Integrity
-
-Coverage collection records a terminal outcome even when no artifact is produced. The runner tries
-the requested collector first, falls back to the other built-in collector when necessary, and writes
-a `coverage-collection-v1` sidecar containing provider attempts, artifact hashes, merge inputs, and
-the final reason. Test success and coverage success are separate outcomes.
-
-Corrected reports use measurement policy `coverage-integrity-v1`. Raw class and member observations
-are persisted before source attribution, so unmatched, ambiguous, out-of-project, unsupported, and
-interrupted observations remain auditable with nullable source IDs. Exact line and branch counters
-carry explicit availability; unavailable values must not be interpreted as measured zero.
-
-`HasCoverage` is true only for the latest corrected report with usable mapped coverage. Historical
-reports remain queryable but are not silently upgraded to the corrected policy. Coverage-dependent
-candidate, risk, evidence, comparison, and MSR consumers use mapped rows from usable corrected
-reports only. Constructor observations (`.ctor` and `.cctor`) are retained and attributed when their
-kind, lines, and signature identify a unique persisted constructor.
-
-## Assertion-Lineage Evidence
-
-Experiment result schema 4.0 can report whether each recognized generated-test assertion has a
-backward data-flow connection to production code. The classifier uses three categories:
-
-- `Traced`: at least one observed assertion operand reaches a uniquely resolved production member;
-- `Trivial`: every observed operand is fully explained by literals or test-local computation;
-- `Unresolved`: no production lineage is confirmed and at least one required path is ambiguous,
-  unsupported, cyclic, missing, or beyond the configured depth.
-
-`Unavailable`, `NotApplicable`, and historical `NotMeasured` are measurement statuses, not assertion
-categories. Counts remain blank when evidence is unavailable, so missing analysis is never presented
-as zero assertions. Raw per-assertion evidence is written beside a results CSV as
-`*.assertions.csv`; downstream tooling derives traced-only views without deleting trivial or
-unresolved observations.
-
-The analysis is intentionally data-dependence-only. A production-derived branch condition does not,
-by itself, make an assertion traced. Likewise, `Traced` establishes connection to production code,
-not logical oracle strength, mutation sensitivity, or proof that an assertion caused a mutant kill.
-Assertion lineage is complementary to coverage and mutation evidence and does not alter generation
-acceptance, retries, repair stopping, or dynamic metric calculation.
-
-## Why?
-
-Originally, this started a an MSR (mining software repositories) tool. I wanted to get source <-> test pairs for fine-tuning an LLM for software testing in C#.
-Then, I wondered about how would I know the quality of such tests, possibly for RL (reinforcement learning driven by acutal test performance). A friend suggested running the projects in a Docker environment, so I would have actual data.
-Then, I figured now that I was collecting all of this data I could use it to generate tests for projects.
-Finally, I was asked what about a comparison between a generic LLM approach (ChatUniTest) versus an actual Agent (mini-swe-agent) which is how this tool ended up the way it is today.
-
-# Pinned Repository Experiments
+## Pinned Repository Experiments
 
 Measured `experiment` runs consume an immutable YAML target manifest rather than a URL list. Each
 target binds `owner/repository` to a full 40-character commit SHA, and TestMap records the requested

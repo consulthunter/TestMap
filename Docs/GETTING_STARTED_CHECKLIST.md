@@ -25,7 +25,8 @@
   }
 }
 ```
-# Pinned Pilot Checks
+
+## Pinned Pilot Checks
 
 - [ ] Source rows contain valid `owner/repository` names and full commit SHAs.
 - [ ] Manifest and content-addressed rejection report hashes verify.
