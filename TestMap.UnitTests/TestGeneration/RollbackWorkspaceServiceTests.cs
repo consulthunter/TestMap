@@ -34,6 +34,30 @@ public sealed class RollbackWorkspaceServiceTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(repoPath, "generated")));
     }
 
+    /// <summary>
+    /// An agent killed mid-<c>git status</c> inside its container leaves <c>.git/index.lock</c>
+    /// behind (pilot V7, gridify, mini-swe-agent). Rollback runs after the container has exited, so
+    /// the lock is stale and must not block restoring the pinned commit.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public async Task RollbackChangesAsync_StaleIndexLockFromAgent_RemovesLockAndRestores()
+    {
+        var repoPath = CreateRepository();
+        var trackedFile = Path.Combine(repoPath, "tracked.txt");
+        await File.WriteAllTextAsync(trackedFile, "changed");
+        var indexLock = Path.Combine(repoPath, ".git", "index.lock");
+        await File.WriteAllTextAsync(indexLock, string.Empty);
+
+        var service = new RollbackWorkspaceService(
+            new ProjectContext(new ProjectModel(directoryPath: repoPath)));
+
+        await service.RollbackChangesAsync();
+
+        Assert.False(File.Exists(indexLock));
+        Assert.Equal("original", await File.ReadAllTextAsync(trackedFile));
+    }
+
     [Fact]
     [Trait("Category", "Unit")]
     public async Task RollbackChangesAsync_DeletesIgnoredBinAndObjDirectories()

@@ -22,11 +22,14 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
     public Task RollbackChangesAsync(CancellationToken cancellationToken = default)
     {
         string baseCommitSha;
+        string gitDirectory;
         using (var head = new Repository(_context.Project.DirectoryPath))
         {
             baseCommitSha = _context.VerifiedBaseCommit ?? head.Head.Tip?.Sha ??
                             throw new InvalidOperationException("Repository has no verified base commit to restore.");
+            gitDirectory = head.Info.Path;
         }
+        RemoveStaleIndexLock(gitDirectory);
         RepositoryLineEndings.EnsureExactCheckout(_context.Project.DirectoryPath, baseCommitSha);
 
         var remaining = RestoreBaseCommit(baseCommitSha);
@@ -73,6 +76,23 @@ public sealed class RollbackWorkspaceService : IGenerationWorkspaceService
             .Where(x => x.State != FileStatus.Ignored && x.State != FileStatus.Unaltered)
             .Select(x => $"{x.State} {x.FilePath}"));
         return remaining;
+    }
+
+    /// <summary>
+    /// Agents run git inside their container against this workspace. One killed mid-command (for
+    /// example by its own per-command timeout during <c>git status</c>) leaves <c>index.lock</c>
+    /// behind, and every later checkout or reset then fails. Rollback runs after the container has
+    /// exited and while TestMap holds the exclusive workspace lock, so no live git process owns it.
+    /// </summary>
+    private void RemoveStaleIndexLock(string gitDirectory)
+    {
+        var indexLock = Path.Combine(gitDirectory, "index.lock");
+        if (!File.Exists(indexLock)) return;
+
+        _context.Project.Logger?.Warning(
+            "Removing stale git index lock {IndexLock} left in the workspace before rollback.",
+            indexLock);
+        File.Delete(indexLock);
     }
 
     public Task PersistAcceptedChangesAsync(string message, CancellationToken cancellationToken = default)

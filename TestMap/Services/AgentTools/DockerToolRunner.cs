@@ -11,13 +11,37 @@ namespace TestMap.Services.AgentTools;
 /// </summary>
 public sealed class DockerToolRunner : IAgentToolRunner
 {
+    private static readonly TimeSpan ContainerCommandTimeout = TimeSpan.FromSeconds(30);
+
     private readonly RuntimeConfig _runtimeConfig;
+    private readonly ProcessRunner _runProcess;
+    private readonly TimeSpan _removalPollInterval;
+    private readonly TimeSpan _removalTimeout;
+
+    internal delegate Task<ProcessExecutionResult> ProcessRunner(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        TimeSpan timeout,
+        CancellationToken cancellationToken);
 
     public DockerToolRunner(
         RuntimeConfig runtimeConfig,
         IAgentToolEnvironmentResolver envResolver)
+        : this(runtimeConfig, RunProcessAsync, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(60))
+    {
+    }
+
+    internal DockerToolRunner(
+        RuntimeConfig runtimeConfig,
+        ProcessRunner runProcess,
+        TimeSpan removalPollInterval,
+        TimeSpan removalTimeout)
     {
         _runtimeConfig = runtimeConfig;
+        _runProcess = runProcess;
+        _removalPollInterval = removalPollInterval;
+        _removalTimeout = removalTimeout;
     }
 
     public Task<ToolAvailabilityResult> CheckAvailabilityAsync(
@@ -114,7 +138,7 @@ public sealed class DockerToolRunner : IAgentToolRunner
             };
         }
 
-        var result = await RunProcessAsync(
+        var result = await _runProcess(
             "docker",
             BuildDockerPrefix(["image", "inspect", imageName]),
             null,
@@ -145,28 +169,45 @@ public sealed class DockerToolRunner : IAgentToolRunner
             ? TimeSpan.FromSeconds(request.Attempt.TimeoutSeconds)
             : TimeSpan.FromMinutes(Math.Max(1, request.ToolConfig.TimeoutMinutes));
 
-        var args = BuildDockerRunArguments(request, imageName);
+        var containerName = CreateContainerName(request);
+        var args = BuildDockerRunArguments(request, imageName, containerName);
 
-        var result = await RunProcessAsync(
-            "docker",
-            BuildDockerPrefix(args),
-            request.WorkspacePath,
-            timeout,
-            cancellationToken);
+        ProcessExecutionResult result;
+        try
+        {
+            result = await _runProcess(
+                "docker",
+                BuildDockerPrefix(args),
+                request.WorkspacePath,
+                timeout,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            await StopContainerAsync(containerName);
+            throw;
+        }
+
+        var stdErr = result.TimedOut
+            ? result.StdErr + await StopContainerAsync(containerName) + Environment.NewLine
+            : result.StdErr;
 
         var versionPath = Path.Combine(request.ArtifactPath, $"{request.ToolConfig.Id}-version.txt");
         return new ToolRunResult
         {
             ExitCode = result.TimedOut ? 124 : result.ExitCode,
             StdOut = result.StdOut,
-            StdErr = result.StdErr,
+            StdErr = stdErr,
             Elapsed = result.Elapsed,
             TimedOut = result.TimedOut,
             ToolVersion = File.Exists(versionPath) ? File.ReadAllText(versionPath).Trim() : string.Empty
         };
     }
 
-    public static List<string> BuildDockerRunArguments(ToolRunRequest request, string imageName)
+    public static List<string> BuildDockerRunArguments(
+        ToolRunRequest request,
+        string imageName,
+        string? containerName = null)
     {
         var args = new List<string>
         {
@@ -175,7 +216,7 @@ public sealed class DockerToolRunner : IAgentToolRunner
             "--add-host",
             "host.docker.internal:host-gateway",
             "--name",
-            CreateContainerName(request),
+            containerName ?? CreateContainerName(request),
             "-v",
             $"{Path.GetFullPath(request.WorkspacePath)}:/workspace",
             "-v",
@@ -191,6 +232,47 @@ public sealed class DockerToolRunner : IAgentToolRunner
         args.Add(imageName);
 
         return args;
+    }
+
+    /// <summary>
+    /// Killing the <c>docker run</c> client does not stop its container: it keeps editing
+    /// <c>/workspace</c> and holding files under <c>/attempt</c> while TestMap rolls back and starts
+    /// the next attempt. Kill it and wait until <c>--rm</c> has removed it.
+    /// </summary>
+    private async Task<string> StopContainerAsync(string containerName)
+    {
+        await _runProcess(
+            "docker",
+            BuildDockerPrefix(["kill", containerName]),
+            null,
+            ContainerCommandTimeout,
+            CancellationToken.None);
+
+        var waited = Stopwatch.StartNew();
+        while (waited.Elapsed < _removalTimeout)
+        {
+            var inspection = await _runProcess(
+                "docker",
+                BuildDockerPrefix(["container", "inspect", containerName]),
+                null,
+                ContainerCommandTimeout,
+                CancellationToken.None);
+            if (inspection.ExitCode != 0)
+                return $"[testmap] Killed container '{containerName}' after the tool timed out.";
+
+            await Task.Delay(_removalPollInterval);
+        }
+
+        var removal = await _runProcess(
+            "docker",
+            BuildDockerPrefix(["rm", "-f", containerName]),
+            null,
+            ContainerCommandTimeout,
+            CancellationToken.None);
+        return removal.ExitCode == 0
+            ? $"[testmap] Force-removed container '{containerName}' after the tool timed out."
+            : $"[testmap] Container '{containerName}' could not be removed after the tool timed out: " +
+              TrimForMessage(removal.StdErr, removal.StdOut);
     }
 
     private IReadOnlyList<string> BuildDockerPrefix(IReadOnlyList<string> args)
@@ -371,11 +453,16 @@ public sealed class DockerToolRunner : IAgentToolRunner
             env[key] = value;
     }
 
-    private static string CreateContainerName(ToolRunRequest request)
+    /// <summary>
+    /// Attempt ids come from each repository's own database, so repositories running in parallel
+    /// reuse them; the random suffix keeps two live containers from claiming the same name, which
+    /// Docker rejects with exit code 125 before the tool ever starts.
+    /// </summary>
+    internal static string CreateContainerName(ToolRunRequest request)
     {
         var toolId = SanitizeForDockerName(request.ToolConfig.Id);
-        var attemptId = request.Attempt.Id == 0 ? Guid.NewGuid().ToString("N")[..8] : request.Attempt.Id.ToString();
-        return $"testmap-{toolId}-{attemptId}";
+        var attemptId = request.Attempt.Id == 0 ? "attempt" : request.Attempt.Id.ToString();
+        return $"testmap-{toolId}-{attemptId}-{Guid.NewGuid().ToString("N")[..8]}";
     }
 
     private static string SanitizeForDockerName(string value)
@@ -468,7 +555,7 @@ public sealed class DockerToolRunner : IAgentToolRunner
         return value.Length <= 500 ? value : value[..500];
     }
 
-    private sealed record ProcessExecutionResult(
+    internal sealed record ProcessExecutionResult(
         int ExitCode,
         string StdOut,
         string StdErr,
