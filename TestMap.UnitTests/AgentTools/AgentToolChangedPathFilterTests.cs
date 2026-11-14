@@ -10,6 +10,9 @@ public sealed class AgentToolChangedPathFilterTests
     [InlineData(".testmap/prompt.md")]
     [InlineData(".testmap/task-card.json")]
     [InlineData(".aider/session.json")]
+    [InlineData(".aider.chat.history.md")]
+    [InlineData(".aider.input.history")]
+    [InlineData(".aider.tags.cache.v4/cache.db")]
     [InlineData(".claude/settings.local.json")]
     [InlineData(".codex/config.toml")]
     [InlineData(".gemini/history.json")]
@@ -29,6 +32,8 @@ public sealed class AgentToolChangedPathFilterTests
     [InlineData("src/Program.cs")]
     [InlineData(".github/workflows/build.yml")]
     [InlineData("docs/.codex-example.md")]
+    [InlineData("docs/.aider.chat.history.md")]
+    [InlineData(".aiderignore-example/readme.md")]
     public void IsExcluded_RepositoryContent_ReturnsFalse(string path)
     {
         Assert.False(AgentToolChangedPathFilter.IsExcluded(path));
@@ -65,5 +70,23 @@ public sealed class AgentToolChangedPathFilterTests
             """);
 
         Assert.Equal(1, count);
+    }
+
+    /// <summary>
+    /// Pilot V8: aider runs whose only changes were its own history and tag-cache files were
+    /// scored Completed and validated. With those filtered the attempt is a no-change run.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Filter_AiderSessionFilesOnly_ReturnsEmpty()
+    {
+        var result = AgentToolChangedPathFilter.Filter(
+        [
+            ".aider.chat.history.md",
+            ".aider.tags.cache.v4/cache.db",
+            ".aider.input.history"
+        ]);
+
+        Assert.Empty(result);
     }
 }

@@ -177,13 +177,21 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             if (objectSymbol == null) continue;
 
             var objectKey = GetSymbolKey(objectSymbol);
-            if (state.ObjectIds.ContainsKey(objectKey)) continue;
 
-            var objectModel = CreateObjectModel(objectDeclaration, objectSymbol, fileId);
-            var objectId = await _objectRepository.InsertOrUpdateAsync(objectModel);
-            state.ObjectIds[objectKey] = objectId;
+            // A partial type has one declaration per file. Each declaration gets the object row
+            // of its own file (objects are identified by file), so its members keep a correct
+            // file path; skipping later declarations dropped every member outside the first file.
+            var declarationKey = $"{fileId}|{objectKey}";
+            if (!state.DeclarationObjectIds.TryGetValue(declarationKey, out var objectId))
+            {
+                var objectModel = CreateObjectModel(objectDeclaration, objectSymbol, fileId);
+                objectId = await _objectRepository.InsertOrUpdateAsync(objectModel);
+                state.DeclarationObjectIds[declarationKey] = objectId;
+            }
 
-            CollectObjectRelationships(objectSymbol, objectKey, state);
+            // Type-level relationships are recorded once, against the first declaration's row.
+            if (state.ObjectIds.TryAdd(objectKey, objectId))
+                CollectObjectRelationships(objectSymbol, objectKey, state);
 
             foreach (var memberDeclaration in GetMemberDeclarations(objectDeclaration))
             foreach (var pendingMember in CreateMembers(memberDeclaration, semanticModel, objectId, origin))
@@ -343,7 +351,10 @@ public class AnalyzeProjectService : IAnalyzeProjectService
             testMetadataSource: string.Empty,
             testMetadataConfidence: null,
             testMetadataPromptVersion: string.Empty,
-            signature: symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            // Member identity key. FullyQualifiedFormat omits parameters, so same-name overloads
+            // shared one key and overwrote each other's row; the documentation id names the
+            // parameter types (and ref/out), so each overload keeps its own row.
+            signature: GetSymbolKey(symbol),
             originKind: origin.Kind,
             originAttemptId: origin.AttemptId);
     }
@@ -763,6 +774,12 @@ public class AnalyzeProjectService : IAnalyzeProjectService
         }
 
         public Dictionary<string, int> ObjectIds { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Object row per (file, type) declaration. Equals <see cref="ObjectIds"/> except for
+        /// partial types, which have one row per file that declares part of them.
+        /// </summary>
+        public Dictionary<string, int> DeclarationObjectIds { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Shared across all project analyses in a solution run. Populated as members are

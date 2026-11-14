@@ -24,12 +24,15 @@ configure_git_workspace() {
 # Scaffolding written into the workspace by TestMap (.testmap) and by the agent CLIs
 # themselves. None of it is an edit to the project under test, so it must not reach
 # patch.diff or changed-files.txt: without this an attempt that did no work still reports a
-# multi-kilobyte patch. Kept in sync with ExcludedRootDirectories in
-# TestMap/Services/AgentTools/AgentToolChangedPathFilter.cs.
+# multi-kilobyte patch. Kept in sync with ExcludedRootDirectories and ExcludedRootPrefixes in
+# TestMap/Services/AgentTools/AgentToolChangedPathFilter.cs. A plain (non-glob) pathspec `*`
+# also matches `/`, so '.aider.*' covers aider's root-level .aider.chat.history.md,
+# .aider.input.history and .aider.tags.cache.v4/ files.
 SCAFFOLDING_PATHSPECS=(
   '.'
   ':(exclude).testmap'
   ':(exclude).aider'
+  ':(exclude).aider.*'
   ':(exclude).claude'
   ':(exclude).codex'
   ':(exclude).copilot'

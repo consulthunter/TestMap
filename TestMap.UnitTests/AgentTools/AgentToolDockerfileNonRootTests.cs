@@ -63,9 +63,11 @@ public sealed class AgentToolDockerfileNonRootTests
             .Select(x => x.Groups["root"].Value)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        Assert.Equal(
-            AgentToolChangedPathFilter.ExcludedRoots.ToHashSet(StringComparer.OrdinalIgnoreCase),
-            pathspecRoots);
+        var expected = AgentToolChangedPathFilter.ExcludedRoots
+            .Concat(AgentToolChangedPathFilter.ExcludedRootPrefixes.Select(prefix => prefix + "*"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(expected, pathspecRoots);
     }
 
     /// <summary>

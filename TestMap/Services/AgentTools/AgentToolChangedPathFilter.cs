@@ -15,11 +15,22 @@ public static class AgentToolChangedPathFilter
         ".swe-agent"
     };
 
+    // Agent CLIs that write scaffolding as root-level siblings rather than inside one directory.
+    // aider writes .aider.chat.history.md, .aider.input.history and .aider.tags.cache.v4/, so an
+    // attempt that edited nothing still reported changed files and was validated.
+    private static readonly string[] ExcludedRootPrefixList = [".aider."];
+
     /// <summary>
     /// Root directories excluded from an attempt's changed files. The container-side runner
     /// library keeps the same list as git pathspecs so patch.diff and changed-files.txt agree.
     /// </summary>
     public static IReadOnlyCollection<string> ExcludedRoots => ExcludedRootDirectories;
+
+    /// <summary>
+    /// Root-level name prefixes excluded from an attempt's changed files (the runner library
+    /// spells each as a <c>prefix*</c> pathspec).
+    /// </summary>
+    public static IReadOnlyCollection<string> ExcludedRootPrefixes => ExcludedRootPrefixList;
 
     public static IReadOnlyList<string> Filter(IEnumerable<string> paths)
     {
@@ -40,7 +51,8 @@ public static class AgentToolChangedPathFilter
 
         var firstSeparator = normalized.IndexOf('/');
         var root = firstSeparator >= 0 ? normalized[..firstSeparator] : normalized;
-        return ExcludedRootDirectories.Contains(root);
+        return ExcludedRootDirectories.Contains(root) ||
+               ExcludedRootPrefixList.Any(prefix => root.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
     public static int CountIncludedDeletedFiles(string gitStatus)
